@@ -1,0 +1,72 @@
+# Apply all Codex Desktop patches to an extracted app directory.
+#
+# Usage:
+#   .\apply-all-patches.ps1 -AppDir 'C:\path\to\extracted\rebuild'
+#   .\apply-all-patches.ps1 -AppDir '...\CodexRebuildTest' -Limit 1000 -SkipFuse
+#
+# Expects the AppDir to contain:
+#   <AppDir>\Codex.exe
+#   <AppDir>\resources\app.asar
+#
+# Order matters: A (limit-bump) must run before C v2 (auto-paginate) because
+# C v2 expects A's `limit:1000*pageCount` pattern. D is independent.
+# B (Electron fuse flip) is needed on builds that bake
+# `EnableEmbeddedAsarIntegrityValidation=ENABLE` into the Codex.exe — both the
+# official Microsoft Store build and the Haleclipse rebuild do. Without B the
+# app refuses to start after asar mutation.
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$AppDir,
+
+    [int]$Limit = 1000,
+
+    [switch]$SkipFuse,
+
+    [switch]$SkipA,
+    [switch]$SkipC,
+    [switch]$SkipD
+)
+
+$ErrorActionPreference = 'Stop'
+
+$AppDir = (Resolve-Path -LiteralPath $AppDir).Path
+$asar = Join-Path $AppDir 'resources\app.asar'
+$exe  = Join-Path $AppDir 'Codex.exe'
+
+if (-not (Test-Path -LiteralPath $asar)) { throw "Missing asar: $asar" }
+if (-not (Test-Path -LiteralPath $exe))  { throw "Missing Codex.exe: $exe" }
+
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$patchesDir = Join-Path $scriptDir 'patches'
+
+function Run-Patch($pyName, $argList, $label) {
+    $py = Join-Path $patchesDir $pyName
+    if (-not (Test-Path -LiteralPath $py)) { throw "Missing patcher: $py" }
+    Write-Host ""
+    Write-Host "==> $label ($pyName)" -ForegroundColor Cyan
+    & python $py @argList
+    if ($LASTEXITCODE -ne 0) { throw "$label FAILED (exit $LASTEXITCODE)" }
+}
+
+if (-not $SkipA) {
+    Run-Patch 'patch_codex_asar_recent_window.py' @('--app-dir', $AppDir, '--limit', "$Limit") 'Patch A — limit bump 50 -> 1000'
+}
+
+if (-not $SkipFuse) {
+    Run-Patch 'patch_codex_electron_fuse.py' @('--exe', $exe) 'Patch B — Electron asar-integrity fuse flip'
+}
+
+if (-not $SkipC) {
+    Run-Patch 'patch_codex_asar_autopaginate_v2.py' @('--app-dir', $AppDir) 'Patch C v2 — guarded auto-paginate (sidebar > 100 threads)'
+}
+
+if (-not $SkipD) {
+    Run-Patch 'patch_codex_asar_reconnect_clear.py' @('--app-dir', $AppDir) 'Patch D — clear renderer cache on reconnect'
+}
+
+Write-Host ""
+Write-Host "All requested patches applied." -ForegroundColor Green
+Write-Host "Asar: $asar"
+Write-Host "Exe : $exe"
