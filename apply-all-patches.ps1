@@ -59,7 +59,7 @@ if (-not $SkipFuse) {
 }
 
 if (-not $SkipC) {
-    Run-Patch 'patch_codex_asar_autopaginate_v2.py' @('--app-dir', $AppDir) 'Patch C v2 — guarded auto-paginate (sidebar > 100 threads)'
+    Run-Patch 'patch_codex_asar_autopaginate_v3.py' @('--app-dir', $AppDir) 'Patch C v3 — always-paginate (sidebar > 100 threads, no v2 guard)'
 }
 
 if (-not $SkipD) {
