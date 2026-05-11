@@ -107,44 +107,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
-          python - "$appDir" <<'PY'
-          import sys, struct, json
-          from pathlib import Path
-          app_dir = Path(sys.argv[1])
-          asar = app_dir / 'resources' / 'app.asar'
-          with asar.open('rb') as f:
-              prefix = f.read(16)
-              _, header_size, _, json_size = struct.unpack('<IIII', prefix)
-              raw = f.read(json_size)
-          payload_start = 8 + header_size
-          h = json.loads(raw.decode('utf-8'))
-          def walk(n, p=()):
-              for k, v in n.get('files', {}).items():
-                  cp = p + (k,)
-                  if 'files' in v: yield from walk(v, cp)
-                  else: yield '/'.join(cp), v
-          for path, meta in walk(h):
-              if 'app-server-manager-signals' in path and path.endswith('.js'):
-                  with asar.open('rb') as f:
-                      f.seek(payload_start + int(meta['offset']))
-                      txt = f.read(int(meta['size'])).decode('utf-8', 'replace')
-                  checks = {
-                      'Patch A (limit:1000)': 'limit:1000' in txt,
-                      'Patch A residual limit:50 (should be 0)': txt.count('limit:50'),
-                      'Patch C v2 guard': 'if(!this.fetchedRecentConversations)' in txt,
-                      'Patch C cap=2000': '__cap=2000' in txt,
-                      'Patch D __pdIds': '__pdIds' in txt,
-                      'Patch D patch_d_cleared': 'patch_d_cleared' in txt,
-                  }
-                  for k, v in checks.items():
-                      print(f'  {k}: {v}')
-                      if k == 'Patch A residual limit:50 (should be 0)':
-                          if v != 0: raise SystemExit(f'Unexpected residual limit:50 count: {v}')
-                      elif not v:
-                          raise SystemExit(f'Missing marker: {k}')
-                  break
-          print('All patch markers verified.')
-          PY
+          python patches/verify_markers.py "$appDir"
 
       - name: Repackage zip
         if: steps.ours.outputs.skip == 'false'
