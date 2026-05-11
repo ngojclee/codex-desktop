@@ -63,8 +63,8 @@ def main():
     checks = (
         ("Patch A — `limit:1000` present", lambda: "limit:1000" in txt, True),
         ("Patch A — residual `limit:50` count == 0", lambda: txt.count("limit:50") == 0, True),
-        ("Patch C v2 — guard `if(!this.fetchedRecentConversations)`", lambda: "if(!this.fetchedRecentConversations)" in txt, True),
-        ("Patch C — `__cap=2000` marker", lambda: "__cap=2000" in txt, True),
+        ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in txt, True),
+        ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in txt, True),
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in txt, True),
         ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in txt, True),
     )
