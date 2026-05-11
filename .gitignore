@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Build / extract artifacts (CI uses these dirs locally, never commit)
+build/
+artifacts/
+dist/
+*.zip
+*.asar
+*.asar.bak*
+*.asar.tmp
+
+# Codex Desktop binary itself — we never check in the app
+Codex.exe
+codex.exe
+*.dll
+*.pak
+*.dat
+*.bin
+LICENSES.chromium.html
+locales/
+resources/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local agent / tooling state
+.omc/
+.omx/
+.aider*
