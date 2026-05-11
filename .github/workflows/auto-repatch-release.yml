@@ -121,6 +121,18 @@ jobs:
           Write-Host ("Packed: $out  ({0:N0} MB)" -f $sz)
           "asset=$out" >> $env:GITHUB_OUTPUT
 
+      - name: Delete existing release if force-rebuild
+        if: steps.ours.outputs.skip == 'false' && inputs.force == true
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.ours.outputs.tag }}'
+          Write-Host "Force rebuild — deleting existing release $tag (if any) so we can recreate."
+          gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag 2>&1 | Out-Host
+          # release delete returns non-zero if it didn't exist — ignore.
+          $global:LASTEXITCODE = 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create release in this repo
         if: steps.ours.outputs.skip == 'false'
         shell: pwsh
