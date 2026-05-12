@@ -34,7 +34,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$patchedRoot = Join-Path $env:LOCALAPPDATA 'OpenAI\CodexDesktopPatched'
+$patchedRoot = Join-Path $env:LOCALAPPDATA 'CodexFromGithub'
 
 # Find sidecar candidates: lowercase `codex` or `codex-command-runner` whose
 # Path is under the patched copy. Exclude PID matches that are actually the
@@ -49,7 +49,7 @@ $candidates = Get-Process -ErrorAction SilentlyContinue codex,'codex-command-run
 
 if (-not $candidates) {
     Write-Host "No patched sidecar (codex.exe / codex-command-runner.exe) running."
-    Write-Host "(Looking under: $patchedRoot\*\app\resources\)"
+    Write-Host "(Looking under: $patchedRoot\resources\)"
     Write-Host "Is Codex Patched open?"
     exit 1
 }
