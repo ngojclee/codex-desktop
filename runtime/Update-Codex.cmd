@@ -12,6 +12,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Move CMD's CWD out of CodexFromGithub before launching PS — otherwise
+REM CMD's CWD holds a handle on the install dir and Rename-Item fails.
+cd /d "%TEMP%"
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TEMPSCRIPT%"
 set RC=%ERRORLEVEL%
 

@@ -16,6 +16,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# IMPORTANT: this script will rename the install dir. PowerShell holds a
+# handle on its current working directory; if CWD is anywhere under the
+# install dir (which it will be when launched via the shortcut), the rename
+# fails. Move CWD out to %TEMP% before touching anything else.
+Set-Location -LiteralPath $env:TEMP
+
 function Log($m) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" }
 
 # Resolve current installed version from tools/.version-tag if present
