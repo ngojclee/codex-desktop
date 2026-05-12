@@ -38,3 +38,7 @@ desktop.ini
 .omc/
 .omx/
 .aider*
+
+# Per-feature scratch space (extracted asar chunks, schema dumps, POC scripts).
+# Never committed — see CLAUDE.md "Temp scripts go in temp_scripts/ folder".
+temp_scripts/

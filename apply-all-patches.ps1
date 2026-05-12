@@ -26,7 +26,8 @@ param(
 
     [switch]$SkipA,
     [switch]$SkipC,
-    [switch]$SkipD
+    [switch]$SkipD,
+    [switch]$SkipG
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,6 +65,10 @@ if (-not $SkipC) {
 
 if (-not $SkipD) {
     Run-Patch 'patch_codex_asar_reconnect_clear.py' @('--app-dir', $AppDir) 'Patch D — clear renderer cache on reconnect'
+}
+
+if (-not $SkipG) {
+    Run-Patch 'patch_codex_asar_ws_socks_bypass.py' @('--app-dir', $AppDir) 'Patch G — WS transport SOCKS5 proxy bypass (enables shared-sidecar)'
 }
 
 Write-Host ""

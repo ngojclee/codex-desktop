@@ -109,6 +109,18 @@ jobs:
           $appDir = (Resolve-Path build).Path
           python patches/verify_markers.py "$appDir"
 
+      - name: Bundle runtime/ into build/tools/
+        if: steps.ours.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          # Copy runtime/ scripts into the install's tools/ folder so fresh
+          # installs (and Update-Codex.ps1) get Launch-Codex.{ps1,cmd,vbs},
+          # Update-Codex.{ps1,cmd}, refresh helpers, watchdog, etc.
+          $tools = 'build/tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          Copy-Item -Recurse -Force runtime/* $tools
+          Get-ChildItem $tools | Format-Table -AutoSize
+
       - name: Repackage zip
         if: steps.ours.outputs.skip == 'false'
         id: pack
@@ -146,15 +158,23 @@ jobs:
           ## Patches applied
           - **Patch A** — bump `listRecentThreads` renderer `limit:50` to `limit:1000`
           - **Patch B** — flip Electron fuse `EnableEmbeddedAsarIntegrityValidation` so the modified asar is accepted
-          - **Patch C v2** — guarded auto-paginate `refetchThreadList` to load up to 2000 threads on first load, then behave like the 1-page original
+          - **Patch C v3** — always-paginate `refetchThreadList` to load up to 2000 threads on every refresh (no v2 guard)
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
+          - **Patch G** — bypass hardcoded SOCKS5 proxy in WS transport so a local sidecar can be shared between Desktop and CLI for real-time UI updates
 
           ## Install
           1. Download `$asset`
-          2. Extract to a folder of your choice (e.g. `%LOCALAPPDATA%\CodexDesktopPatched\`)
-          3. Run `Codex.exe`
+          2. Extract to `%LOCALAPPDATA%\CodexFromGithub\`
+          3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop)
+             — the launcher starts a shared app-server sidecar, sets
+             `CODEX_APP_SERVER_WS_URL`, runs Codex.exe, then cleans up.
 
-          See [HANDOFF.md](https://github.com/ngojclee/codex-desktop/blob/main/docs/HANDOFF.md) and [README.md](https://github.com/ngojclee/codex-desktop/blob/main/README.md) for runtime workflow (soft-refresh, auto-refresh watchdog).
+          ## Shared sidecar usage
+          CLI can join the same sidecar with `codex resume <id> --remote ws://127.0.0.1:<PORT>`
+          (port logged in `~/.codex/desktop-shared-app-server.json`). Dispatches
+          show up in Desktop UI in real time.
+
+          See [HANDOFF.md](https://github.com/ngojclee/codex-desktop/blob/main/docs/HANDOFF.md) and [README.md](https://github.com/ngojclee/codex-desktop/blob/main/README.md) for runtime workflow.
           "@
           gh release create $tag $asset `
             --repo $env:GITHUB_REPOSITORY `
