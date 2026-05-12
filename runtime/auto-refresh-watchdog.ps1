@@ -36,7 +36,7 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$patchedRoot = Join-Path $env:LOCALAPPDATA 'OpenAI\CodexDesktopPatched'
+$patchedRoot = Join-Path $env:LOCALAPPDATA 'CodexFromGithub'
 $logFile = Join-Path $patchedRoot 'logs\auto-refresh-watchdog.log'
 New-Item -ItemType Directory -Force -Path (Split-Path $logFile) | Out-Null
 
