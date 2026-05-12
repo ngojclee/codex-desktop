@@ -5,7 +5,8 @@ A patched build of OpenAI Codex Desktop that fixes:
 1. **Recent-conversation visibility cap** — sidebar shows up to ~2000 threads instead of the default 50.
 2. **Stuck thread updates after cross-session CLI dispatch** — UI keeps streaming when one Codex Desktop session delegates to another via `codex exec --resume <id>`.
 3. **Stale renderer cache on sidecar restart** — the soft-refresh workflow (kill sidecar, Electron auto-respawns) actually refreshes UI content.
-4. **External CLI invisibility** *(workaround, not a true patch)* — a watchdog daemon periodically restarts the sidecar when JSONL writes from `codex resume -all` or similar terminal commands are detected.
+4. **External CLI invisibility** *(workaround)* — a watchdog daemon periodically restarts the sidecar when JSONL writes from external `codex resume` are detected.
+5. **Shared-sidecar realtime UI** *(new)* — Desktop and CLI clients share one app-server sidecar over `ws://127.0.0.1:<PORT>`. Any dispatch from CLI (via the bundled `codex-exec-remote.ps1`) streams into Desktop's UI in real time (spinner + token-by-token) — no more polling or sidecar restarts needed for the common Planner → Worker flow.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -15,19 +16,32 @@ The patches are **derived patches** applied on top of upstream binary releases:
 ## Install (end users)
 
 1. Go to the [Releases page](https://github.com/ngojclee/codex-desktop/releases) and download the latest `CodexDesktop-Patched-win-x64-*.zip`.
-2. Extract to a folder of your choice (e.g. `%LOCALAPPDATA%\CodexDesktopPatched\` or `D:\Apps\CodexPatched\`).
-3. Double-click `Codex.exe` to launch.
-4. (Optional) Copy scripts from `runtime/` next to `Codex.exe` for soft-refresh and watchdog workflow — see [HANDOFF.md](docs/HANDOFF.md).
+2. Extract to `%LOCALAPPDATA%\CodexFromGithub\` (the launcher scripts assume this path; you can install elsewhere but you will have to edit them).
+3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop). The launcher:
+   - Picks a free port in `24567..24600`
+   - Starts a shared `codex.exe app-server --listen ws://127.0.0.1:<PORT>` in the background
+   - Sets `CODEX_APP_SERVER_WS_URL` and launches `Codex.exe`
+   - Cleans up the sidecar when the last `Codex.exe` process exits
+   - Writes live state to `~/.codex/desktop-shared-app-server.json`
+4. From any terminal, the bundled wrapper dispatches into the same sidecar so Desktop sees real-time updates:
+   ```powershell
+   & "$env:LOCALAPPDATA\CodexFromGithub\tools\codex-exec-remote.ps1" `
+       -ThreadId <UUID> -Prompt "<text>"
+   ```
+   Replaces `codex exec resume <id> "<text>"` for the Planner → Worker pattern when you want Desktop UI to show progress live.
+
+The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`.
 
 ## Architecture
 
 ```
 This repo (scripts only — no binaries)
 ├── patches/                 Python patchers, idempotent, pattern-based
-│   ├── patch_codex_asar_recent_window.py    Patch A — limit:50 -> limit:1000
-│   ├── patch_codex_electron_fuse.py         Patch B — disable asar integrity validation
-│   ├── patch_codex_asar_autopaginate_v2.py  Patch C v2 — guarded auto-paginate to 2000
-│   └── patch_codex_asar_reconnect_clear.py  Patch D — clear conversations Map on reconnect
+│   ├── patch_codex_asar_recent_window.py     Patch A — limit:50 -> limit:1000
+│   ├── patch_codex_electron_fuse.py          Patch B — disable asar integrity validation
+│   ├── patch_codex_asar_autopaginate_v3.py   Patch C v3 — always-paginate to 2000
+│   ├── patch_codex_asar_reconnect_clear.py   Patch D — clear conversations Map on reconnect
+│   └── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
 ├── apply-all-patches.ps1    Orchestrator — runs all 4 patchers on a given app dir
@@ -64,21 +78,28 @@ Renderer calls `listRecentThreads({limit:50})`. Patcher bumps the literal `50` t
 
 `Codex.exe` is built with the Electron fuse `EnableEmbeddedAsarIntegrityValidation` enabled (true for both Microsoft Store and Haleclipse rebuild). Without flipping it, any modification to `app.asar` causes the app to refuse to launch. Patcher locates fuse byte index 4 in the executable and flips it to `REMOVED`.
 
-### Patch C v2 — Guarded auto-paginate
+### Patch C v3 — Always-paginate
 
-Rewrites `refetchThreadList` to loop `listRecentThreads({limit:100, cursor})` until `nextCursor` is exhausted or 2000 threads are loaded. Guarded by `this.fetchedRecentConversations` so the loop only runs on the **first** invocation per session — subsequent refetches behave like the 1-page original. This prevents a regression where the unconditional loop overwrote per-thread state during cross-session dispatch.
+Rewrites `refetchThreadList` to loop `listRecentThreads({limit:100, cursor})` until `nextCursor` is exhausted or 2000 threads are loaded. Unlike v2 there is no `fetchedRecentConversations` guard — every refetch re-paginates. v2's guard caused the sidebar to shrink to a single page whenever an external `codex resume -all` triggered a refresh because the renderer kept the partial result. v3 trades the tiny extra cost of pagination for a stable sidebar.
 
 ### Patch D — Clear conversations Map on reconnect
 
 When the renderer's `markAllConversationsNeedResumeAfterReconnect` runs (called when the sidecar reconnects), the existing logic only flipped a `resumeState` flag — the cached `conversations` Map was preserved with stale data. Patcher injects a clear: for every cached id, call `applyConversationState(id, null)`, and reset `fetchedRecentConversations=false`. Combined with the soft-refresh workflow (kill sidecar → Electron respawns → renderer reconnects → Patch D fires → UI re-fetches), the stuck thread gets a fresh snapshot from disk.
 
+### Patch G — Bypass hardcoded SOCKS5 in WS transport
+
+The WS app-server transport class hardcodes `agent: new SocksProxyAgent(\`socks5h://127.0.0.1:1080\`)` for every WebSocket connection. When `CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:<PORT>` points Desktop at a local sidecar, the connection dials through a SOCKS proxy that doesn't exist and fails — and the renderer maps that failure to a login UI, which is misleading because the user is on apikey/cliproxy mode and the loopback `--ws-auth` is not even required. Patcher removes the `agent` option from the WS constructor (`th()` returns `{}` anyway, so no further tweak is needed) and the loopback connection succeeds. This unlocks the shared-sidecar pattern: Desktop and the bundled `codex-exec-remote.ps1` both attach to the same `app-server`, the sidecar broadcasts `item/agentMessage/delta` and `turn/completed` to every subscribed client, and any CLI dispatch shows up in Desktop's UI in real time.
+
 ## Runtime workflow
 
-See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the full daily-use guide, including:
+The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- The soft-refresh script `refresh-codex-app-server.ps1` and its `Refresh-Codex.cmd` wrapper
-- The auto-refresh watchdog daemon `auto-refresh-watchdog.ps1` (for `codex resume -all` workflows)
-- One-click launcher `Launch-Codex-All.cmd` that starts the watchdog hidden then launches the app
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI.
+- **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`).
+- **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
+
+State file: `~/.codex/desktop-shared-app-server.json` holds the live `ws_url`, `port`, `sidecar_pid`, and `log` path while Codex is running.
 
 ## Credits & License
 
