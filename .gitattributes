@@ -1,0 +1,26 @@
+# Windows batch files MUST be CRLF — LF-only causes CMD to misparse REM lines
+# and similar (we hit this when distributing Update-Codex.cmd via the release
+# pipeline; the launcher errored with "'M' is not recognized" until CRLF was
+# forced).
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# PowerShell can handle both but CRLF matches the platform.
+*.ps1 text eol=crlf
+
+# YAML for GitHub Actions: LF preferred (some renderers complain about CRLF).
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Python: LF (PEP 8 / cross-platform).
+*.py text eol=lf
+
+# Markdown / text: leave to user — both work.
+*.md text
+*.txt text
+
+# Treat binaries explicitly.
+*.zip binary
+*.exe binary
+*.dll binary
+*.asar binary
