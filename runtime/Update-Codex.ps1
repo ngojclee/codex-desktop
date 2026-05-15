@@ -24,6 +24,25 @@ Set-Location -LiteralPath $env:TEMP
 
 function Log($m) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" }
 
+function Update-CodexShortcut {
+    param([string]$InstallDir)
+
+    $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'
+    if (-not (Test-Path -LiteralPath $launcher)) { return }
+
+    $shortcutPath = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex.lnk'
+    $shortcutDir = Split-Path -Parent $shortcutPath
+    New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
+
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $launcher
+    $shortcut.Arguments = ''
+    $shortcut.WorkingDirectory = Split-Path -Parent $launcher
+    $shortcut.IconLocation = (Join-Path $InstallDir 'Codex.exe') + ',0'
+    $shortcut.Save()
+}
+
 # Resolve current installed version from tools/.version-tag if present
 $versionFile = Join-Path $InstallDir 'tools\.version-tag'
 $currentTag = if (Test-Path -LiteralPath $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { '(unknown)' }
@@ -107,10 +126,16 @@ try {
 
     Log "Update complete: $currentTag -> $($latest.tag)"
 
+    Update-CodexShortcut -InstallDir $InstallDir
+
     if (-not $NoLaunch) {
+        $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'
         $exe = Join-Path $InstallDir 'Codex.exe'
-        if (Test-Path -LiteralPath $exe) {
-            Log "Launching Codex.exe..."
+        if (Test-Path -LiteralPath $launcher) {
+            Log "Launching Codex via shared-sidecar launcher..."
+            Start-Process -FilePath $launcher
+        } elseif (Test-Path -LiteralPath $exe) {
+            Log "WARN: shared-sidecar launcher missing; launching Codex.exe directly"
             Start-Process -FilePath $exe
         } else {
             Log "WARN: Codex.exe missing at $exe after update"
