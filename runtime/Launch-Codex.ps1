@@ -11,9 +11,10 @@
 #   4. Launch Codex.exe and wait until ALL Codex.exe processes exit.
 #   5. Kill the sidecar and clear the state file.
 #
-# If Codex Desktop is already running (any Codex.exe process), this script
-# defers to Electron's single-instance handling and just brings the existing
-# window forward — without starting a second sidecar.
+# If Codex Desktop is already running on the shared WS sidecar, this script
+# defers to Electron's single-instance handling and brings the window forward.
+# If Desktop is running on its private stdio sidecar, the launcher restarts the
+# install so CODEX_APP_SERVER_WS_URL is present before Electron boots.
 #
 # Run via Launch-Codex.cmd (hidden console + execution policy bypass) or
 # directly: `powershell -ExecutionPolicy Bypass -File Launch-Codex.ps1`.
@@ -53,12 +54,60 @@ function Get-DesktopProcessCount {
     @(Get-Process -Name 'Codex' -EA SilentlyContinue | Where-Object { $_.Path -eq $DesktopExe }).Count
 }
 
-# Honor an existing live Desktop instance — Electron single-instance lock will
-# bring it forward when we Start-Process again.
+function Get-InstallProcesses {
+    @(Get-CimInstance Win32_Process | Where-Object {
+        $_.ExecutablePath -and
+        $_.ExecutablePath.StartsWith($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)
+    })
+}
+
+function Get-InstallSidecars {
+    @(Get-InstallProcesses | Where-Object {
+        $_.Name -ieq 'codex.exe' -and $_.CommandLine -match '\bapp-server\b'
+    })
+}
+
+function Test-HealthyStateFile {
+    if (-not (Test-Path -LiteralPath $StateFile)) { return $false }
+    try {
+        $state = Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json
+        if (-not $state.port) { return $false }
+        $r = Invoke-WebRequest "http://127.0.0.1:$($state.port)/healthz" -UseBasicParsing -TimeoutSec 2
+        return $r.StatusCode -eq 200
+    } catch {
+        return $false
+    }
+}
+
+function Stop-InstallProcesses {
+    $procs = Get-InstallProcesses
+    foreach ($p in $procs) {
+        try { Stop-Process -Id $p.ProcessId -Force -EA Stop } catch {}
+    }
+
+    $deadline = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $deadline) {
+        if ((Get-InstallProcesses).Count -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    }
+}
+
+# Honor an existing live Desktop instance only when it is already on the shared
+# sidecar. If Desktop was opened directly, it will have spawned a private stdio
+# app-server and must be restarted with CODEX_APP_SERVER_WS_URL in its env.
 if ((Get-DesktopProcessCount) -gt 0) {
-    Write-Host "Codex Desktop already running — focusing existing window."
-    Start-Process -FilePath $DesktopExe
-    return
+    $sidecars = Get-InstallSidecars
+    $privateSidecars = @($sidecars | Where-Object { $_.CommandLine -notmatch '--listen\s+ws://127\.0\.0\.1:' })
+    $sharedSidecars = @($sidecars | Where-Object { $_.CommandLine -match '--listen\s+ws://127\.0\.0\.1:' })
+
+    if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile)) {
+        Write-Host "Codex Desktop already running on shared sidecar — focusing existing window."
+        Start-Process -FilePath $DesktopExe
+        return
+    }
+
+    Write-Host "Codex Desktop is running without the shared sidecar — restarting into shared WS mode."
+    Stop-InstallProcesses
 }
 
 # Cleanup any stale state file pointing at a dead sidecar.
@@ -67,6 +116,9 @@ if (Test-Path -LiteralPath $StateFile) {
         $stale = Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json
         if ($stale.sidecar_pid) {
             try { Stop-Process -Id $stale.sidecar_pid -Force -EA Stop } catch {}
+        }
+        if ($stale.host_pid) {
+            try { Stop-Process -Id $stale.host_pid -Force -EA Stop } catch {}
         }
     } catch {}
     Remove-Item -LiteralPath $StateFile -Force -EA SilentlyContinue
