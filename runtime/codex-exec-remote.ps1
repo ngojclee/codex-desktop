@@ -119,6 +119,9 @@ try {
             title   = 'CLI WS wrapper'
             version = '0.1.0'
         }
+        capabilities = [ordered]@{
+            experimentalApi = $true
+        }
     }) $idCounter
     $null = Wait-Response $idCounter
 
