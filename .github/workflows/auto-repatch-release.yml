@@ -32,6 +32,11 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: Determine upstream tag
         id: upstream
         shell: pwsh
@@ -102,6 +107,41 @@ jobs:
           $appDir = (Resolve-Path build).Path
           .\apply-all-patches.ps1 -AppDir $appDir
 
+      - name: Update bundled Codex CLI sidecar
+        if: steps.ours.outputs.skip == 'false'
+        id: sidecar
+        shell: pwsh
+        run: |
+          $appDir = (Resolve-Path build).Path
+          $target = Join-Path $appDir 'resources\codex.exe'
+          if (-not (Test-Path -LiteralPath $target)) { throw "Missing bundled sidecar: $target" }
+
+          $oldVersion = (& $target --version).Trim()
+          Write-Host "Bundled sidecar before update: $oldVersion"
+
+          $npmRoot = 'sidecar-npm'
+          if (Test-Path -LiteralPath $npmRoot) { Remove-Item -Recurse -Force -LiteralPath $npmRoot }
+          New-Item -ItemType Directory -Force -Path $npmRoot | Out-Null
+          npm install --prefix $npmRoot --no-audit --no-fund @openai/codex@latest
+          if ($LASTEXITCODE -ne 0) { throw "npm install @openai/codex@latest failed with exit $LASTEXITCODE" }
+
+          $nodeModules = Join-Path (Resolve-Path $npmRoot).Path 'node_modules'
+          $source = Get-ChildItem -LiteralPath $nodeModules -Recurse -Filter codex.exe -ErrorAction Stop |
+            Where-Object { $_.FullName -like '*\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex\codex.exe' } |
+            Select-Object -First 1
+          if (-not $source) { throw "Could not find @openai/codex win32-x64 codex.exe under $nodeModules" }
+
+          $newVersion = (& $source.FullName --version).Trim()
+          Copy-Item -Force -LiteralPath $source.FullName -Destination $target
+          $verifiedVersion = (& $target --version).Trim()
+          if ($verifiedVersion -ne $newVersion) {
+            throw "Sidecar copy verification failed: copied $newVersion but target reports $verifiedVersion"
+          }
+
+          Write-Host "Bundled sidecar after update: $verifiedVersion"
+          "old_version=$oldVersion" >> $env:GITHUB_OUTPUT
+          "new_version=$verifiedVersion" >> $env:GITHUB_OUTPUT
+
       - name: Verify patch markers
         if: steps.ours.outputs.skip == 'false'
         shell: pwsh
@@ -161,6 +201,9 @@ jobs:
           - **Patch C v3** — always-paginate `refetchThreadList` to load up to 2000 threads on every refresh (no v2 guard)
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
           - **Patch G** — bypass hardcoded SOCKS5 proxy in WS transport so a local sidecar can be shared between Desktop and CLI for real-time UI updates
+
+          ## Bundled Codex CLI sidecar
+          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with latest npm `@openai/codex` win32-x64 binary (`${{ steps.sidecar.outputs.new_version }}`)
 
           ## Install
           1. Download `$asset`
