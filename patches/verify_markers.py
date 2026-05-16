@@ -25,10 +25,12 @@ def _read_asar(app_dir: Path):
         raise SystemExit(f"Missing asar: {asar}")
     with asar.open("rb") as f:
         prefix = f.read(16)
-        _, header_size, _, json_size = struct.unpack("<IIII", prefix)
+        first, header_size, _pickle_payload_size, json_size = struct.unpack("<IIII", prefix)
+        if first != 4 or json_size <= 0:
+            raise SystemExit(f"Unexpected ASAR header prefix: {(first, header_size, _pickle_payload_size, json_size)}")
         raw = f.read(json_size)
+        header = json.loads(raw.decode("utf-8"))
     payload_start = 8 + header_size
-    header = json.loads(raw.decode("utf-8"))
     return asar, payload_start, header
 
 
