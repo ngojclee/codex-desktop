@@ -44,14 +44,25 @@ import sys
 from pathlib import Path
 
 
-UNPATCHED_SEARCH = (
-    "markAllConversationsNeedResumeAfterReconnect(){"
-    "let{previousStreamingCount:e,previousRoleCount:t}=this.streamState.resetAfterReconnect(),n=0;"
-    "for(let[e,t]of this.conversations)"
-    "t.resumeState!==`needs_resume`&&(n+=1,this.updateConversationState(e,e=>{e.resumeState=`needs_resume`}));"
-    "z.info(`websocket_reconnect_marked_threads_needing_resume`,"
-    "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t},sensitive:{}})"
-    "}"
+UNPATCHED_SEARCHES = (
+    (
+        "markAllConversationsNeedResumeAfterReconnect(){"
+        "let{previousStreamingCount:e,previousRoleCount:t}=this.streamState.resetAfterReconnect(),n=0;"
+        "for(let[e,t]of this.conversations)"
+        "t.resumeState!==`needs_resume`&&(n+=1,this.updateConversationState(e,e=>{e.resumeState=`needs_resume`}));"
+        "z.info(`websocket_reconnect_marked_threads_needing_resume`,"
+        "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t},sensitive:{}})"
+        "}"
+    ),
+    (
+        "markAllConversationsNeedResumeAfterReconnect(){"
+        "let{previousStreamingCount:e,previousRoleCount:t}=this.streamState.resetAfterReconnect(),n=0;"
+        "for(let[e,t]of this.conversations)"
+        "t.resumeState!==`needs_resume`&&(n+=1,this.updateConversationState(e,e=>{e.resumeState=`needs_resume`}));"
+        "R.info(`websocket_reconnect_marked_threads_needing_resume`,"
+        "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t},sensitive:{}})"
+        "}"
+    ),
 )
 
 PATCHED_REPLACE = (
@@ -65,7 +76,7 @@ PATCHED_REPLACE = (
     "try{this.recentConversationsLoaded=!1}catch(_){}"
     "try{this.fetchedRecentConversations=!1}catch(_){}"
     # PATCH_D_RECONNECT_CLEAR end
-    "z.info(`websocket_reconnect_marked_threads_needing_resume`,"
+    "__PATCH_D_LOGGER__.info(`websocket_reconnect_marked_threads_needing_resume`,"
     "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t,patch_d_cleared:__pdIds.length},sensitive:{}})"
     "}"
 )
@@ -190,7 +201,15 @@ def apply(app_dir: Path) -> dict:
     if MARKER in original:
         return {"status": "already_patched", "asar": str(asar_path)}
 
-    if UNPATCHED_SEARCH not in original:
+    matched_search = None
+    matched_logger = None
+    for candidate in UNPATCHED_SEARCHES:
+        if candidate in original:
+            matched_search = candidate
+            matched_logger = "R" if "R.info(" in candidate else "z"
+            break
+
+    if matched_search is None:
         # Try to give a useful hint
         sample = ""
         idx = original.find("markAllConversationsNeedResumeAfterReconnect")
@@ -198,7 +217,11 @@ def apply(app_dir: Path) -> dict:
             sample = original[idx:idx+400]
         return {"status": "pattern_not_found", "asar": str(asar_path), "near": sample}
 
-    patched_text = original.replace(UNPATCHED_SEARCH, PATCHED_REPLACE, 1)
+    patched_text = original.replace(
+        matched_search,
+        PATCHED_REPLACE.replace("__PATCH_D_LOGGER__", matched_logger),
+        1,
+    )
     if MARKER not in patched_text:
         return {"status": "error", "reason": "marker missing after replace"}
 
@@ -241,9 +264,15 @@ def main():
     results = []
     for d in targets:
         try:
-            results.append(apply(d))
+            result = apply(d)
+            results.append(result)
+            if result.get("status") not in {"patched", "already_patched"}:
+                print(json.dumps(results, indent=2))
+                raise SystemExit(1)
         except Exception as e:
             results.append({"status": "exception", "app_dir": str(d), "error": str(e)})
+            print(json.dumps(results, indent=2))
+            raise SystemExit(1)
     print(json.dumps(results, indent=2))
 
 
