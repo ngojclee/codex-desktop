@@ -28,6 +28,7 @@ param(
     [switch]$SkipC,
     [switch]$SkipD,
     [switch]$SkipG,
+    [switch]$SkipH,
 
     [string]$UpstreamTag
 )
@@ -80,6 +81,10 @@ if (-not $SkipD -and -not $autoSkipD) {
 
 if (-not $SkipG) {
     Run-Patch 'patch_codex_asar_ws_socks_bypass.py' @('--app-dir', $AppDir) 'Patch G — WS transport SOCKS5 proxy bypass (enables shared-sidecar)'
+}
+
+if (-not $SkipH) {
+    Run-Patch 'patch_codex_asar_directive_windows_path.py' @('--app-dir', $AppDir) 'Patch H — markdown directive Windows path sanitizer'
 }
 
 Write-Host ""
