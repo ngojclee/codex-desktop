@@ -27,7 +27,9 @@ param(
     [switch]$SkipA,
     [switch]$SkipC,
     [switch]$SkipD,
-    [switch]$SkipG
+    [switch]$SkipG,
+
+    [string]$UpstreamTag
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,8 +65,17 @@ if (-not $SkipC) {
     Run-Patch 'patch_codex_asar_autopaginate_v3.py' @('--app-dir', $AppDir) 'Patch C v3 — always-paginate (sidebar > 100 threads, no v2 guard)'
 }
 
-if (-not $SkipD) {
+$autoSkipD = $false
+if ($UpstreamTag -like 'v26.513.*') {
+    $autoSkipD = $true
+    Write-Host "Auto-skip Patch D for upstream $UpstreamTag (known renderer regression on 26.513.x)." -ForegroundColor Yellow
+}
+
+if (-not $SkipD -and -not $autoSkipD) {
     Run-Patch 'patch_codex_asar_reconnect_clear.py' @('--app-dir', $AppDir) 'Patch D — clear renderer cache on reconnect'
+} elseif ($SkipD -or $autoSkipD) {
+    Write-Host ""
+    Write-Host '==> Patch D — skipped' -ForegroundColor Yellow
 }
 
 if (-not $SkipG) {
