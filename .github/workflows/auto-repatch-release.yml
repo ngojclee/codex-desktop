@@ -105,7 +105,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
-          .\apply-all-patches.ps1 -AppDir $appDir
+          .\apply-all-patches.ps1 -AppDir $appDir -UpstreamTag '${{ steps.upstream.outputs.tag }}'
 
       - name: Update bundled Codex CLI sidecar
         if: steps.ours.outputs.skip == 'false'
@@ -147,7 +147,7 @@ jobs:
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
-          python patches/verify_markers.py "$appDir"
+          python patches/verify_markers.py "$appDir" --upstream-tag '${{ steps.upstream.outputs.tag }}'
 
       - name: Bundle runtime/ into build/tools/
         if: steps.ours.outputs.skip == 'false'
@@ -200,6 +200,7 @@ jobs:
           - **Patch B** — flip Electron fuse `EnableEmbeddedAsarIntegrityValidation` so the modified asar is accepted
           - **Patch C v3** — always-paginate `refetchThreadList` to load up to 2000 threads on every refresh (no v2 guard)
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
+            - skipped automatically on upstream `26.513.x` because that lane regressed thread-open hydration in the renderer
           - **Patch G** — bypass hardcoded SOCKS5 proxy in WS transport so a local sidecar can be shared between Desktop and CLI for real-time UI updates
 
           ## Bundled Codex CLI sidecar

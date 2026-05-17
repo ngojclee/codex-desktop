@@ -80,7 +80,7 @@ Then it applies four patches to the copied app only:
   re-fetches from the now-fresh sidecar. Without Patch D, the renderer keeps
   its stale Map across reconnect and `markAllConversationsNeedResume
   AfterReconnect` only flipped a flag — the UI never refreshed without a
-  full app close+reopen.
+  full app close+reopen. On upstream `26.513.x`, this reconnect clear now appears to regress thread-open hydration for some sessions, so the current release lane skips Patch D there until a safer variant is found.
 
 After patching, the script also deletes any older `OpenAI.Codex_*_x64*` sibling
 directories under `CodexDesktopPatched` (each stale Store version leaves ~1.6 GB
@@ -124,10 +124,12 @@ state from disk.
 `<patched-app>\resources\codex.exe`, not `codex-command-runner.exe`.** Older
 docs may name it differently; the refresh script targets either.
 
-**Patch D is required for this to actually refresh the UI.** Without Patch D,
+**Patch D is the original soft-refresh fix for pre-26.513 builds.** Without Patch D,
 the renderer keeps its `conversations` Map across reconnect — even after the
 sidecar restarts with fresh disk state, the UI still shows the stale cached
-data. Patch D clears the Map on reconnect so the renderer re-fetches.
+data. Patch D clears the Map on reconnect so the renderer re-fetches. On
+upstream `26.513.x`, that same clear appears unsafe for some thread-open paths,
+so the current release lane skips D on that upstream version.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\refresh-codex-app-server.ps1
@@ -154,7 +156,7 @@ clicking Refresh constantly.
 `auto-refresh-watchdog.ps1` is a PowerShell daemon that polls every N
 seconds. When it detects a JSONL write newer than the current sidecar's
 start time (i.e. the sidecar's cache is definitely stale), it kills the
-sidecar. Electron's `pu` supervisor auto-respawns it, Patch D clears the
+sidecar. Electron's `pu` supervisor auto-respawns it, and on pre-26.513 lanes Patch D clears the
 renderer cache, and the UI catches up. Throttled with a cooldown so it
 won't kill more often than every 60s by default.
 

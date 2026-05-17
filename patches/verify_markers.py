@@ -13,6 +13,7 @@ no-op'd (e.g. upstream changed minifier output and a pattern no longer
 matches), the verification fails loudly here instead of shipping a broken
 zip.
 """
+import argparse
 import json
 import struct
 import sys
@@ -73,30 +74,44 @@ def find_workspace_bundle(app_dir: Path):
 
 
 def main():
-    if len(sys.argv) < 2:
-        raise SystemExit("Usage: verify_markers.py <APP_DIR>")
-    app_dir = Path(sys.argv[1]).resolve()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('app_dir')
+    parser.add_argument('--upstream-tag', default='')
+    args = parser.parse_args()
+
+    app_dir = Path(args.app_dir).resolve()
+    version_file = app_dir / 'version'
+    app_version = version_file.read_text(encoding='utf-8').strip() if version_file.exists() else ''
+    expect_patch_d = not args.upstream_tag.startswith('v26.513.')
 
     signals_path, signals_txt = find_signals(app_dir)
     workspace_path, workspace_txt = find_workspace_bundle(app_dir)
 
+    print(f"App version   : {app_version or 'unknown'}")
     print(f"Signals chunk : {signals_path}  ({len(signals_txt):,} bytes)")
     print(f"Workspace bundle: {workspace_path}  ({len(workspace_txt):,} bytes)")
+    if args.upstream_tag:
+        print(f"Upstream tag  : {args.upstream_tag}")
+    if not expect_patch_d:
+        print("Patch D expectation: skipped for 26.513.x due to renderer regression mitigation")
 
     checks = (
         ("Patch A — `limit:1000` present", lambda: "limit:1000" in signals_txt, True),
         ("Patch A — residual `limit:50` count == 0", lambda: signals_txt.count("limit:50") == 0, True),
         ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in signals_txt, True),
         ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_txt, True),
-        ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, True),
-        ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in signals_txt, True),
+        ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
+        ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in signals_txt, expect_patch_d),
         ("Patch G — SOCKS5 hardcode `socks5h://127.0.0.1:1080` ABSENT", lambda: "socks5h://127.0.0.1:1080" not in workspace_txt, True),
     )
 
     failed = []
     for label, check_fn, must_pass in checks:
         ok = bool(check_fn())
-        status = "OK" if ok else "FAIL"
+        if must_pass:
+            status = "OK" if ok else "FAIL"
+        else:
+            status = "OK" if ok else "SKIP"
         print(f"  [{status}] {label}")
         if must_pass and not ok:
             failed.append(label)
