@@ -72,6 +72,15 @@ def find_workspace_bundle(app_dir: Path):
             return path, _extract(asar, payload_start, meta)
     raise SystemExit("Could not find workspace-root-drop-handler-*.js in app.asar")
 
+def find_patch_h_bundle(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    for path, meta in _walk(header):
+        if path.startswith("webview/assets/") and path.endswith(".js"):
+            text = _extract(asar, payload_start, meta)
+            if "__PATCH_H_DIRECTIVE_WINDOWS_PATH__" in text:
+                return path, text
+    raise SystemExit("Could not find Patch H marker in webview assets")
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -86,10 +95,12 @@ def main():
 
     signals_path, signals_txt = find_signals(app_dir)
     workspace_path, workspace_txt = find_workspace_bundle(app_dir)
+    patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
     print(f"Signals chunk : {signals_path}  ({len(signals_txt):,} bytes)")
     print(f"Workspace bundle: {workspace_path}  ({len(workspace_txt):,} bytes)")
+    print(f"Patch H bundle: {patch_h_path}  ({len(patch_h_txt):,} bytes)")
     if args.upstream_tag:
         print(f"Upstream tag  : {args.upstream_tag}")
     if not expect_patch_d:
@@ -103,6 +114,7 @@ def main():
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
         ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in signals_txt, expect_patch_d),
         ("Patch G — SOCKS5 hardcode `socks5h://127.0.0.1:1080` ABSENT", lambda: "socks5h://127.0.0.1:1080" not in workspace_txt, True),
+        ("Patch H — directive Windows path sanitizer marker", lambda: "__PATCH_H_DIRECTIVE_WINDOWS_PATH__" in patch_h_txt, True),
     )
 
     failed = []
