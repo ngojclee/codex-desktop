@@ -202,6 +202,7 @@ jobs:
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
             - skipped automatically on upstream `26.513.x` because that lane regressed thread-open hydration in the renderer
           - **Patch G** — bypass hardcoded SOCKS5 proxy in WS transport so a local sidecar can be shared between Desktop and CLI for real-time UI updates
+          - **Patch H** — sanitize Windows backslashes in app directive lines before markdown directive parsing so one malformed directive cannot crash thread rendering
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with latest npm `@openai/codex` win32-x64 binary (`${{ steps.sidecar.outputs.new_version }}`)
