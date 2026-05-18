@@ -7,6 +7,12 @@
 # UI shows the dispatch in real time (spinner + token streaming on the target
 # thread).
 #
+# Prefer this wrapper over Codex's internal `functions.send_input` for
+# cross-session dispatch. Some Codex surfaces have been observed serializing
+# `message` together with an empty `items: []`, which the backend rejects with
+# "Provide either message or items, but not both". This wrapper bypasses that
+# surface-specific adapter path and talks directly to the shared sidecar.
+#
 # Reads the live sidecar URL from `~/.codex/desktop-shared-app-server.json`
 # (written by `Launch-Codex.ps1`).
 #

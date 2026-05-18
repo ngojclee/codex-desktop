@@ -6,7 +6,8 @@ A patched build of OpenAI Codex Desktop that fixes:
 2. **Stuck thread updates after cross-session CLI dispatch** — UI keeps streaming when one Codex Desktop session delegates to another via `codex exec --resume <id>`.
 3. **Stale renderer cache on sidecar restart** — the soft-refresh workflow (kill sidecar, Electron auto-respawns) actually refreshes UI content.
 4. **External CLI invisibility** *(workaround)* — a watchdog daemon periodically restarts the sidecar when JSONL writes from external `codex resume` are detected.
-5. **Shared-sidecar realtime UI** *(new)* — Desktop and CLI clients share one app-server sidecar over `ws://127.0.0.1:<PORT>`. Any dispatch from CLI (via the bundled `codex-exec-remote.ps1`) streams into Desktop's UI in real time (spinner + token-by-token) — no more polling or sidecar restarts needed for the common Planner → Worker flow.
+5. **Shared-sidecar realtime UI** *(new)* — Desktop and CLI clients share one app-server sidecar over `ws://127.0.0.1:<PORT>`. Any dispatch from CLI (via the bundled `codex-exec-remote.ps1`) streams into Desktop's UI in real time (spinner + token-by-token) — no more polling or sidecar restarts needed for the common Planner -> Worker flow.
+6. **Renderer directive crash guard** — Windows paths inside app directives are normalized before markdown directive parsing so a single persisted directive cannot crash the whole thread view.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -28,7 +29,9 @@ The patches are **derived patches** applied on top of upstream binary releases:
    & "$env:LOCALAPPDATA\CodexFromGithub\tools\codex-exec-remote.ps1" `
        -ThreadId <UUID> -Prompt "<text>"
    ```
-   Replaces `codex exec resume <id> "<text>"` for the Planner → Worker pattern when you want Desktop UI to show progress live.
+   Replaces `codex exec resume <id> "<text>"` for the Planner -> Worker pattern when you want Desktop UI to show progress live.
+
+Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
 The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`.
 
@@ -41,7 +44,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_electron_fuse.py          Patch B — disable asar integrity validation
 │   ├── patch_codex_asar_autopaginate_v3.py   Patch C v3 — always-paginate to 2000
 │   ├── patch_codex_asar_reconnect_clear.py   Patch D — clear conversations Map on reconnect
-│   └── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
+│   ├── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
+│   └── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
 ├── apply-all-patches.ps1    Orchestrator — runs all 4 patchers on a given app dir
@@ -56,7 +60,7 @@ GitHub Action `.github/workflows/auto-repatch-release.yml`:
 
 1. Runs every 3h (or manually via `workflow_dispatch`).
 2. Checks Haleclipse upstream for new release tag.
-3. If our repo doesn't have that version yet → downloads upstream Windows zip → applies all four patches via `apply-all-patches.ps1` → verifies markers → repackages → publishes release.
+3. If our repo doesn't have that version yet -> downloads upstream Windows zip -> applies the compatible patch set via `apply-all-patches.ps1` -> verifies markers -> repackages -> publishes release.
 4. If patterns no longer match (upstream refactored), the verification step fails loudly and the maintainer needs to update the patcher pattern strings.
 
 This means: **upstream updates flow downstream automatically; our customizations re-apply themselves.**
@@ -92,12 +96,16 @@ Note: upstream `26.513.x` changed renderer hydration behavior enough that Patch 
 
 The WS app-server transport class hardcodes `agent: new SocksProxyAgent(\`socks5h://127.0.0.1:1080\`)` for every WebSocket connection. When `CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:<PORT>` points Desktop at a local sidecar, the connection dials through a SOCKS proxy that doesn't exist and fails — and the renderer maps that failure to a login UI, which is misleading because the user is on apikey/cliproxy mode and the loopback `--ws-auth` is not even required. Patcher removes the `agent` option from the WS constructor (`th()` returns `{}` anyway, so no further tweak is needed) and the loopback connection succeeds. This unlocks the shared-sidecar pattern: Desktop and the bundled `codex-exec-remote.ps1` both attach to the same `app-server`, the sidecar broadcasts `item/agentMessage/delta` and `turn/completed` to every subscribed client, and any CLI dispatch shows up in Desktop's UI in real time.
 
+### Patch H — Directive Windows path sanitizer
+
+Renderer markdown parsing can throw on app directives that contain Windows paths, such as `::git-stage{cwd="D:\\Python\\projects\\codex-desktop"}`. The exception bubbles into the thread page error boundary even though the backend and JSONL are healthy. Patch H normalizes backslashes to forward slashes only on single-line Codex app directives before markdown parsing. It does not rewrite session files, normal prose, code blocks, or sidecar traffic.
+
 ## Runtime workflow
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
 - **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
-- **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI.
+- **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`).
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
