@@ -55,6 +55,7 @@ jobs:
         if: inputs.sidecar_patch == true
         uses: dtolnay/rust-toolchain@stable
 
+
       - name: Determine upstream tag
         id: upstream
         shell: pwsh
@@ -130,6 +131,30 @@ jobs:
           $appDir = (Resolve-Path build).Path
           .\apply-all-patches.ps1 -AppDir $appDir -UpstreamTag '${{ steps.upstream.outputs.tag }}'
 
+      - name: Checkout OpenAI Codex sidecar source
+        if: steps.ours.outputs.skip == 'false' && inputs.sidecar_patch == true
+        shell: pwsh
+        run: |
+          $codexRef = '${{ inputs.codex_ref }}'
+          if (-not $codexRef) { $codexRef = 'main' }
+          Write-Host "Checking out openai/codex ref: $codexRef"
+          git clone --depth 1 --branch $codexRef https://github.com/openai/codex.git codex-src
+          if ($LASTEXITCODE -ne 0) {
+            git clone --depth 1 https://github.com/openai/codex.git codex-src
+            if ($LASTEXITCODE -ne 0) { throw "git clone openai/codex failed with exit $LASTEXITCODE" }
+            git -C codex-src fetch --depth 1 origin $codexRef
+            if ($LASTEXITCODE -ne 0) { throw "git fetch $codexRef failed with exit $LASTEXITCODE" }
+            git -C codex-src checkout FETCH_HEAD
+            if ($LASTEXITCODE -ne 0) { throw "git checkout $codexRef failed with exit $LASTEXITCODE" }
+          }
+
+      - name: Cache Rust build outputs
+        if: steps.ours.outputs.skip == 'false' && inputs.sidecar_patch == true
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: codex-src/codex-rs -> target
+          cache-on-failure: true
+
       - name: Update bundled Codex CLI sidecar
         if: steps.ours.outputs.skip == 'false'
         id: sidecar
@@ -172,7 +197,11 @@ jobs:
             }
 
             Push-Location codex-src\codex-rs
-            cargo build --profile dev-small -p codex-cli --bin codex
+            Write-Host 'Rust/Cargo versions:'
+            rustc --version
+            cargo --version
+            Write-Host 'Starting cargo build: codex-cli dev-small'
+            cargo build --profile dev-small -p codex-cli --bin codex --verbose
             if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli dev-small failed with exit $LASTEXITCODE" }
             Pop-Location
 
