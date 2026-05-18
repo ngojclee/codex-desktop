@@ -134,6 +134,7 @@ jobs:
         if: steps.ours.outputs.skip == 'false'
         id: sidecar
         shell: pwsh
+        timeout-minutes: 45
         run: |
           $appDir = (Resolve-Path build).Path
           $target = Join-Path $appDir 'resources\codex.exe'
@@ -171,11 +172,11 @@ jobs:
             }
 
             Push-Location codex-src\codex-rs
-            cargo build --release -p codex-cli --bin codex
-            if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli failed with exit $LASTEXITCODE" }
+            cargo build --profile dev-small -p codex-cli --bin codex
+            if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli dev-small failed with exit $LASTEXITCODE" }
             Pop-Location
 
-            $built = 'codex-src\codex-rs\target\release\codex.exe'
+            $built = 'codex-src\codex-rs\target\dev-small\codex.exe'
             if (-not (Test-Path -LiteralPath $built)) { throw "Built codex.exe not found: $built" }
             $newVersion = (& $built --version).Trim()
             Copy-Item -Force -LiteralPath $built -Destination $target
