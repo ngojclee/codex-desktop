@@ -14,6 +14,20 @@ on:
         required: false
         type: boolean
         default: false
+      release_suffix:
+        description: 'Optional suffix for our release tag, e.g. sendinput => <upstream>-patched-sendinput'
+        required: false
+        type: string
+      sidecar_patch:
+        description: 'Build a source-patched codex.exe sidecar for the send_input empty-items fix'
+        required: false
+        type: boolean
+        default: false
+      codex_ref:
+        description: 'openai/codex git ref for source-built sidecar lanes'
+        required: false
+        type: string
+        default: 'main'
 
 permissions:
   contents: write   # required to create releases
@@ -37,6 +51,10 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Setup Rust
+        if: inputs.sidecar_patch == true
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Determine upstream tag
         id: upstream
         shell: pwsh
@@ -57,7 +75,12 @@ jobs:
         shell: pwsh
         run: |
           $upstream = '${{ steps.upstream.outputs.tag }}'
-          $ourTag = "$upstream-patched"
+          $suffix = '${{ inputs.release_suffix }}'.Trim()
+          if ($suffix) {
+            $ourTag = "$upstream-patched-$suffix"
+          } else {
+            $ourTag = "$upstream-patched"
+          }
           $force = '${{ inputs.force }}' -eq 'true'
           $exists = $false
           # gh release view exits 1 when the release doesn't exist. We swallow
@@ -116,23 +139,65 @@ jobs:
           $target = Join-Path $appDir 'resources\codex.exe'
           if (-not (Test-Path -LiteralPath $target)) { throw "Missing bundled sidecar: $target" }
 
+          $sidecarPatch = '${{ inputs.sidecar_patch }}' -eq 'true'
           $oldVersion = (& $target --version).Trim()
           Write-Host "Bundled sidecar before update: $oldVersion"
 
-          $npmRoot = 'sidecar-npm'
-          if (Test-Path -LiteralPath $npmRoot) { Remove-Item -Recurse -Force -LiteralPath $npmRoot }
-          New-Item -ItemType Directory -Force -Path $npmRoot | Out-Null
-          npm install --prefix $npmRoot --no-audit --no-fund @openai/codex@latest
-          if ($LASTEXITCODE -ne 0) { throw "npm install @openai/codex@latest failed with exit $LASTEXITCODE" }
+          if ($sidecarPatch) {
+            $codexRef = '${{ inputs.codex_ref }}'
+            if (-not $codexRef) { $codexRef = 'main' }
+            Write-Host "Building source-patched sidecar from openai/codex ref: $codexRef"
 
-          $nodeModules = Join-Path (Resolve-Path $npmRoot).Path 'node_modules'
-          $source = Get-ChildItem -LiteralPath $nodeModules -Recurse -Filter codex.exe -ErrorAction Stop |
-            Where-Object { $_.FullName -like '*\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex\codex.exe' } |
-            Select-Object -First 1
-          if (-not $source) { throw "Could not find @openai/codex win32-x64 codex.exe under $nodeModules" }
+            git clone --depth 1 --branch $codexRef https://github.com/openai/codex.git codex-src
+            if ($LASTEXITCODE -ne 0) {
+              git clone --depth 1 https://github.com/openai/codex.git codex-src
+              if ($LASTEXITCODE -ne 0) { throw "git clone openai/codex failed with exit $LASTEXITCODE" }
+              git -C codex-src fetch --depth 1 origin $codexRef
+              if ($LASTEXITCODE -ne 0) { throw "git fetch $codexRef failed with exit $LASTEXITCODE" }
+              git -C codex-src checkout FETCH_HEAD
+              if ($LASTEXITCODE -ne 0) { throw "git checkout $codexRef failed with exit $LASTEXITCODE" }
+            }
 
-          $newVersion = (& $source.FullName --version).Trim()
-          Copy-Item -Force -LiteralPath $source.FullName -Destination $target
+            $common = 'codex-src\codex-rs\core\src\tools\handlers\multi_agents_common.rs'
+            if (-not (Test-Path -LiteralPath $common)) { throw "Missing upstream source file: $common" }
+            $sourceText = Get-Content -Raw -LiteralPath $common
+            if ($sourceText -notmatch 'fn parse_collab_input\(') { throw 'parse_collab_input not found' }
+            if ($sourceText -notmatch 'items\.filter\(\|items\| !items\.is_empty\(\)\)') {
+              $sourceText = $sourceText -replace 'match \(message, items\) \{', "let items = items.filter(|items| !items.is_empty());`n    match (message, items) {"
+              Set-Content -LiteralPath $common -Value $sourceText -NoNewline
+            }
+            if ((Get-Content -Raw -LiteralPath $common) -notmatch 'items\.filter\(\|items\| !items\.is_empty\(\)\)') {
+              throw 'Patch I verification failed: empty-items normalization marker missing'
+            }
+
+            Push-Location codex-src\codex-rs
+            cargo build --release -p codex-cli --bin codex
+            if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli failed with exit $LASTEXITCODE" }
+            Pop-Location
+
+            $built = 'codex-src\codex-rs\target\release\codex.exe'
+            if (-not (Test-Path -LiteralPath $built)) { throw "Built codex.exe not found: $built" }
+            $newVersion = (& $built --version).Trim()
+            Copy-Item -Force -LiteralPath $built -Destination $target
+            "patch_i=true" >> $env:GITHUB_OUTPUT
+          } else {
+            $npmRoot = 'sidecar-npm'
+            if (Test-Path -LiteralPath $npmRoot) { Remove-Item -Recurse -Force -LiteralPath $npmRoot }
+            New-Item -ItemType Directory -Force -Path $npmRoot | Out-Null
+            npm install --prefix $npmRoot --no-audit --no-fund @openai/codex@latest
+            if ($LASTEXITCODE -ne 0) { throw "npm install @openai/codex@latest failed with exit $LASTEXITCODE" }
+
+            $nodeModules = Join-Path (Resolve-Path $npmRoot).Path 'node_modules'
+            $source = Get-ChildItem -LiteralPath $nodeModules -Recurse -Filter codex.exe -ErrorAction Stop |
+              Where-Object { $_.FullName -like '*\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex\codex.exe' } |
+              Select-Object -First 1
+            if (-not $source) { throw "Could not find @openai/codex win32-x64 codex.exe under $nodeModules" }
+
+            $newVersion = (& $source.FullName --version).Trim()
+            Copy-Item -Force -LiteralPath $source.FullName -Destination $target
+            "patch_i=false" >> $env:GITHUB_OUTPUT
+          }
+
           $verifiedVersion = (& $target --version).Trim()
           if ($verifiedVersion -ne $newVersion) {
             throw "Sidecar copy verification failed: copied $newVersion but target reports $verifiedVersion"
@@ -203,9 +268,10 @@ jobs:
             - skipped automatically on upstream `26.513.x` because that lane regressed thread-open hydration in the renderer
           - **Patch G** — bypass hardcoded SOCKS5 proxy in WS transport so a local sidecar can be shared between Desktop and CLI for real-time UI updates
           - **Patch H** — sanitize Windows backslashes in app directive lines before markdown directive parsing so one malformed directive cannot crash thread rendering
+          - **Patch I** — optional source-built sidecar lane that treats `send_input` `items: []` as absent before mutually-exclusive `message` validation (`${{ steps.sidecar.outputs.patch_i }}`)
 
           ## Bundled Codex CLI sidecar
-          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with latest npm `@openai/codex` win32-x64 binary (`${{ steps.sidecar.outputs.new_version }}`)
+          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. Default lane uses latest npm `@openai/codex`; Patch I lanes use a source-built `openai/codex` binary.
 
           ## Install
           1. Download `$asset`

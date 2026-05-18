@@ -10,6 +10,7 @@
 param(
     [string]$Repo = 'ngojclee/codex-desktop',
     [string]$InstallDir = "$env:LOCALAPPDATA\CodexFromGithub",
+    [string]$Tag,         # install a specific release tag instead of latest
     [switch]$Force,        # update even if current version matches latest tag
     [switch]$NoLaunch      # don't auto-launch after update
 )
@@ -48,20 +49,23 @@ $versionFile = Join-Path $InstallDir 'tools\.version-tag'
 $currentTag = if (Test-Path -LiteralPath $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { '(unknown)' }
 Log "Current installed tag: $currentTag"
 
-# Check latest release on the remote.
+# Check release on the remote. Default = latest; -Tag installs an explicit lane.
 # Parse JSON in PowerShell rather than jq — avoids quoting headaches with the
 # regex pattern when the jq expression is passed through pwsh argument parser.
-$releaseJson = gh release view --repo $Repo --json tagName,assets
+$releaseArgs = @('release', 'view')
+if ($Tag) { $releaseArgs += $Tag }
+$releaseArgs += @('--repo', $Repo, '--json', 'tagName,assets')
+$releaseJson = gh @releaseArgs
 if ($LASTEXITCODE -ne 0 -or -not $releaseJson) {
     throw "gh release view failed for $Repo (exit $LASTEXITCODE)"
 }
 $release = $releaseJson | ConvertFrom-Json
 $assetMatch = $release.assets | Where-Object { $_.name -like 'CodexDesktop-Patched-win-x64-*.zip' } | Select-Object -First 1
 if (-not $release.tagName -or -not $assetMatch) {
-    throw "Could not find tag or matching asset on latest release of $Repo. Assets present: $($release.assets.name -join ', ')"
+    throw "Could not find tag or matching asset on release of $Repo. Assets present: $($release.assets.name -join ', ')"
 }
 $latest = [PSCustomObject]@{ tag = $release.tagName; asset = $assetMatch.name }
-Log "Latest remote tag : $($latest.tag)"
+Log "Remote tag       : $($latest.tag)"
 Log "Latest asset      : $($latest.asset)"
 
 if (-not $Force -and $currentTag -eq $latest.tag) {
