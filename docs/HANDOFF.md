@@ -216,14 +216,14 @@ The Store app remains untouched.
 - Do not run this against `C:\Program Files\WindowsApps`.
 - Backups are created next to the patched copied files before mutation.
 
-## Patch I / `send_input` experimental lane
+## Patch I / `send_input` sidecar fix
 
-Patch I is intentionally isolated from the stable Desktop lane. It does not edit `app.asar`; it source-builds the bundled `resources\codex.exe` sidecar from `openai/codex` and patches `core/src/tools/handlers/multi_agents_common.rs` so `parse_collab_input` treats `items: []` as `None` before validating `message` vs `items`.
+Patch I is now included in the default Desktop lane. It does not edit `app.asar`; it source-builds the bundled `resources\codex.exe` sidecar from `openai/codex` and patches `core/src/tools/handlers/multi_agents_common.rs` so `parse_collab_input` treats `items: []` as `None` before validating `message` vs `items`.
 
-Use it only through a suffixed release, for example `v26.513.31313-patched-sendinput`. The normal `v26.513.31313-patched` lane remains the stable app build. Install suffixed lanes with:
+Use the default patched release. A separate `-sendinput` suffix is no longer needed for the main lane. Install with:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1" -Force -Tag v26.513.31313-patched-sendinput
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1" -Force -Tag v26.519.41501-patched
 ```
 
 Verification target: a `functions.send_input` call serialized as `message` plus empty `items: []` should return a `submission_id` instead of `Provide either message or items, but not both`. Shared-sidecar dispatch via `codex-exec-remote.ps1` must continue to work.

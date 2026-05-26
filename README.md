@@ -8,7 +8,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 4. **External CLI invisibility** *(workaround)* — a watchdog daemon periodically restarts the sidecar when JSONL writes from external `codex resume` are detected.
 5. **Shared-sidecar realtime UI** *(new)* — Desktop and CLI clients share one app-server sidecar over `ws://127.0.0.1:<PORT>`. Any dispatch from CLI (via the bundled `codex-exec-remote.ps1`) streams into Desktop's UI in real time (spinner + token-by-token) — no more polling or sidecar restarts needed for the common Planner -> Worker flow.
 6. **Renderer directive crash guard** — Windows paths inside app directives are normalized before markdown directive parsing so a single persisted directive cannot crash the whole thread view.
-7. **Experimental `send_input` empty-items lane** — optional release suffix `-sendinput` builds a source-patched `resources/codex.exe` that treats `items: []` as absent before validating mutually-exclusive `message` vs `items`.
+7. **`send_input` empty-items fix** — the default release now ships a source-patched `resources/codex.exe` that treats `items: []` as absent before validating mutually-exclusive `message` vs `items`.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -34,7 +34,7 @@ The patches are **derived patches** applied on top of upstream binary releases:
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
-The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. For experimental lanes, call `tools\Update-Codex.ps1 -Tag <release-tag>` explicitly.
+The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_reconnect_clear.py   Patch D — clear conversations Map on reconnect
 │   ├── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
 │   └── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
-├── Patch I lane            Optional CI-built sidecar fix for `functions.send_input` `items: []`
+├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
 ├── apply-all-patches.ps1    Orchestrator — runs all 4 patchers on a given app dir
@@ -64,7 +64,7 @@ GitHub Action `.github/workflows/auto-repatch-release.yml`:
 2. Checks Haleclipse upstream for new release tag.
 3. If our repo doesn't have that version yet -> downloads upstream Windows zip -> applies the compatible patch set via `apply-all-patches.ps1` -> verifies markers -> repackages -> publishes release.
 4. If patterns no longer match (upstream refactored), the verification step fails loudly and the maintainer needs to update the patcher pattern strings.
-5. Manual `workflow_dispatch` can publish isolated lanes with `release_suffix`; `sidecar_patch=true` creates the experimental Patch I send-input lane without overwriting the stable tag.
+5. Manual `workflow_dispatch` can still publish isolated lanes with `release_suffix` if needed, but the default lane already includes Patch I and no longer needs a separate `-sendinput` tag.
 
 This means: **upstream updates flow downstream automatically; our customizations re-apply themselves.**
 
@@ -104,9 +104,9 @@ The WS app-server transport class hardcodes `agent: new SocksProxyAgent(\`socks5
 Renderer markdown parsing can throw on app directives that contain Windows paths, such as `::git-stage{cwd="D:\\Python\\projects\\codex-desktop"}`. The exception bubbles into the thread page error boundary even though the backend and JSONL are healthy. Patch H normalizes backslashes to forward slashes only on single-line Codex app directives before markdown parsing. It does not rewrite session files, normal prose, code blocks, or sidecar traffic.
 
 
-### Patch I — `send_input` empty-items sidecar lane
+### Patch I — `send_input` empty-items sidecar fix
 
-This is not part of the default stable lane. The failure lives in the bundled Rust sidecar/CLI (`resources\codex.exe`): some Codex tool adapters serialize `functions.send_input` as `message` plus `items: []`, and the backend rejects that as "Provide either message or items, but not both". Patch I builds `openai/codex` from source in CI and inserts one normalization line in `parse_collab_input`: empty `items` becomes absent before mutual-exclusion validation. Publish it with a suffix such as `v26.513.31313-patched-sendinput`, then install it explicitly with `Update-Codex.ps1 -Tag`.
+Patch I is now part of the default stable lane. The failure lives in the bundled Rust sidecar/CLI (`resources\codex.exe`): some Codex tool adapters serialize `functions.send_input` as `message` plus `items: []`, and the backend rejects that as "Provide either message or items, but not both". The release pipeline now builds `openai/codex` from source and inserts one normalization line in `parse_collab_input`: empty `items` becomes absent before mutual-exclusion validation. No separate `-sendinput` lane is required for the default release.
 
 ## Runtime workflow
 
