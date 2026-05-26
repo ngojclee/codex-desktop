@@ -163,17 +163,11 @@ jobs:
           if (-not $codexRef) { $codexRef = 'main' }
           Write-Host "Building source-patched sidecar from openai/codex ref: $codexRef"
 
-          git clone --depth 1 --branch $codexRef https://github.com/openai/codex.git codex-src
-          if ($LASTEXITCODE -ne 0) {
-            git clone --depth 1 https://github.com/openai/codex.git codex-src
-            if ($LASTEXITCODE -ne 0) { throw "git clone openai/codex failed with exit $LASTEXITCODE" }
-            git -C codex-src fetch --depth 1 origin $codexRef
-            if ($LASTEXITCODE -ne 0) { throw "git fetch $codexRef failed with exit $LASTEXITCODE" }
-            git -C codex-src checkout FETCH_HEAD
-            if ($LASTEXITCODE -ne 0) { throw "git checkout $codexRef failed with exit $LASTEXITCODE" }
-          }
+          $codexSrc = 'codex-src'
+          if (-not (Test-Path -LiteralPath $codexSrc)) { throw "Missing sidecar source checkout: $codexSrc" }
 
-          $common = 'codex-src\codex-rs\core\src\tools\handlers\multi_agents_common.rs'
+          $common = Join-Path $codexSrc 'codex-rs\core\src\tools\handlers\multi_agents_common.rs'
+
           if (-not (Test-Path -LiteralPath $common)) { throw "Missing upstream source file: $common" }
           $sourceText = Get-Content -Raw -LiteralPath $common
           if ($sourceText -notmatch 'fn parse_collab_input\(') { throw 'parse_collab_input not found' }
@@ -185,7 +179,7 @@ jobs:
             throw 'Patch I verification failed: empty-items normalization marker missing'
           }
 
-          Push-Location codex-src\codex-rs
+          Push-Location (Join-Path $codexSrc 'codex-rs')
           Write-Host 'Rust/Cargo versions:'
           rustc --version
           cargo --version
@@ -194,7 +188,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli dev-small failed with exit $LASTEXITCODE" }
           Pop-Location
 
-          $built = 'codex-src\codex-rs\target\dev-small\codex.exe'
+          $built = Join-Path $codexSrc 'codex-rs\target\dev-small\codex.exe'
           if (-not (Test-Path -LiteralPath $built)) { throw "Built codex.exe not found: $built" }
           $newVersion = (& $built --version).Trim()
           $oldVersion = (& $target --version).Trim()
