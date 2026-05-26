@@ -218,10 +218,19 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "npm install @openai/codex@latest failed with exit $LASTEXITCODE" }
 
             $nodeModules = Join-Path (Resolve-Path $npmRoot).Path 'node_modules'
-            $source = Get-ChildItem -LiteralPath $nodeModules -Recurse -Filter codex.exe -ErrorAction Stop |
-              Where-Object { $_.FullName -like '*\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\codex\codex.exe' } |
-              Select-Object -First 1
-            if (-not $source) { throw "Could not find @openai/codex win32-x64 codex.exe under $nodeModules" }
+            $sourceRoot = Join-Path $nodeModules '@openai\codex-win32-x64'
+            $source = $null
+            if (Test-Path -LiteralPath $sourceRoot) {
+              $source = Get-ChildItem -LiteralPath $sourceRoot -Recurse -Filter codex.exe -ErrorAction Stop |
+                Where-Object { $_.FullName -like '*\vendor\*' } |
+                Sort-Object FullName |
+                Select-Object -First 1
+            }
+            if (-not $source) {
+              $candidates = Get-ChildItem -LiteralPath $nodeModules -Recurse -Filter codex.exe -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty FullName
+              throw "Could not find @openai/codex win32-x64 codex.exe under $nodeModules. Candidates: $($candidates -join '; ')"
+            }
 
             $newVersion = (& $source.FullName --version).Trim()
             Copy-Item -Force -LiteralPath $source.FullName -Destination $target
