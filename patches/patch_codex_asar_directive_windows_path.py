@@ -41,11 +41,14 @@ SEARCH_PATTERNS = (
     "ee=t??S,te=(0,P.useMemo)(()=>u===`indexed`?Mh(e):e,[e,u]),T=(0,P.useMemo)",
     # 26.513-style markdown bundle
     "p??b,T=l===`indexed`,E=n,ne=T?ar(Hr(E)):E,re=(0,L.useMemo)",
+    # 26.519-style markdown bundle: centralized pre-tokenize transform.
+    "function mr(e,t){return e}",
 )
 
 REPLACEMENTS = (
     "ee=t??S,te=(0,P.useMemo)(()=>{let __PATCH_H_DIRECTIVE_WINDOWS_PATH__=e.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`));return u===`indexed`?Mh(__PATCH_H_DIRECTIVE_WINDOWS_PATH__):__PATCH_H_DIRECTIVE_WINDOWS_PATH__},[e,u]),T=(0,P.useMemo)",
     "p??b,T=l===`indexed`,E=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`))),ne=T?ar(Hr(E)):E,re=(0,L.useMemo)",
+    "function mr(e,t){return globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,e.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`))}",
 )
 
 def read_header(asar_path: Path):
