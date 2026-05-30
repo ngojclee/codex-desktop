@@ -6,9 +6,10 @@ A patched build of OpenAI Codex Desktop that fixes:
 2. **Stuck thread updates after cross-session CLI dispatch** — UI keeps streaming when one Codex Desktop session delegates to another via `codex exec --resume <id>`.
 3. **Stale renderer cache on sidecar restart** — the soft-refresh workflow (kill sidecar, Electron auto-respawns) actually refreshes UI content.
 4. **External CLI invisibility** *(workaround)* — a watchdog daemon periodically restarts the sidecar when JSONL writes from external `codex resume` are detected.
-5. **Shared-sidecar realtime UI** *(new)* — Desktop and CLI clients share one app-server sidecar over `ws://127.0.0.1:<PORT>`. Any dispatch from CLI (via the bundled `codex-exec-remote.ps1`) streams into Desktop's UI in real time (spinner + token-by-token) — no more polling or sidecar restarts needed for the common Planner -> Worker flow.
+5. **Shared-sidecar realtime UI** — Desktop and CLI clients share one app-server sidecar over `ws://127.0.0.1:<PORT>`. Any dispatch from CLI (via the bundled `codex-exec-remote.ps1`) streams into Desktop's UI in real time (spinner + token-by-token) — no more polling or sidecar restarts needed for the common Planner -> Worker flow.
 6. **Renderer directive crash guard** — Windows paths inside app directives are normalized before markdown directive parsing so a single persisted directive cannot crash the whole thread view.
 7. **`send_input` empty-items fix** — the default release now ships a source-patched `resources/codex.exe` that treats `items: []` as absent before validating mutually-exclusive `message` vs `items`.
+8. **Computer Use unlock (Any App + Google Chrome)** — bypasses Statsig feature gates and build-flavor restrictions that block Computer Use on non-internal builds and restricted regions. Google Chrome CUA works immediately; Any App requires upstream 26.527+ which ships the Windows CUA binary.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -16,6 +17,39 @@ The patches are **derived patches** applied on top of upstream binary releases:
 - This repo holds **only the patcher scripts + automation**. The output is a `Codex-Patched-win-x64-*.zip` published as a Release.
 
 ## Install (end users)
+
+### Quick install (one command)
+
+```powershell
+# Download latest patched release and extract to default location
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+  $zip = Join-Path $env:TEMP 'codex-patched.zip'
+  $tag = (gh release view --repo ngojclee/codex-desktop --json tagName -q .tagName)
+  gh release download $tag --repo ngojclee/codex-desktop --pattern 'CodexDesktop-Patched-win-x64-*.zip' --output $zip --clobber
+  Expand-Archive $zip -DestinationPath $env:LOCALAPPDATA\CodexFromGithub -Force
+  Remove-Item $zip
+  Write-Host 'Installed to:' $env:LOCALAPPDATA\CodexFromGithub
+}"
+```
+
+### Quick update (existing install)
+
+```powershell
+& "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1" -Force
+```
+
+### Create desktop shortcut
+
+```powershell
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut("$env:USERPROFILE\Desktop\Codex (GitHub Patched).lnk")
+$sc.TargetPath = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
+$sc.WorkingDirectory = "$env:LOCALAPPDATA\CodexFromGithub\tools"
+$sc.IconLocation = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe,0"
+$sc.Save()
+```
+
+### Manual install
 
 1. Go to the [Releases page](https://github.com/ngojclee/codex-desktop/releases) and download the latest `CodexDesktop-Patched-win-x64-*.zip`.
 2. Extract to `%LOCALAPPDATA%\CodexFromGithub\` (the launcher scripts assume this path; you can install elsewhere but you will have to edit them).
@@ -46,7 +80,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_autopaginate_v3.py   Patch C v3 — always-paginate to 2000
 │   ├── patch_codex_asar_reconnect_clear.py   Patch D — clear conversations Map on reconnect
 │   ├── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
-│   └── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
+│   ├── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
+│   └── patch_codex_asar_computer_use_gate.py Patch J — bypass Statsig gates for Computer Use
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
@@ -107,6 +142,23 @@ Renderer markdown parsing can throw on app directives that contain Windows paths
 ### Patch I — `send_input` empty-items sidecar fix
 
 Patch I is now part of the default stable lane. The failure lives in the bundled Rust sidecar/CLI (`resources\codex.exe`): some Codex tool adapters serialize `functions.send_input` as `message` plus `items: []`, and the backend rejects that as "Provide either message or items, but not both". The release pipeline now builds `openai/codex` from source and inserts one normalization line in `parse_collab_input`: empty `items` becomes absent before mutual-exclusion validation. No separate `-sendinput` lane is required for the default release.
+
+### Patch J -- Computer Use gate bypass
+
+Computer Use (Any App + Google Chrome) is blocked on non-internal builds by three layers:
+
+1. **Build flavor gate** -- the bundled plugin reconciliation requires isInternal(buildFlavor) on Windows. The Haleclipse rebuild ships codexBuildFlavor=prod which fails this check. The launcher sets BUILD_FLAVOR=dev to bypass.
+2. **Feature flag** -- features.computerUse must be true. The launcher sets CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 to force it.
+3. **Statsig feature gates** -- the renderer checks three server-side gates before enabling the UI toggles. Patcher replaces each gate check with !0 (true) using a flexible regex that matches any minified function name wrapping the gate ID.
+
+Gate IDs bypassed:
+- 1506311413 -- computer_use (Any App)
+- 410065390 -- browser_use_external (Google Chrome)
+- 410262010 -- browser_use (In-app Browser)
+
+The replacement is same-length (padded with spaces), so no ASAR repack is needed. The patcher uses regex [a-zA-Z_] + backtick-wrapped ID to handle minifier renaming across builds.
+
+Note: Google Chrome CUA works immediately. Any App requires upstream 26.527+ which ships codex-computer-use.exe (the Windows CUA helper binary). Earlier builds do not include this binary.
 
 ## Runtime workflow
 
