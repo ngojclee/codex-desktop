@@ -178,9 +178,41 @@ New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
     log_err         = $logErr
 } | ConvertTo-Json | Set-Content -LiteralPath $StateFile -Encoding UTF8
 
-# Launch Desktop with env var
+# Launch Desktop with env vars
 $env:CODEX_APP_SERVER_WS_URL = $WsUrl
-$desktop = Start-Process -FilePath $DesktopExe -PassThru
+
+# --- Computer Use unlock (Patch J) ---
+# The bundled plugin reconciliation for computer-use on Windows requires:
+#   1. isInternal(buildFlavor) — only 'dev','agent','nightly','owl','internal-alpha' pass.
+#   2. features.computerUse === true — server-delivered feature flag.
+# The Haleclipse rebuild ships codexBuildFlavor=prod which fails (1).
+# Setting BUILD_FLAVOR=dev makes $.resolve() return 'dev' → isInternal passes.
+# CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 forces the feature flag (2).
+#
+# NOTE: These env vars are necessary but not sufficient on Windows. The plugin
+# files (computer-use folder + node_modules/@oai/sky) must also exist in the
+# bundle at resources/plugins/openai-bundled/plugins/computer-use/. Without
+# those files, the reconciliation has nothing to materialize. On macOS, the
+# plugin ships in the app bundle and only needs features.computerUse=true.
+if (-not $env:BUILD_FLAVOR) {
+    $env:BUILD_FLAVOR = 'dev'
+}
+if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
+    $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'
+}
+
+$desktopArgs = @()
+if ($env:CODEX_ELECTRON_PROXY_SERVER) {
+    $desktopArgs += "--proxy-server=$env:CODEX_ELECTRON_PROXY_SERVER"
+}
+if ($env:CODEX_ELECTRON_PROXY_BYPASS_LIST) {
+    $desktopArgs += "--proxy-bypass-list=$env:CODEX_ELECTRON_PROXY_BYPASS_LIST"
+}
+if ($desktopArgs.Count -gt 0) {
+    $desktop = Start-Process -FilePath $DesktopExe -ArgumentList $desktopArgs -PassThru
+} else {
+    $desktop = Start-Process -FilePath $DesktopExe -PassThru
+}
 
 # Wait for Desktop to start spawning child processes, then poll until all gone.
 # Electron is multi-process: the launcher's $desktop.Id may exit before the
