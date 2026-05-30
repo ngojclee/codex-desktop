@@ -29,6 +29,7 @@ param(
     [switch]$SkipD,
     [switch]$SkipG,
     [switch]$SkipH,
+    [switch]$SkipJ,
 
     [string]$UpstreamTag
 )
@@ -85,6 +86,10 @@ if (-not $SkipG) {
 
 if (-not $SkipH) {
     Run-Patch 'patch_codex_asar_directive_windows_path.py' @('--app-dir', $AppDir) 'Patch H — markdown directive Windows path sanitizer'
+}
+
+if (-not $SkipJ) {
+    Run-Patch 'patch_codex_asar_computer_use_gate.py' @('--app-dir', $AppDir) 'Patch J — bypass Statsig gates for Computer Use (Any App + Chrome)'
 }
 
 Write-Host ""
