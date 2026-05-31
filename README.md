@@ -14,7 +14,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 The patches are **derived patches** applied on top of upstream binary releases:
 
 - Source binary: [Haleclipse/CodexDesktop-Rebuild](https://github.com/Haleclipse/CodexDesktop-Rebuild) — a cross-platform repackage of OpenAI's Codex Desktop.
-- This repo holds **only the patcher scripts + automation**. The output is a `Codex-Patched-win-x64-*.zip` published as a Release.
+- This repo holds **only the patcher scripts + automation**. The output is a `CodexDesktop-Patched-win-x64-*.zip` published as a Release.
 
 ## Install (end users)
 
@@ -40,10 +40,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     throw "No Windows patched zip found in release $($release.tag_name)"
   }
 
-  New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-  Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
-  Expand-Archive -LiteralPath $zip -DestinationPath $installDir -Force
-  Remove-Item -LiteralPath $zip -Force
+  try {
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+
+    $actualSize = (Get-Item -LiteralPath $zip).Length
+    if ($actualSize -ne [int64]$asset.size) {
+      throw "Download incomplete: got $actualSize bytes, expected $($asset.size)"
+    }
+
+    New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+    tar -xf $zip -C $installDir
+    if ($LASTEXITCODE -ne 0) {
+      throw "tar extraction failed"
+    }
+  }
+  finally {
+    Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+  }
 
   Write-Host "Installed $($release.tag_name) to: $installDir"
   Write-Host "Launch with: $installDir\tools\Launch-Codex.vbs"
@@ -54,6 +67,52 @@ The outer `-Command` argument uses single quotes on purpose. If you use double
 quotes there while pasting into an existing PowerShell window, the parent shell
 expands `$zip`, `$release`, `$_`, etc. before the installer runs.
 
+This command uses Windows `tar.exe` instead of `Expand-Archive`; the release zip
+is large, and some Windows PowerShell archive builds can mis-detect it as a
+split/spanned archive.
+
+### Quick install (GitHub CLI)
+
+If you already have [`gh`](https://cli.github.com/) installed and authenticated,
+this is the shortest install path.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
+  $ErrorActionPreference = "Stop"
+
+  $repo = "ngojclee/codex-desktop"
+  $installDir = Join-Path $env:LOCALAPPDATA "CodexFromGithub"
+  $downloadDir = Join-Path $env:TEMP "codex-patched-release"
+
+  try {
+    Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+    gh release download --repo $repo --pattern "CodexDesktop-Patched-win-x64-*.zip" --dir $downloadDir --clobber
+    if ($LASTEXITCODE -ne 0) {
+      throw "gh release download failed"
+    }
+
+    $zip = Get-ChildItem -LiteralPath $downloadDir -Filter "CodexDesktop-Patched-win-x64-*.zip" | Select-Object -First 1
+    if (-not $zip) {
+      throw "No downloaded Windows patched zip found"
+    }
+
+    tar -xf $zip.FullName -C $installDir
+    if ($LASTEXITCODE -ne 0) {
+      throw "tar extraction failed"
+    }
+  }
+  finally {
+    Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  Write-Host "Installed latest patched release to: $installDir"
+  Write-Host "Launch with: $installDir\tools\Launch-Codex.vbs"
+}'
+```
+
 ### Quick update (existing install)
 
 ```powershell
@@ -63,11 +122,22 @@ expands `$zip`, `$release`, `$_`, etc. before the installer runs.
 ### Create desktop shortcut
 
 ```powershell
+$desktop = [Environment]::GetFolderPath("Desktop")
+$target = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
+$icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
+
+if (-not (Test-Path -LiteralPath $target)) {
+  throw "Missing launcher: $target"
+}
+if (-not (Test-Path -LiteralPath $icon)) {
+  throw "Missing icon exe: $icon"
+}
+
 $ws = New-Object -ComObject WScript.Shell
-$sc = $ws.CreateShortcut("$env:USERPROFILE\Desktop\Codex (GitHub Patched).lnk")
-$sc.TargetPath = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
-$sc.WorkingDirectory = "$env:LOCALAPPDATA\CodexFromGithub\tools"
-$sc.IconLocation = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe,0"
+$sc = $ws.CreateShortcut((Join-Path $desktop "Codex (GitHub Patched).lnk"))
+$sc.TargetPath = $target
+$sc.WorkingDirectory = Split-Path $target
+$sc.IconLocation = "$icon,0"
 $sc.Save()
 ```
 
