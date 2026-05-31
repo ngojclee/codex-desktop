@@ -4,7 +4,8 @@
 # install with the new build, preserves the tools/ folder and any user data
 # that lives elsewhere (~/.codex/ is untouched — Codex stores sessions there).
 #
-# Requires: gh CLI authenticated as a user with access to the private repo.
+# Requires: gh CLI. Authentication is optional for the public repo but helps
+# avoid GitHub API rate limits.
 
 [CmdletBinding()]
 param(
