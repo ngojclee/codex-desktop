@@ -101,12 +101,12 @@ if ((Get-DesktopProcessCount) -gt 0) {
     $sharedSidecars = @($sidecars | Where-Object { $_.CommandLine -match '--listen\s+ws://127\.0\.0\.1:' })
 
     if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile)) {
-        Write-Host "Codex Desktop already running on shared sidecar — focusing existing window."
+        Write-Host "Codex Desktop already running on shared sidecar - focusing existing window."
         Start-Process -FilePath $DesktopExe
         return
     }
 
-    Write-Host "Codex Desktop is running without the shared sidecar — restarting into shared WS mode."
+    Write-Host "Codex Desktop is running without the shared sidecar - restarting into shared WS mode."
     Stop-InstallProcesses
 }
 
@@ -133,9 +133,9 @@ $logOut = Join-Path $LogDir "app-server-$ts.out.log"
 $logErr = Join-Path $LogDir "app-server-$ts.err.log"
 
 if ($ShowSidecarWindow) {
-    # Visible window — handy for debugging
+    # Visible window - handy for debugging
     $inner = "`$Host.UI.RawUI.WindowTitle = 'Codex Shared Sidecar ($WsUrl)'; " +
-             "Write-Host 'Sidecar — close this window to stop Codex.' -Fore Yellow; " +
+             "Write-Host 'Sidecar - close this window to stop Codex.' -Fore Yellow; " +
              "& '$SidecarExe' app-server --listen '$WsUrl' 2>&1 | " +
              "Tee-Object -FilePath '$logOut'"
     $sidecarHost = Start-Process powershell.exe `
@@ -183,10 +183,10 @@ $env:CODEX_APP_SERVER_WS_URL = $WsUrl
 
 # --- Computer Use unlock (Patch J) ---
 # The bundled plugin reconciliation for computer-use on Windows requires:
-#   1. isInternal(buildFlavor) — only 'dev','agent','nightly','owl','internal-alpha' pass.
-#   2. features.computerUse === true — server-delivered feature flag.
+#   1. isInternal(buildFlavor) - only 'dev','agent','nightly','owl','internal-alpha' pass.
+#   2. features.computerUse === true - server-delivered feature flag.
 # The Haleclipse rebuild ships codexBuildFlavor=prod which fails (1).
-# Setting BUILD_FLAVOR=dev makes $.resolve() return 'dev' → isInternal passes.
+# Setting BUILD_FLAVOR=dev makes $.resolve() return 'dev', so isInternal passes.
 # CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 forces the feature flag (2).
 #
 # NOTE: These env vars are necessary but not sufficient on Windows. The plugin
@@ -220,7 +220,7 @@ if ($desktopArgs.Count -gt 0) {
 Start-Sleep -Seconds 2
 while ((Get-DesktopProcessCount) -gt 0) { Start-Sleep -Seconds 2 }
 
-# Desktop is fully closed — tear down sidecar.
+# Desktop is fully closed - tear down sidecar.
 try { Stop-Process -Id $sidecarPid -Force -EA Stop } catch {}
 # Also kill any orphan codex.exe sidecar that may have lingered
 Get-Process -Name 'codex' -EA SilentlyContinue |
