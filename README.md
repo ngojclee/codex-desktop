@@ -53,6 +53,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     if ($LASTEXITCODE -ne 0) {
       throw "tar extraction failed"
     }
+
+    $versionFile = Join-Path $installDir "tools\.version-tag"
+    if (Test-Path -LiteralPath (Split-Path -Parent $versionFile)) {
+      $release.tag_name | Set-Content -LiteralPath $versionFile -NoNewline
+    }
   }
   finally {
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
@@ -103,6 +108,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     if ($LASTEXITCODE -ne 0) {
       throw "tar extraction failed"
     }
+
+    $versionFile = Join-Path $installDir "tools\.version-tag"
+    if (Test-Path -LiteralPath (Split-Path -Parent $versionFile)) {
+      (gh release view --repo $repo --json tagName --jq ".tagName") | Set-Content -LiteralPath $versionFile -NoNewline
+    }
   }
   finally {
     Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -115,6 +125,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
 
 ### Quick update (existing install)
 
+The updater is available after install because it ships in `tools/`. It updates
+the same `%LOCALAPPDATA%\CodexFromGithub` install directory and leaves
+`~/.codex/` sessions/config untouched.
+
 ```powershell
 & "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1" -Force
 ```
@@ -122,7 +136,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
 ### Create desktop shortcut
 
 ```powershell
-$desktop = [Environment]::GetFolderPath("Desktop")
+function Get-DesktopPath {
+  $candidates = @(
+    [Environment]::GetFolderPath("Desktop"),
+    (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction SilentlyContinue).Desktop,
+    (Join-Path $env:OneDrive "Desktop"),
+    (Join-Path $env:USERPROFILE "OneDrive\Desktop"),
+    (Join-Path $env:USERPROFILE "Desktop")
+  ) | Where-Object { $_ }
+
+  foreach ($candidate in $candidates) {
+    $expanded = [Environment]::ExpandEnvironmentVariables($candidate)
+    if (Test-Path -LiteralPath $expanded) {
+      return $expanded
+    }
+  }
+
+  $fallback = Join-Path $env:USERPROFILE "Desktop"
+  New-Item -ItemType Directory -Force -Path $fallback | Out-Null
+  return $fallback
+}
+
+$desktop = Get-DesktopPath
 $target = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
 $icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
 

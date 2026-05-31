@@ -4,8 +4,8 @@
 # install with the new build, preserves the tools/ folder and any user data
 # that lives elsewhere (~/.codex/ is untouched — Codex stores sessions there).
 #
-# Requires: gh CLI. Authentication is optional for the public repo but helps
-# avoid GitHub API rate limits.
+# Uses the GitHub Releases API directly, so GitHub CLI is not required.
+# Requires Windows tar.exe for extraction.
 
 [CmdletBinding()]
 param(
@@ -17,6 +17,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # IMPORTANT: this script will rename the install dir. PowerShell holds a
 # handle on its current working directory; if CWD is anywhere under the
@@ -51,23 +52,19 @@ $currentTag = if (Test-Path -LiteralPath $versionFile) { (Get-Content $versionFi
 Log "Current installed tag: $currentTag"
 
 # Check release on the remote. Default = latest; -Tag installs an explicit lane.
-# Parse JSON in PowerShell rather than jq — avoids quoting headaches with the
-# regex pattern when the jq expression is passed through pwsh argument parser.
-$releaseArgs = @('release', 'view')
-if ($Tag) { $releaseArgs += $Tag }
-$releaseArgs += @('--repo', $Repo, '--json', 'tagName,assets')
-$releaseJson = gh @releaseArgs
-if ($LASTEXITCODE -ne 0 -or -not $releaseJson) {
-    throw "gh release view failed for $Repo (exit $LASTEXITCODE)"
+if ($Tag) {
+    $releaseUrl = "https://api.github.com/repos/$Repo/releases/tags/$Tag"
+} else {
+    $releaseUrl = "https://api.github.com/repos/$Repo/releases/latest"
 }
-$release = $releaseJson | ConvertFrom-Json
+$release = Invoke-RestMethod $releaseUrl
 $assetMatch = $release.assets | Where-Object { $_.name -like 'CodexDesktop-Patched-win-x64-*.zip' } | Select-Object -First 1
-if (-not $release.tagName -or -not $assetMatch) {
+if (-not $release.tag_name -or -not $assetMatch) {
     throw "Could not find tag or matching asset on release of $Repo. Assets present: $($release.assets.name -join ', ')"
 }
-$latest = [PSCustomObject]@{ tag = $release.tagName; asset = $assetMatch.name }
+$latest = [PSCustomObject]@{ tag = $release.tag_name; asset = $assetMatch }
 Log "Remote tag       : $($latest.tag)"
-Log "Latest asset      : $($latest.asset)"
+Log "Latest asset      : $($latest.asset.name)"
 
 if (-not $Force -and $currentTag -eq $latest.tag) {
     Log "Already on the latest tag. Pass -Force to reinstall."
@@ -89,15 +86,20 @@ $staging = Join-Path $env:TEMP "codex-update-$([guid]::NewGuid().Guid.Substring(
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 try {
-    Log "Downloading $($latest.asset)..."
-    & gh release download $latest.tag --repo $Repo --pattern $latest.asset --dir $staging --clobber
-    if ($LASTEXITCODE -ne 0) { throw "gh release download failed with exit $LASTEXITCODE" }
-    $zip = Get-Item (Join-Path $staging $latest.asset)
+    Log "Downloading $($latest.asset.name)..."
+    $zipPath = Join-Path $staging $latest.asset.name
+    Invoke-WebRequest -Uri $latest.asset.browser_download_url -OutFile $zipPath
+    $zip = Get-Item -LiteralPath $zipPath
+    if ($zip.Length -ne [int64]$latest.asset.size) {
+        throw "Download incomplete: got $($zip.Length) bytes, expected $($latest.asset.size)"
+    }
     Log ("Downloaded {0:N0} MB" -f ($zip.Length / 1MB))
 
     Log "Extracting to staging..."
     $extractDir = Join-Path $staging 'extract'
-    Expand-Archive -LiteralPath $zip.FullName -DestinationPath $extractDir -Force
+    New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+    tar -xf $zip.FullName -C $extractDir
+    if ($LASTEXITCODE -ne 0) { throw "tar extraction failed with exit $LASTEXITCODE" }
 
     # Preserve tools/ from current install — they are co-located helper scripts
     # we don't want to lose during the swap. Future releases may bundle their
