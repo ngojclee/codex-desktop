@@ -211,6 +211,28 @@ jobs:
           $appDir = (Resolve-Path build).Path
           python patches/verify_markers.py "$appDir" --upstream-tag '${{ steps.upstream.outputs.tag }}'
 
+      - name: Remove patcher backup artifacts from package
+        if: steps.ours.outputs.skip == 'false'
+        shell: pwsh
+        run: |
+          $appDir = (Resolve-Path build).Path
+          $backupFiles = @()
+          $backupFiles += Get-Item -LiteralPath (Join-Path $appDir 'Codex.exe.bak-before-fuse-patch') -ErrorAction SilentlyContinue
+          $backupFiles += Get-ChildItem -LiteralPath (Join-Path $appDir 'resources') -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'app.asar.bak-before-*' }
+
+          if ($backupFiles.Count -eq 0) {
+            Write-Host 'No patcher backup artifacts found in package.'
+            return
+          }
+
+          $total = ($backupFiles | Measure-Object -Property Length -Sum).Sum
+          $backupFiles | ForEach-Object {
+            Write-Host ("Removing package-only backup: {0} ({1:N1} MB)" -f $_.FullName, ($_.Length / 1MB))
+            Remove-Item -LiteralPath $_.FullName -Force
+          }
+          Write-Host ("Removed {0} package backup artifact(s), saving about {1:N1} MB." -f $backupFiles.Count, ($total / 1MB))
+
       - name: Bundle runtime/ into build/tools/
         if: steps.ours.outputs.skip == 'false'
         shell: pwsh
