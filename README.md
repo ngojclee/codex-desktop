@@ -18,19 +18,41 @@ The patches are **derived patches** applied on top of upstream binary releases:
 
 ## Install (end users)
 
-### Quick install (one command)
+### Quick install (PowerShell, no `gh` required)
+
+Use this on a fresh Windows machine. It downloads the latest public patched
+release from GitHub and extracts it to `%LOCALAPPDATA%\CodexFromGithub`.
 
 ```powershell
-# Download latest patched release and extract to default location
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-  $zip = Join-Path $env:TEMP 'codex-patched.zip'
-  $tag = (gh release view --repo ngojclee/codex-desktop --json tagName -q .tagName)
-  gh release download $tag --repo ngojclee/codex-desktop --pattern 'CodexDesktop-Patched-win-x64-*.zip' --output $zip --clobber
-  Expand-Archive $zip -DestinationPath $env:LOCALAPPDATA\CodexFromGithub -Force
-  Remove-Item $zip
-  Write-Host 'Installed to:' $env:LOCALAPPDATA\CodexFromGithub
-}"
+powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
+  $ErrorActionPreference = "Stop"
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+  $repo = "ngojclee/codex-desktop"
+  $installDir = Join-Path $env:LOCALAPPDATA "CodexFromGithub"
+  $zip = Join-Path $env:TEMP "codex-patched.zip"
+
+  $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+  $asset = $release.assets |
+    Where-Object { $_.name -like "CodexDesktop-Patched-win-x64-*.zip" } |
+    Select-Object -First 1
+  if (-not $asset) {
+    throw "No Windows patched zip found in release $($release.tag_name)"
+  }
+
+  New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+  Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+  Expand-Archive -LiteralPath $zip -DestinationPath $installDir -Force
+  Remove-Item -LiteralPath $zip -Force
+
+  Write-Host "Installed $($release.tag_name) to: $installDir"
+  Write-Host "Launch with: $installDir\tools\Launch-Codex.vbs"
+}'
 ```
+
+The outer `-Command` argument uses single quotes on purpose. If you use double
+quotes there while pasting into an existing PowerShell window, the parent shell
+expands `$zip`, `$release`, `$_`, etc. before the installer runs.
 
 ### Quick update (existing install)
 
