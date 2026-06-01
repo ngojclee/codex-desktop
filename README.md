@@ -366,6 +366,8 @@ The replacement is same-length (padded with spaces), so no ASAR repack is needed
 
 Note: Google Chrome CUA works immediately. Any App requires upstream 26.527+ which ships codex-computer-use.exe (the Windows CUA helper binary). Earlier builds do not include this binary.
 
+The launcher also clears the generated `~/.codex/.tmp/bundled-marketplaces/openai-bundled` cache when a 26.527+ bundle contains `computer-use` but the runtime marketplace was generated without it, forcing Desktop to reconcile the bundled plugin list again.
+
 ### Patch K -- Codex mobile setup entrypoint
 
 Recent Codex Desktop bundles include the Codex mobile route (`/codex-mobile`) and setup flow, but the sidebar entrypoint is hidden behind remote-control feature gates. Patch K exposes the local setup entrypoint by relaxing the renderer sidebar gate and bypassing the two related Statsig gates:
