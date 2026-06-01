@@ -9,6 +9,10 @@ on:
         description: 'Override upstream tag (default = latest). e.g. v26.506.21252'
         required: false
         type: string
+      upstream_repo:
+        description: 'Override unpatched rebuild repo (default = ngojclee/codex-desktop-rebuild)'
+        required: false
+        type: string
       force:
         description: 'Force re-release even if our repo already has this version'
         required: false
@@ -26,6 +30,9 @@ on:
 
 permissions:
   contents: write   # required to create releases
+
+env:
+  UPSTREAM_REBUILD_REPO: ngojclee/codex-desktop-rebuild
 
 jobs:
   repatch:
@@ -54,13 +61,17 @@ jobs:
         id: upstream
         shell: pwsh
         run: |
+          $upstreamRepo = '${{ inputs.upstream_repo }}'.Trim()
+          if (-not $upstreamRepo) { $upstreamRepo = '${{ env.UPSTREAM_REBUILD_REPO }}' }
           $tag = '${{ inputs.upstream_tag }}'
           if (-not $tag) {
-            $latest = gh release view --repo Haleclipse/CodexDesktop-Rebuild --json tagName --jq '.tagName'
+            $latest = gh release view --repo $upstreamRepo --json tagName --jq '.tagName'
             if (-not $latest) { throw "Could not fetch latest upstream release" }
             $tag = $latest
           }
+          Write-Host "Upstream rebuild repo: $upstreamRepo"
           Write-Host "Upstream tag: $tag"
+          "repo=$upstreamRepo" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -101,8 +112,9 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ steps.upstream.outputs.tag }}'
+          $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          gh release download $tag --repo Haleclipse/CodexDesktop-Rebuild --pattern 'Codex-win-x64-*.zip' --dir artifacts
+          gh release download $tag --repo $upstreamRepo --pattern 'Codex-win-x64-*.zip' --dir artifacts
           Get-ChildItem artifacts | Format-Table -AutoSize
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -276,9 +288,10 @@ jobs:
         run: |
           $tag = '${{ steps.ours.outputs.tag }}'
           $upstream = '${{ steps.upstream.outputs.tag }}'
+          $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
           $asset = '${{ steps.pack.outputs.asset }}'
           $notes = @"
-          Patched build derived from upstream [Haleclipse/CodexDesktop-Rebuild $upstream](https://github.com/Haleclipse/CodexDesktop-Rebuild/releases/tag/$upstream).
+          Patched build derived from upstream rebuild [$upstreamRepo $upstream](https://github.com/$upstreamRepo/releases/tag/$upstream).
 
           ## Patches applied
           - **Patch A** — bump `listRecentThreads` renderer `limit:50` to `limit:1000`
