@@ -293,7 +293,7 @@ $env:CODEX_APP_SERVER_WS_URL = $WsUrl
 #   1. isInternal(buildFlavor) - only 'dev','agent','nightly','owl','internal-alpha' pass.
 #   2. features.computerUse === true - server-delivered feature flag.
 # The Haleclipse rebuild ships codexBuildFlavor=prod which fails (1).
-# Setting BUILD_FLAVOR=dev makes $.resolve() return 'dev', so isInternal passes.
+# Setting BUILD_FLAVOR=owl keeps the Owl shell lane while making isInternal pass.
 # CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 forces the feature flag (2).
 #
 # NOTE: These env vars are necessary but not sufficient on Windows. The plugin
@@ -302,7 +302,7 @@ $env:CODEX_APP_SERVER_WS_URL = $WsUrl
 # those files, the reconciliation has nothing to materialize. On macOS, the
 # plugin ships in the app bundle and only needs features.computerUse=true.
 if (-not $env:BUILD_FLAVOR) {
-    $env:BUILD_FLAVOR = 'dev'
+    $env:BUILD_FLAVOR = 'owl'
 }
 if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
     $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'

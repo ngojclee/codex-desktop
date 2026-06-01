@@ -353,7 +353,7 @@ Patch I is now part of the default stable lane. The failure lives in the bundled
 
 Computer Use (Any App + Google Chrome) is blocked on non-internal builds by three layers:
 
-1. **Build flavor gate** -- the bundled plugin reconciliation requires isInternal(buildFlavor) on Windows. The Haleclipse rebuild ships codexBuildFlavor=prod which fails this check. The launcher sets BUILD_FLAVOR=dev to bypass.
+1. **Build flavor gate** -- the bundled plugin reconciliation requires isInternal(buildFlavor) on Windows. The Haleclipse rebuild ships codexBuildFlavor=prod which fails this check. The launcher sets BUILD_FLAVOR=owl so it stays on the Owl shell lane while passing the internal-build gate.
 2. **Feature flag** -- features.computerUse must be true. The launcher sets CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 to force it.
 3. **Statsig feature gates** -- the renderer checks three server-side gates before enabling the UI toggles. Patcher replaces each gate check with !0 (true) using a flexible regex that matches any minified function name wrapping the gate ID.
 
