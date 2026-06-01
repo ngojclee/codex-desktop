@@ -24,6 +24,8 @@ param(
     [int]$PortMin = 24567,
     [int]$PortMax = 24600,
     [int]$BindTimeoutSec = 8,
+    [ValidateSet('owl','dev','agent','nightly','internal-alpha','prod')]
+    [string]$BuildFlavor,
     [switch]$ShowSidecarWindow
 )
 
@@ -34,6 +36,14 @@ $SidecarExe   = Join-Path $InstallDir 'resources\codex.exe'
 $DesktopExe   = Join-Path $InstallDir 'Codex.exe'
 $StateFile    = Join-Path $env:USERPROFILE '.codex\desktop-shared-app-server.json'
 $LogDir       = Join-Path $env:TEMP 'codex-shared'
+$ExplicitBuildFlavor = [bool]$BuildFlavor
+$ResolvedBuildFlavor = if ($BuildFlavor) {
+    $BuildFlavor
+} elseif ($env:BUILD_FLAVOR) {
+    $env:BUILD_FLAVOR
+} else {
+    'owl'
+}
 
 if (-not (Test-Path -LiteralPath $SidecarExe)) { throw "Sidecar missing: $SidecarExe" }
 if (-not (Test-Path -LiteralPath $DesktopExe)) { throw "Desktop missing: $DesktopExe" }
@@ -203,8 +213,18 @@ if ((Get-DesktopProcessCount) -gt 0) {
     $sidecars = Get-InstallSidecars
     $privateSidecars = @($sidecars | Where-Object { $_.CommandLine -notmatch '--listen\s+ws://127\.0\.0\.1:' })
     $sharedSidecars = @($sidecars | Where-Object { $_.CommandLine -match '--listen\s+ws://127\.0\.0\.1:' })
+    $stateBuildFlavor = $null
+    try {
+        if (Test-Path -LiteralPath $StateFile) {
+            $stateBuildFlavor = [string](Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json).build_flavor
+        }
+    } catch {}
+    $buildFlavorMatches = -not $ExplicitBuildFlavor -or (
+        $stateBuildFlavor -and
+        $stateBuildFlavor.Equals($ResolvedBuildFlavor, [System.StringComparison]::OrdinalIgnoreCase)
+    )
 
-    if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile)) {
+    if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile) -and $buildFlavorMatches) {
         Write-Host "Codex Desktop already running on shared sidecar - focusing existing window."
         if ($ShowSidecarWindow) {
             Start-CurrentSidecarLogWindow
@@ -283,6 +303,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
     startedAt       = (Get-Date).ToString('o')
     log_out         = $logOut
     log_err         = $logErr
+    build_flavor    = $ResolvedBuildFlavor
 } | ConvertTo-Json | Set-Content -LiteralPath $StateFile -Encoding UTF8
 
 # Launch Desktop with env vars
@@ -301,9 +322,7 @@ $env:CODEX_APP_SERVER_WS_URL = $WsUrl
 # bundle at resources/plugins/openai-bundled/plugins/computer-use/. Without
 # those files, the reconciliation has nothing to materialize. On macOS, the
 # plugin ships in the app bundle and only needs features.computerUse=true.
-if (-not $env:BUILD_FLAVOR) {
-    $env:BUILD_FLAVOR = 'owl'
-}
+$env:BUILD_FLAVOR = $ResolvedBuildFlavor
 if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
     $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'
 }
