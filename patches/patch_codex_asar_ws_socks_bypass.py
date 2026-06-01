@@ -13,7 +13,9 @@ the WS transport so the connection goes direct. Auth headers from `th()` are
 already empty `{}`; no other tweak is needed.
 
 Idempotent: re-running on an already-patched asar is a no-op. Verified by the
-absence of the `socks5h://127.0.0.1:1080` string in the workspace bundle.
+absence of the `socks5h://127.0.0.1:1080` string in any packed JavaScript
+bundle. Older builds placed this code in `workspace-root-drop-handler-*`; Owl
+26.527 moved it into `.vite/build/src-*.js`.
 """
 import argparse
 import hashlib
@@ -24,11 +26,14 @@ import shutil
 import struct
 from pathlib import Path
 
+SOCKS_LITERAL = "socks5h://127.0.0.1:1080"
+
 # Minifier-emitted identifier prefix (e.g. `Qm`) may differ between builds, so
 # match flexibly. The leading comma is part of the match so removing it does
 # not leave a stray `,,` in the option object.
 SOCKS_PATTERN = re.compile(
-    r",agent:new \w+\.SocksProxyAgent\(`socks5h://127\.0\.0\.1:1080`\)"
+    r",agent:new\s+[A-Za-z_$][A-Za-z0-9_$]*\.SocksProxyAgent\((?P<q>[`'\"])"
+    r"socks5h://127\.0\.0\.1:1080(?P=q)\)"
 )
 
 
@@ -53,20 +58,10 @@ def iter_files(node, parts=()):
             yield "/".join(cp), meta
 
 
-def find_target(header):
-    cands = []
+def iter_js_entries(header):
     for p, m in iter_files(header):
-        if (
-            p.startswith(".vite/build/workspace-root-drop-handler-")
-            and p.endswith(".js")
-            and "offset" in m
-        ):
-            cands.append((p, m))
-    if not cands:
-        raise RuntimeError("workspace-root-drop-handler bundle not found in app.asar")
-    if len(cands) > 1:
-        raise RuntimeError(f"Multiple workspace bundles: {[p for p, _ in cands]}")
-    return cands[0]
+        if p.endswith(".js") and "offset" in m:
+            yield p, m
 
 
 def extract(asar_path, payload_start, meta):
@@ -79,7 +74,7 @@ def patch_js(data: bytes):
     text = data.decode("utf-8")
     matches = list(SOCKS_PATTERN.finditer(text))
     if not matches:
-        if "socks5h://127.0.0.1:1080" not in text:
+        if SOCKS_LITERAL not in text:
             return data, {"status": "already_patched", "replaced": 0}
         raise RuntimeError(
             "Found 'socks5h://127.0.0.1:1080' but pattern did not match — bundle layout changed"
@@ -118,24 +113,22 @@ def serialize_header(header):
     return prefix + raw + (b"\0" * pad)
 
 
-def repack(asar_path, header, payload_start, target_path, patched_data):
+def repack(asar_path, header, payload_start, patched_by_path):
     entries = packed_entries(header)
-    data_by_path = {target_path: patched_data}
-    found = False
+    patched_paths = set(patched_by_path)
     for p, m, _ in entries:
-        if p == target_path:
-            update_integrity(m, patched_data)
-            found = True
-            break
-    if not found:
-        raise RuntimeError(f"Target entry missing after iteration: {target_path}")
+        if p in patched_by_path:
+            update_integrity(m, patched_by_path[p])
+            patched_paths.remove(p)
+    if patched_paths:
+        raise RuntimeError(f"Target entries missing after iteration: {sorted(patched_paths)}")
 
     last = None
     for _ in range(10):
         off = 0
         for p, m, _old in entries:
             m["offset"] = str(off)
-            off += len(data_by_path[p]) if p in data_by_path else int(m["size"])
+            off += len(patched_by_path[p]) if p in patched_by_path else int(m["size"])
         hb = serialize_header(header)
         if hb == last:
             break
@@ -148,8 +141,8 @@ def repack(asar_path, header, payload_start, target_path, patched_data):
         out.write(last)
         with asar_path.open("rb") as src:
             for p, m, old_off in entries:
-                if p in data_by_path:
-                    out.write(data_by_path[p])
+                if p in patched_by_path:
+                    out.write(patched_by_path[p])
                 else:
                     src.seek(payload_start + old_off)
                     remaining = int(m["size"])
@@ -174,12 +167,22 @@ def main():
         raise SystemExit(f"Missing ASAR: {asar}")
 
     header, payload_start = read_header(asar)
-    target_path, target_meta = find_target(header)
-    original = extract(asar, payload_start, target_meta)
-    patched, info = patch_js(original)
+    patched_by_path = {}
+    replaced = 0
+    literal_paths = []
+    for js_path, js_meta in iter_js_entries(header):
+        original = extract(asar, payload_start, js_meta)
+        if SOCKS_LITERAL.encode("utf-8") not in original:
+            continue
+        literal_paths.append(js_path)
+        patched, info = patch_js(original)
+        if info["status"] != "patched":
+            raise RuntimeError(f"Patch G failed for {js_path}: {info}")
+        patched_by_path[js_path] = patched
+        replaced += info["replaced"]
 
-    if info["status"] == "already_patched":
-        print(json.dumps({"status": "already_patched", "target": target_path}, indent=2))
+    if not patched_by_path:
+        print(json.dumps({"status": "already_patched", "targets": []}, indent=2))
         return
 
     if not args.no_backup:
@@ -187,20 +190,23 @@ def main():
         if not bk.exists():
             shutil.copy2(asar, bk)
 
-    repack(asar, header, payload_start, target_path, patched)
+    repack(asar, header, payload_start, patched_by_path)
 
     vh, vps = read_header(asar)
-    vt, vm = find_target(vh)
-    vd = extract(asar, vps, vm).decode("utf-8")
-    if "socks5h://127.0.0.1:1080" in vd:
-        raise SystemExit("Verification failed: SOCKS5 hardcode still present after repack")
+    residual = []
+    for js_path, js_meta in iter_js_entries(vh):
+        vd = extract(asar, vps, js_meta).decode("utf-8", "replace")
+        if SOCKS_LITERAL in vd:
+            residual.append(js_path)
+    if residual:
+        raise SystemExit(f"Verification failed: SOCKS5 hardcode still present in {residual}")
 
     print(
         json.dumps(
             {
                 "status": "patched",
-                "target": target_path,
-                "replaced": info["replaced"],
+                "targets": literal_paths,
+                "replaced": replaced,
                 "asar": str(asar),
             },
             indent=2,
