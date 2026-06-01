@@ -13,7 +13,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
-- Source binary: [Haleclipse/CodexDesktop-Rebuild](https://github.com/Haleclipse/CodexDesktop-Rebuild) — a cross-platform repackage of OpenAI's Codex Desktop.
+- Source binary: [ngojclee/codex-desktop-rebuild](https://github.com/ngojclee/codex-desktop-rebuild) — our public unpatched rebuild fork of [Haleclipse/CodexDesktop-Rebuild](https://github.com/Haleclipse/CodexDesktop-Rebuild).
 - This repo holds **only the patcher scripts + automation**. The output is a `CodexDesktop-Patched-win-x64-*.zip` published as a Release.
 
 ## Install (end users)
@@ -302,7 +302,7 @@ The patches identify functions in the renderer JS by **pattern match** on stable
 GitHub Action `.github/workflows/auto-repatch-release.yml`:
 
 1. Runs every 3h (or manually via `workflow_dispatch`).
-2. Checks Haleclipse upstream for new release tag.
+2. Checks our unpatched rebuild upstream (`ngojclee/codex-desktop-rebuild` by default) for a new release tag.
 3. If our repo doesn't have that version yet -> downloads upstream Windows zip -> applies the compatible patch set via `apply-all-patches.ps1` -> verifies markers -> repackages -> publishes release.
 4. If patterns no longer match (upstream refactored), the verification step fails loudly and the maintainer needs to update the patcher pattern strings.
 5. Manual `workflow_dispatch` can still publish isolated lanes with `release_suffix` if needed, but the default lane already includes Patch I and no longer needs a separate `-sendinput` tag.
@@ -324,7 +324,7 @@ Renderer calls `listRecentThreads({limit:50})`. Patcher bumps the literal `50` t
 
 ### Patch B — Electron fuse flip
 
-`Codex.exe` is built with the Electron fuse `EnableEmbeddedAsarIntegrityValidation` enabled (true for both Microsoft Store and Haleclipse rebuild). Without flipping it, any modification to `app.asar` causes the app to refuse to launch. Patcher locates fuse byte index 4 in the executable and flips it to `REMOVED`.
+Classic Electron builds ship `Codex.exe` with the Electron fuse `EnableEmbeddedAsarIntegrityValidation` enabled. Without flipping it, any modification to `app.asar` causes the app to refuse to launch. Patcher locates fuse byte index 4 in the executable and flips it to `REMOVED`. Newer Owl shell Windows builds do not contain the Electron fuse sentinel; Patch B detects that layout and safely skips because there is no Electron fuse to flip.
 
 ### Patch C v3 — Always-paginate
 
@@ -389,7 +389,7 @@ State file: `~/.codex/desktop-shared-app-server.json` holds the live `ws_url`, `
 
 ## Credits & License
 
-- Upstream binary: [Haleclipse/CodexDesktop-Rebuild](https://github.com/Haleclipse/CodexDesktop-Rebuild) — cross-platform repackage of OpenAI Codex.
+- Upstream binary: [ngojclee/codex-desktop-rebuild](https://github.com/ngojclee/codex-desktop-rebuild) — our unpatched rebuild lane, forked from [Haleclipse/CodexDesktop-Rebuild](https://github.com/Haleclipse/CodexDesktop-Rebuild).
 - Codex CLI (inside the asar): © OpenAI, [Apache-2.0](https://github.com/openai/codex).
 - This repo's patcher scripts and glue: MIT (see [LICENSE](LICENSE)).
 
