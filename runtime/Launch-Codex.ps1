@@ -92,6 +92,75 @@ function Stop-InstallProcesses {
     }
 }
 
+function Start-LogTailWindow {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string[]]$Paths,
+        [string]$Title = 'Codex Shared Sidecar Logs'
+    )
+
+    $existing = @($Paths | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    if ($existing.Count -eq 0) {
+        Write-Host "No sidecar log file found yet."
+        return
+    }
+
+    $literalPaths = ($existing | ForEach-Object {
+        "'" + ($_ -replace "'", "''") + "'"
+    }) -join ','
+    $safeTitle = $Title -replace "'", "''"
+    $script = @"
+`$Host.UI.RawUI.WindowTitle = '$safeTitle'
+Write-Host 'Tailing Codex sidecar log(s). Close this window when done.' -Fore Yellow
+Write-Host ''
+`$paths = @($literalPaths)
+foreach (`$path in `$paths) {
+    if (Test-Path -LiteralPath `$path) {
+        Write-Host "----- `$path -----" -Fore Cyan
+        Get-Content -LiteralPath `$path -Tail 40
+        Write-Host ''
+    }
+}
+Write-Host 'Watching for new log lines...' -Fore Yellow
+`$jobs = @()
+foreach (`$path in `$paths) {
+    if (-not (Test-Path -LiteralPath `$path)) { continue }
+    `$jobs += Start-Job -ArgumentList `$path -ScriptBlock {
+        param([string]`$Path)
+        Get-Content -LiteralPath `$Path -Tail 0 -Wait | ForEach-Object {
+            '[{0}] {1}' -f [IO.Path]::GetFileName(`$Path), `$_
+        }
+    }
+}
+try {
+    while (`$true) {
+        if (`$jobs.Count -gt 0) { Receive-Job -Job `$jobs }
+        Start-Sleep -Milliseconds 500
+    }
+} finally {
+    if (`$jobs.Count -gt 0) {
+        `$jobs | Stop-Job -ErrorAction SilentlyContinue
+        `$jobs | Remove-Job -Force -ErrorAction SilentlyContinue
+    }
+}
+"@
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
+    Start-Process powershell.exe -ArgumentList @('-NoExit','-NoProfile','-EncodedCommand',$encoded) | Out-Null
+}
+
+function Start-CurrentSidecarLogWindow {
+    if (-not (Test-Path -LiteralPath $StateFile)) {
+        Write-Host "No shared-sidecar state file found at $StateFile."
+        return
+    }
+    try {
+        $state = Get-Content -Raw -LiteralPath $StateFile | ConvertFrom-Json
+        Start-LogTailWindow -Paths @($state.log_out, $state.log_err) -Title "Codex Shared Sidecar Logs ($($state.ws_url))"
+    } catch {
+        Write-Host "Could not open current sidecar logs: $_"
+    }
+}
+
 # Honor an existing live Desktop instance only when it is already on the shared
 # sidecar. If Desktop was opened directly, it will have spawned a private stdio
 # app-server and must be restarted with CODEX_APP_SERVER_WS_URL in its env.
@@ -102,6 +171,9 @@ if ((Get-DesktopProcessCount) -gt 0) {
 
     if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile)) {
         Write-Host "Codex Desktop already running on shared sidecar - focusing existing window."
+        if ($ShowSidecarWindow) {
+            Start-CurrentSidecarLogWindow
+        }
         Start-Process -FilePath $DesktopExe
         return
     }

@@ -180,7 +180,9 @@ $sc.Save()
 
 1. Go to the [Releases page](https://github.com/ngojclee/codex-desktop/releases) and download the latest `CodexDesktop-Patched-win-x64-*.zip`.
 2. Extract to `%LOCALAPPDATA%\CodexFromGithub\` (the launcher scripts assume this path; you can install elsewhere but you will have to edit them).
-3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop). The launcher:
+3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop). Use
+   `tools\Launch-Codex-Logs.vbs` when you want a visible sidecar log window.
+   The launcher:
    - Picks a free port in `24567..24600`
    - Starts a shared `codex.exe app-server --listen ws://127.0.0.1:<PORT>` in the background
    - Sets `CODEX_APP_SERVER_WS_URL` and launches `Codex.exe`
@@ -292,6 +294,7 @@ Note: Google Chrome CUA works immediately. Any App requires upstream 26.527+ whi
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
 - **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`).
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).

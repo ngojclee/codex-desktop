@@ -238,8 +238,9 @@ jobs:
         shell: pwsh
         run: |
           # Copy runtime/ scripts into the install's tools/ folder so fresh
-          # installs (and Update-Codex.ps1) get Launch-Codex.{ps1,cmd,vbs},
-          # Update-Codex.{ps1,cmd}, refresh helpers, watchdog, etc.
+          # installs (and Update-Codex.ps1) get Launch-Codex launchers,
+          # log-window launchers, Update-Codex.{ps1,cmd}, refresh helpers,
+          # watchdog, etc.
           $tools = 'build/tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
           Copy-Item -Recurse -Force runtime/* $tools
@@ -298,6 +299,8 @@ jobs:
           3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop)
              — the launcher starts a shared app-server sidecar, sets
              `CODEX_APP_SERVER_WS_URL`, runs Codex.exe, then cleans up.
+             Use `tools\Launch-Codex-Logs.vbs` when you want a visible
+             sidecar log window while debugging.
 
           ## Shared sidecar usage
           CLI can join the same sidecar with `codex resume <id> --remote ws://127.0.0.1:<PORT>`
