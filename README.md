@@ -133,7 +133,7 @@ the same `%LOCALAPPDATA%\CodexFromGithub` install directory and leaves
 & "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1" -Force
 ```
 
-### Create desktop shortcut
+### Create desktop shortcuts
 
 ```powershell
 function Get-DesktopPath {
@@ -159,6 +159,7 @@ function Get-DesktopPath {
 
 $desktop = Get-DesktopPath
 $target = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
+$logTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex-Logs.vbs"
 $icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
 
 if (-not (Test-Path -LiteralPath $target)) {
@@ -169,11 +170,17 @@ if (-not (Test-Path -LiteralPath $icon)) {
 }
 
 $ws = New-Object -ComObject WScript.Shell
-$sc = $ws.CreateShortcut((Join-Path $desktop "Codex (GitHub Patched).lnk"))
-$sc.TargetPath = $target
-$sc.WorkingDirectory = Split-Path $target
-$sc.IconLocation = "$icon,0"
-$sc.Save()
+function New-CodexShortcut([string]$Name, [string]$TargetPath) {
+  if (-not (Test-Path -LiteralPath $TargetPath)) { return }
+  $sc = $ws.CreateShortcut((Join-Path $desktop $Name))
+  $sc.TargetPath = $TargetPath
+  $sc.WorkingDirectory = Split-Path $TargetPath
+  $sc.IconLocation = "$icon,0"
+  $sc.Save()
+}
+
+New-CodexShortcut "Codex (GitHub Patched).lnk" $target
+New-CodexShortcut "Codex (GitHub Patched Logs).lnk" $logTarget
 ```
 
 ### Manual install
