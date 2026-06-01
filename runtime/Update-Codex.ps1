@@ -31,19 +31,69 @@ function Update-CodexShortcut {
     param([string]$InstallDir)
 
     $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'
+    $logLauncher = Join-Path $InstallDir 'tools\Launch-Codex-Logs.vbs'
+    $icon = Join-Path $InstallDir 'Codex.exe'
     if (-not (Test-Path -LiteralPath $launcher)) { return }
 
-    $shortcutPath = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex.lnk'
-    $shortcutDir = Split-Path -Parent $shortcutPath
-    New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
-
     $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $launcher
-    $shortcut.Arguments = ''
-    $shortcut.WorkingDirectory = Split-Path -Parent $launcher
-    $shortcut.IconLocation = (Join-Path $InstallDir 'Codex.exe') + ',0'
-    $shortcut.Save()
+
+    function Set-Shortcut {
+        param(
+            [Parameter(Mandatory=$true)][string]$Path,
+            [Parameter(Mandatory=$true)][string]$TargetPath,
+            [string]$Description = 'Codex Desktop (GitHub Patched)'
+        )
+
+        $shortcutDir = Split-Path -Parent $Path
+        New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
+
+        $shortcut = $shell.CreateShortcut($Path)
+        $shortcut.TargetPath = $TargetPath
+        $shortcut.Arguments = ''
+        $shortcut.WorkingDirectory = Split-Path -Parent $TargetPath
+        $shortcut.IconLocation = "$icon,0"
+        $shortcut.Description = $Description
+        $shortcut.Save()
+    }
+
+    $startShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex.lnk'
+    Set-Shortcut -Path $startShortcut -TargetPath $launcher
+
+    $desktopDir = [Environment]::GetFolderPath('Desktop')
+    if ($desktopDir) {
+        Set-Shortcut `
+            -Path (Join-Path $desktopDir 'Codex (GitHub Patched).lnk') `
+            -TargetPath $launcher
+
+        if (Test-Path -LiteralPath $logLauncher) {
+            Set-Shortcut `
+                -Path (Join-Path $desktopDir 'Codex (GitHub Patched Logs).lnk') `
+                -TargetPath $logLauncher `
+                -Description 'Codex Desktop (GitHub Patched) with visible shared-sidecar logs'
+        }
+    }
+
+    # Repair a pinned taskbar shortcut only when it already points at this
+    # install. That keeps unrelated Codex pins untouched while preventing future
+    # launches from bypassing the shared-sidecar/dev-mode launcher.
+    $taskbarShortcut = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\Codex.lnk'
+    if (Test-Path -LiteralPath $taskbarShortcut) {
+        try {
+            $existing = $shell.CreateShortcut($taskbarShortcut)
+            $target = [string]$existing.TargetPath
+            $installExe = Join-Path $InstallDir 'Codex.exe'
+            $isThisInstall =
+                $target.Equals($installExe, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $target.Equals($launcher, [System.StringComparison]::OrdinalIgnoreCase) -or
+                ($logLauncher -and $target.Equals($logLauncher, [System.StringComparison]::OrdinalIgnoreCase))
+
+            if ($isThisInstall) {
+                Set-Shortcut -Path $taskbarShortcut -TargetPath $launcher
+            }
+        } catch {
+            Log "WARN: could not update taskbar shortcut: $_"
+        }
+    }
 }
 
 # Resolve current installed version from tools/.version-tag if present
