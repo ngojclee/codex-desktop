@@ -27,6 +27,87 @@ Set-Location -LiteralPath $env:TEMP
 
 function Log($m) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" }
 
+$GitHubHeaders = @{
+    'Accept' = 'application/vnd.github+json'
+    'User-Agent' = 'codex-desktop-patched-updater'
+}
+
+function Get-StatusCode {
+    param($ErrorRecord)
+
+    try {
+        if ($ErrorRecord.Exception.Response) {
+            return [int]$ErrorRecord.Exception.Response.StatusCode
+        }
+    } catch {}
+    return $null
+}
+
+function Invoke-GitHubApiWithFallback {
+    param(
+        [Parameter(Mandatory=$true)][string]$Repo,
+        [string]$Tag
+    )
+
+    if ($Tag) {
+        $apiPath = "repos/$Repo/releases/tags/$Tag"
+    } else {
+        $apiPath = "repos/$Repo/releases/latest"
+    }
+    $releaseUrl = "https://api.github.com/$apiPath"
+
+    try {
+        Log "Checking release via public GitHub API..."
+        return Invoke-RestMethod -Uri $releaseUrl -Headers $GitHubHeaders -ErrorAction Stop
+    } catch {
+        $status = Get-StatusCode $_
+        $gh = Get-Command gh -ErrorAction SilentlyContinue
+        if (-not $gh) {
+            throw "Could not read release from public GitHub API ($status). If $Repo is private, install GitHub CLI and run 'gh auth login'. Original error: $($_.Exception.Message)"
+        }
+
+        Log "Public GitHub API failed ($status); trying GitHub CLI auth fallback..."
+        $json = & gh api $apiPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "GitHub CLI fallback failed. Run 'gh auth login' if $Repo is private. gh output: $json"
+        }
+        return ($json | ConvertFrom-Json)
+    }
+}
+
+function Save-GitHubReleaseAsset {
+    param(
+        [Parameter(Mandatory=$true)]$Release,
+        [Parameter(Mandatory=$true)]$Asset,
+        [Parameter(Mandatory=$true)][string]$Repo,
+        [Parameter(Mandatory=$true)][string]$DestinationDir
+    )
+
+    $zipPath = Join-Path $DestinationDir $Asset.name
+    try {
+        Invoke-WebRequest -Uri $Asset.browser_download_url -Headers $GitHubHeaders -OutFile $zipPath -ErrorAction Stop
+        return $zipPath
+    } catch {
+        $status = Get-StatusCode $_
+        $gh = Get-Command gh -ErrorAction SilentlyContinue
+        if (-not $gh) {
+            throw "Could not download release asset via public URL ($status). If $Repo is private, install GitHub CLI and run 'gh auth login'. Original error: $($_.Exception.Message)"
+        }
+
+        Log "Public asset download failed ($status); trying GitHub CLI auth fallback..."
+        & gh release download $Release.tag_name --repo $Repo --pattern $Asset.name --dir $DestinationDir --clobber
+        if ($LASTEXITCODE -ne 0) {
+            throw "GitHub CLI asset download failed. Run 'gh auth login' if $Repo is private."
+        }
+
+        $downloaded = Get-ChildItem -LiteralPath $DestinationDir -Filter $Asset.name | Select-Object -First 1
+        if (-not $downloaded) {
+            throw "GitHub CLI reported success, but asset was not found in $DestinationDir"
+        }
+        return $downloaded.FullName
+    }
+}
+
 function Update-CodexShortcut {
     param([string]$InstallDir)
 
@@ -117,12 +198,9 @@ $currentTag = if (Test-Path -LiteralPath $versionFile) { (Get-Content $versionFi
 Log "Current installed tag: $currentTag"
 
 # Check release on the remote. Default = latest; -Tag installs an explicit lane.
-if ($Tag) {
-    $releaseUrl = "https://api.github.com/repos/$Repo/releases/tags/$Tag"
-} else {
-    $releaseUrl = "https://api.github.com/repos/$Repo/releases/latest"
-}
-$release = Invoke-RestMethod $releaseUrl
+# Public repos use unauthenticated GitHub HTTP. Private repos fall back to
+# GitHub CLI auth when public access is denied.
+$release = Invoke-GitHubApiWithFallback -Repo $Repo -Tag $Tag
 $assetMatch = $release.assets | Where-Object { $_.name -like 'CodexDesktop-Patched-win-x64-*.zip' } | Select-Object -First 1
 if (-not $release.tag_name -or -not $assetMatch) {
     throw "Could not find tag or matching asset on release of $Repo. Assets present: $($release.assets.name -join ', ')"
@@ -152,8 +230,7 @@ New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
 try {
     Log "Downloading $($latest.asset.name)..."
-    $zipPath = Join-Path $staging $latest.asset.name
-    Invoke-WebRequest -Uri $latest.asset.browser_download_url -OutFile $zipPath
+    $zipPath = Save-GitHubReleaseAsset -Release $release -Asset $latest.asset -Repo $Repo -DestinationDir $staging
     $zip = Get-Item -LiteralPath $zipPath
     if ($zip.Length -ne [int64]$latest.asset.size) {
         throw "Download incomplete: got $($zip.Length) bytes, expected $($latest.asset.size)"
