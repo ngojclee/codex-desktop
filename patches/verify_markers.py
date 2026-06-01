@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that all four patches were applied to a Codex Desktop app dir.
+"""Verify that all release patches were applied to a Codex Desktop app dir.
 
 Usage:
     python verify_markers.py <APP_DIR>
@@ -15,6 +15,7 @@ zip.
 """
 import argparse
 import json
+import os
 import re
 import struct
 import sys
@@ -104,6 +105,32 @@ def has_statsig_gate_call(app_dir: Path, gate_id: str) -> bool:
     return False
 
 
+def computer_use_plugin_status(app_dir: Path):
+    plugin = (
+        app_dir
+        / "resources"
+        / "plugins"
+        / "openai-bundled"
+        / "plugins"
+        / "computer-use"
+    )
+    if not plugin.exists():
+        return {"present": False, "escaped_scopes": [], "sky_package_exists": False}
+
+    node_modules = plugin / "node_modules"
+    escaped = []
+    for root, dirs, _files in os.walk(plugin):
+        for name in dirs:
+            if "%40" in name:
+                escaped.append(str((Path(root) / name).relative_to(plugin)))
+    escaped.sort()
+    return {
+        "present": True,
+        "escaped_scopes": escaped,
+        "sky_package_exists": (node_modules / "@oai" / "sky" / "package.json").exists(),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('app_dir')
@@ -119,6 +146,7 @@ def main():
     socks5_paths = find_js_occurrences(app_dir, "socks5h://127.0.0.1:1080")
     patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
     patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
+    computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
     print(f"Signals chunk : {signals_path}  ({len(signals_txt):,} bytes)")
@@ -127,6 +155,10 @@ def main():
         print(f"  - {path}")
     print(f"Patch H bundle: {patch_h_path}  ({len(patch_h_txt):,} bytes)")
     print(f"Patch K bundle: {patch_k_path}  ({len(patch_k_txt):,} bytes)")
+    print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
+    if computer_use["present"]:
+        print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
+        print(f"  @oai/sky package: {'present' if computer_use['sky_package_exists'] else 'missing'}")
     if args.upstream_tag:
         print(f"Upstream tag  : {args.upstream_tag}")
     if not expect_patch_d:
@@ -144,6 +176,8 @@ def main():
         ("Patch K — Codex mobile sidebar gate marker", lambda: "/*K*/" in patch_k_txt, True),
         ("Patch K — remote-control visibility Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "1042620455"), True),
         ("Patch K — Codex mobile onboarding Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "2798711298"), True),
+        ("Patch L — no percent-escaped Computer Use package folders", lambda: len(computer_use["escaped_scopes"]) == 0, computer_use["present"]),
+        ("Patch L — Computer Use @oai/sky package present", lambda: computer_use["sky_package_exists"], computer_use["present"]),
     )
 
     failed = []
