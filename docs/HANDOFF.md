@@ -51,7 +51,7 @@ The PowerShell entrypoint copies the Microsoft Store Codex app into:
 %LOCALAPPDATA%\OpenAI\CodexDesktopPatched
 ```
 
-Then it applies four patches to the copied app only:
+Then it applies the current patch set to the copied app only:
 
 - `patch_codex_asar_recent_window.py`
   Bumps renderer `limit:50` patterns to `limit:1000`.
@@ -81,6 +81,25 @@ Then it applies four patches to the copied app only:
   its stale Map across reconnect and `markAllConversationsNeedResume
   AfterReconnect` only flipped a flag — the UI never refreshed without a
   full app close+reopen. On upstream `26.513.x`, this reconnect clear now appears to regress thread-open hydration for some sessions, so the current release lane skips Patch D there until a safer variant is found.
+
+- `patch_codex_asar_ws_socks_bypass.py` *(Patch G)*
+  Removes the hardcoded SOCKS5 agent from local WebSocket app-server transport
+  so Desktop can attach to the shared sidecar launcher.
+
+- `patch_codex_asar_directive_windows_path.py` *(Patch H)*
+  Normalizes Windows paths inside one-line Codex app directives before markdown
+  directive parsing, preventing renderer crashes from directive backslashes.
+
+- `patch_codex_asar_computer_use_gate.py` *(Patch J)*
+  Bypasses renderer Statsig gates for Computer Use (Any App + Chrome). The
+  launcher also sets the dev-flavor/feature env vars required by the Windows
+  plugin reconciliation path.
+
+- `patch_codex_asar_codex_mobile_gate.py` *(Patch K)*
+  Exposes the bundled `/codex-mobile` setup entrypoint by relaxing the local
+  sidebar gate and enabling the related remote-control/onboarding Statsig
+  checks. Pairing still depends on upstream ChatGPT account auth and server-side
+  entitlement.
 
 After patching, the script also deletes any older `OpenAI.Codex_*_x64*` sibling
 directories under `CodexDesktopPatched` (each stale Store version leaves ~1.6 GB

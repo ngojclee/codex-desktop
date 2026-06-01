@@ -30,6 +30,7 @@ param(
     [switch]$SkipG,
     [switch]$SkipH,
     [switch]$SkipJ,
+    [switch]$SkipK,
 
     [string]$UpstreamTag
 )
@@ -90,6 +91,10 @@ if (-not $SkipH) {
 
 if (-not $SkipJ) {
     Run-Patch 'patch_codex_asar_computer_use_gate.py' @('--app-dir', $AppDir) 'Patch J — bypass Statsig gates for Computer Use (Any App + Chrome)'
+}
+
+if (-not $SkipK) {
+    Run-Patch 'patch_codex_asar_codex_mobile_gate.py' @('--app-dir', $AppDir) 'Patch K — expose Codex mobile setup entrypoint'
 }
 
 Write-Host ""
