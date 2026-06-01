@@ -38,6 +38,41 @@ $LogDir       = Join-Path $env:TEMP 'codex-shared'
 if (-not (Test-Path -LiteralPath $SidecarExe)) { throw "Sidecar missing: $SidecarExe" }
 if (-not (Test-Path -LiteralPath $DesktopExe)) { throw "Desktop missing: $DesktopExe" }
 
+function Get-MarketplacePluginNames([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+    try {
+        $json = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+        $plugins = @($json.plugins)
+        return @($plugins | ForEach-Object {
+            if ($_ -is [string]) {
+                $_
+            } elseif ($_.PSObject.Properties.Name -contains 'name') {
+                [string]$_.name
+            } elseif ($_.PSObject.Properties.Name -contains 'id') {
+                [string]$_.id
+            }
+        } | Where-Object { $_ })
+    } catch {
+        return @()
+    }
+}
+
+function Reset-StaleComputerUseMarketplaceCache {
+    $bundleMarketplace = Join-Path $InstallDir 'resources\plugins\openai-bundled\.agents\plugins\marketplace.json'
+    $runtimeRoot = Join-Path $env:USERPROFILE '.codex\.tmp\bundled-marketplaces\openai-bundled'
+    $runtimeMarketplace = Join-Path $runtimeRoot '.agents\plugins\marketplace.json'
+
+    $bundlePlugins = Get-MarketplacePluginNames $bundleMarketplace
+    if ($bundlePlugins -notcontains 'computer-use') { return }
+
+    $runtimePlugins = Get-MarketplacePluginNames $runtimeMarketplace
+    if ($runtimePlugins -contains 'computer-use') { return }
+
+    # The generated marketplace is a cache. If it was produced before Patch J
+    # or before a 26.527+ bundle, remove it so Desktop reconciles plugins again.
+    Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 function Test-PortListen([int]$port) {
     return [bool](Get-NetTCPConnection -LocalPort $port -State Listen -EA SilentlyContinue)
 }
@@ -272,6 +307,7 @@ if (-not $env:BUILD_FLAVOR) {
 if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
     $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'
 }
+Reset-StaleComputerUseMarketplaceCache
 
 $desktopArgs = @()
 if ($env:CODEX_ELECTRON_PROXY_SERVER) {
