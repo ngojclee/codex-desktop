@@ -5,6 +5,11 @@ This is required after patching app.asar, because Codex Desktop is built with th
 ASAR integrity fuse enabled — any modification to app.asar would otherwise cause
 Codex.exe to exit immediately with code -36861.
 
+Newer Windows builds may ship through OpenAI's Owl shell wrapper instead of a
+classic Electron executable. Those binaries do not contain the Electron fuse
+sentinel, so there is no Electron fuse to flip; in that layout this patch is a
+verified no-op.
+
 Reference: https://www.electronjs.org/docs/latest/tutorial/fuses
 """
 import argparse
@@ -37,6 +42,11 @@ def find_fuse_block(data: bytes) -> int:
     return pos + len(SENTINEL)
 
 
+def looks_like_owl_shell(exe_path: Path) -> bool:
+    app_dir = exe_path.parent
+    return (app_dir / ".installed-owl-shell.json").exists() or (app_dir / "resources" / "owl-electron-app.json").exists()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Flip Electron ASAR-integrity fuse on Codex.exe.")
     parser.add_argument("--exe", required=True, help="Absolute path to the patched copy of Codex.exe")
@@ -48,7 +58,13 @@ def main() -> None:
         raise SystemExit(f"Missing exe: {exe_path}")
 
     data = bytearray(exe_path.read_bytes())
-    block_start = find_fuse_block(data)
+    try:
+        block_start = find_fuse_block(data)
+    except RuntimeError as exc:
+        if looks_like_owl_shell(exe_path):
+            print(f"Skipped: {exc} Owl shell layout detected; Electron fuse patch is not required.")
+            return
+        raise
     version = data[block_start]
     count = data[block_start + 1]
     if version != 1:
