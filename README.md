@@ -95,6 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
 
   New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
   New-CodexShortcut "Codex (GitHub Patched Logs).lnk" (Join-Path $installDir "tools\Launch-Codex-Logs.vbs")
+  New-CodexShortcut "Codex (GitHub Patched Dev).lnk" (Join-Path $installDir "tools\Launch-Codex-Dev.vbs")
   New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
 
   Write-Host "Installed $($release.tag_name) to: $installDir"
@@ -184,6 +185,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
 
   New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
   New-CodexShortcut "Codex (GitHub Patched Logs).lnk" (Join-Path $installDir "tools\Launch-Codex-Logs.vbs")
+  New-CodexShortcut "Codex (GitHub Patched Dev).lnk" (Join-Path $installDir "tools\Launch-Codex-Dev.vbs")
   New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
 
   Write-Host "Installed latest patched release to: $installDir"
@@ -227,6 +229,7 @@ function Get-DesktopPath {
 $desktop = Get-DesktopPath
 $target = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
 $logTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex-Logs.vbs"
+$devTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex-Dev.vbs"
 $updateTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.cmd"
 $icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
 
@@ -249,6 +252,7 @@ function New-CodexShortcut([string]$Name, [string]$TargetPath) {
 
 New-CodexShortcut "Codex (GitHub Patched).lnk" $target
 New-CodexShortcut "Codex (GitHub Patched Logs).lnk" $logTarget
+New-CodexShortcut "Codex (GitHub Patched Dev).lnk" $devTarget
 New-CodexShortcut "Update-Codex.lnk" $updateTarget
 ```
 
@@ -257,7 +261,9 @@ New-CodexShortcut "Update-Codex.lnk" $updateTarget
 1. Go to the [Releases page](https://github.com/ngojclee/codex-desktop/releases) and download the latest `CodexDesktop-Patched-win-x64-*.zip`.
 2. Extract to `%LOCALAPPDATA%\CodexFromGithub\` (the launcher scripts assume this path; you can install elsewhere but you will have to edit them).
 3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop). Use
-   `tools\Launch-Codex-Logs.vbs` when you want a visible sidecar log window.
+   `tools\Launch-Codex-Logs.vbs` when you want a visible sidecar log window,
+   or `tools\Launch-Codex-Dev.vbs` when you specifically want to probe the
+   Dev build-flavor lane.
    The launcher:
    - Picks a free port in `24567..24600`
    - Starts a shared `codex.exe app-server --listen ws://127.0.0.1:<PORT>` in the background
@@ -273,7 +279,7 @@ New-CodexShortcut "Update-Codex.lnk" $updateTarget
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
-The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release.
+The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release. The updater also refreshes the standard, Logs, Dev, and Update desktop shortcuts when those launcher files are present.
 
 ## Architecture
 
@@ -353,7 +359,7 @@ Patch I is now part of the default stable lane. The failure lives in the bundled
 
 Computer Use (Any App + Google Chrome) is blocked on non-internal builds by three layers:
 
-1. **Build flavor gate** -- the bundled plugin reconciliation requires isInternal(buildFlavor) on Windows. The Haleclipse rebuild ships codexBuildFlavor=prod which fails this check. The launcher sets BUILD_FLAVOR=owl so it stays on the Owl shell lane while passing the internal-build gate.
+1. **Build flavor gate** -- the bundled plugin reconciliation requires isInternal(buildFlavor) on Windows. The Haleclipse rebuild ships codexBuildFlavor=prod which fails this check. The default launcher sets BUILD_FLAVOR=owl so it stays on the Owl shell lane while passing the internal-build gate; `Launch-Codex-Dev.vbs` uses the same shared-sidecar launcher with BUILD_FLAVOR=dev for feature probing.
 2. **Feature flag** -- features.computerUse must be true. The launcher sets CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 to force it.
 3. **Statsig feature gates** -- the renderer checks three server-side gates before enabling the UI toggles. Patcher replaces each gate check with !0 (true) using a flexible regex that matches any minified function name wrapping the gate ID.
 
@@ -383,6 +389,7 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
 - **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
+- **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`).
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).

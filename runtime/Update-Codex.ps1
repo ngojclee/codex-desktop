@@ -113,6 +113,7 @@ function Update-CodexShortcut {
 
     $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'
     $logLauncher = Join-Path $InstallDir 'tools\Launch-Codex-Logs.vbs'
+    $devLauncher = Join-Path $InstallDir 'tools\Launch-Codex-Dev.vbs'
     $updateLauncher = Join-Path $InstallDir 'tools\Update-Codex.cmd'
     $icon = Join-Path $InstallDir 'Codex.exe'
     if (-not (Test-Path -LiteralPath $launcher)) { return }
@@ -140,6 +141,13 @@ function Update-CodexShortcut {
 
     $startShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex.lnk'
     Set-Shortcut -Path $startShortcut -TargetPath $launcher
+    if (Test-Path -LiteralPath $devLauncher) {
+        $startDevShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex Dev.lnk'
+        Set-Shortcut `
+            -Path $startDevShortcut `
+            -TargetPath $devLauncher `
+            -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane'
+    }
     if (Test-Path -LiteralPath $updateLauncher) {
         $startUpdateShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Update-Codex.lnk'
         Set-Shortcut `
@@ -159,6 +167,13 @@ function Update-CodexShortcut {
                 -Path (Join-Path $desktopDir 'Codex (GitHub Patched Logs).lnk') `
                 -TargetPath $logLauncher `
                 -Description 'Codex Desktop (GitHub Patched) with visible shared-sidecar logs'
+        }
+
+        if (Test-Path -LiteralPath $devLauncher) {
+            Set-Shortcut `
+                -Path (Join-Path $desktopDir 'Codex (GitHub Patched Dev).lnk') `
+                -TargetPath $devLauncher `
+                -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane'
         }
 
         if (Test-Path -LiteralPath $updateLauncher) {
@@ -181,7 +196,8 @@ function Update-CodexShortcut {
             $isThisInstall =
                 $target.Equals($installExe, [System.StringComparison]::OrdinalIgnoreCase) -or
                 $target.Equals($launcher, [System.StringComparison]::OrdinalIgnoreCase) -or
-                ($logLauncher -and $target.Equals($logLauncher, [System.StringComparison]::OrdinalIgnoreCase))
+                ($logLauncher -and $target.Equals($logLauncher, [System.StringComparison]::OrdinalIgnoreCase)) -or
+                ($devLauncher -and $target.Equals($devLauncher, [System.StringComparison]::OrdinalIgnoreCase))
 
             if ($isThisInstall) {
                 Set-Shortcut -Path $taskbarShortcut -TargetPath $launcher
