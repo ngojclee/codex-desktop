@@ -286,11 +286,12 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_reconnect_clear.py   Patch D — clear conversations Map on reconnect
 │   ├── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
 │   ├── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
-│   └── patch_codex_asar_computer_use_gate.py Patch J — bypass Statsig gates for Computer Use
+│   ├── patch_codex_asar_computer_use_gate.py Patch J — bypass Statsig gates for Computer Use
+│   └── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
-├── apply-all-patches.ps1    Orchestrator — runs all 4 patchers on a given app dir
+├── apply-all-patches.ps1    Orchestrator — runs the patch set on a given app dir
 └── .github/workflows/auto-repatch-release.yml   CI: detect upstream release, repatch, release
 ```
 
@@ -364,6 +365,15 @@ Gate IDs bypassed:
 The replacement is same-length (padded with spaces), so no ASAR repack is needed. The patcher uses regex [a-zA-Z_] + backtick-wrapped ID to handle minifier renaming across builds.
 
 Note: Google Chrome CUA works immediately. Any App requires upstream 26.527+ which ships codex-computer-use.exe (the Windows CUA helper binary). Earlier builds do not include this binary.
+
+### Patch K -- Codex mobile setup entrypoint
+
+Recent Codex Desktop bundles include the Codex mobile route (`/codex-mobile`) and setup flow, but the sidebar entrypoint is hidden behind remote-control feature gates. Patch K exposes the local setup entrypoint by relaxing the renderer sidebar gate and bypassing the two related Statsig gates:
+
+- 1042620455 -- remote-control feature visibility
+- 2798711298 -- Codex mobile onboarding
+
+This does not bypass the actual pairing backend. The setup flow still calls the upstream ChatGPT/WHAM remote-control APIs and will require a ChatGPT-authenticated account with server-side access. If the account is not entitled, the UI can be opened but pairing may still fail or redirect to login.
 
 ## Runtime workflow
 
