@@ -139,6 +139,7 @@ jobs:
 
       - name: Checkout OpenAI Codex sidecar source
         if: steps.ours.outputs.skip == 'false'
+        id: codexsrc
         shell: pwsh
         run: |
           $codexRef = '${{ inputs.codex_ref }}'
@@ -153,6 +154,13 @@ jobs:
             git -C codex-src checkout FETCH_HEAD
             if ($LASTEXITCODE -ne 0) { throw "git checkout $codexRef failed with exit $LASTEXITCODE" }
           }
+          $sourceSha = (git -C codex-src rev-parse HEAD).Trim()
+          $sourceDate = (git -C codex-src show -s --format=%cI HEAD).Trim()
+          Write-Host "OpenAI Codex source SHA: $sourceSha"
+          Write-Host "OpenAI Codex source date: $sourceDate"
+          "resolved_ref=$codexRef" >> $env:GITHUB_OUTPUT
+          "source_sha=$sourceSha" >> $env:GITHUB_OUTPUT
+          "source_date=$sourceDate" >> $env:GITHUB_OUTPUT
 
       - name: Cache Rust build outputs
         if: steps.ours.outputs.skip == 'false'
@@ -256,6 +264,16 @@ jobs:
           $tools = 'build/tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
           Copy-Item -Recurse -Force runtime/* $tools
+          $sidecarSource = @"
+          upstream_rebuild_repo=${{ steps.upstream.outputs.repo }}
+          upstream_tag=${{ steps.upstream.outputs.tag }}
+          codex_ref=${{ steps.codexsrc.outputs.resolved_ref }}
+          codex_source_sha=${{ steps.codexsrc.outputs.source_sha }}
+          codex_source_date=${{ steps.codexsrc.outputs.source_date }}
+          sidecar_old_version=${{ steps.sidecar.outputs.old_version }}
+          sidecar_new_version=${{ steps.sidecar.outputs.new_version }}
+          "@
+          $sidecarSource.Trim() | Set-Content -LiteralPath (Join-Path $tools '.sidecar-source') -Encoding UTF8
           Get-ChildItem $tools | Format-Table -AutoSize
 
       - name: Repackage zip
@@ -307,6 +325,7 @@ jobs:
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I merged in.
+          - Source ref `${{ steps.codexsrc.outputs.resolved_ref }}` resolved to [`${{ steps.codexsrc.outputs.source_sha }}`](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from `${{ steps.codexsrc.outputs.source_date }}`. The same metadata is bundled at `tools\.sidecar-source`.
 
           ## Install
           1. Download `$asset`
@@ -316,6 +335,9 @@ jobs:
              `CODEX_APP_SERVER_WS_URL`, runs Codex.exe, then cleans up.
              Use `tools\Launch-Codex-Logs.vbs` when you want a visible
              sidecar log window while debugging.
+             Use `tools\Launch-Codex-Dev.vbs` only when you want the same
+             shared-sidecar launch path with `BUILD_FLAVOR=dev` for feature
+             probing; the default lane stays on Owl.
 
           ## Shared sidecar usage
           CLI can join the same sidecar with `codex resume <id> --remote ws://127.0.0.1:<PORT>`
