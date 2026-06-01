@@ -325,7 +325,7 @@ jobs:
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I merged in.
-          - Source ref `${{ steps.codexsrc.outputs.resolved_ref }}` resolved to [`${{ steps.codexsrc.outputs.source_sha }}`](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from `${{ steps.codexsrc.outputs.source_date }}`. The same metadata is bundled at `tools\.sidecar-source`.
+          - Source ref ${{ steps.codexsrc.outputs.resolved_ref }} resolved to [${{ steps.codexsrc.outputs.source_sha }}](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from ${{ steps.codexsrc.outputs.source_date }}. The same metadata is bundled at tools\.sidecar-source.
 
           ## Install
           1. Download `$asset`
