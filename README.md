@@ -63,8 +63,42 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
   }
 
+  function Get-DesktopPath {
+    $candidates = @([Environment]::GetFolderPath("Desktop"))
+    $shellDesktop = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction SilentlyContinue).Desktop
+    if ($shellDesktop) { $candidates += $shellDesktop }
+    if ($env:OneDrive) { $candidates += (Join-Path $env:OneDrive "Desktop") }
+    $candidates += (Join-Path $env:USERPROFILE "OneDrive\Desktop")
+    $candidates += (Join-Path $env:USERPROFILE "Desktop")
+
+    foreach ($candidate in ($candidates | Where-Object { $_ })) {
+      $expanded = [Environment]::ExpandEnvironmentVariables($candidate)
+      if (Test-Path -LiteralPath $expanded) { return $expanded }
+    }
+
+    $fallback = Join-Path $env:USERPROFILE "Desktop"
+    New-Item -ItemType Directory -Force -Path $fallback | Out-Null
+    return $fallback
+  }
+
+  $desktop = Get-DesktopPath
+  $icon = Join-Path $installDir "Codex.exe"
+  $ws = New-Object -ComObject WScript.Shell
+  function New-CodexShortcut([string]$Name, [string]$TargetPath) {
+    if (-not (Test-Path -LiteralPath $TargetPath)) { return }
+    $sc = $ws.CreateShortcut((Join-Path $desktop $Name))
+    $sc.TargetPath = $TargetPath
+    $sc.WorkingDirectory = Split-Path $TargetPath
+    if (Test-Path -LiteralPath $icon) { $sc.IconLocation = "$icon,0" }
+    $sc.Save()
+  }
+
+  New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
+  New-CodexShortcut "Codex (GitHub Patched Logs).lnk" (Join-Path $installDir "tools\Launch-Codex-Logs.vbs")
+  New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
+
   Write-Host "Installed $($release.tag_name) to: $installDir"
-  Write-Host "Launch with: $installDir\tools\Launch-Codex.vbs"
+  Write-Host "Shortcuts created on: $desktop"
 }'
 ```
 
@@ -118,8 +152,42 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
   }
 
+  function Get-DesktopPath {
+    $candidates = @([Environment]::GetFolderPath("Desktop"))
+    $shellDesktop = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction SilentlyContinue).Desktop
+    if ($shellDesktop) { $candidates += $shellDesktop }
+    if ($env:OneDrive) { $candidates += (Join-Path $env:OneDrive "Desktop") }
+    $candidates += (Join-Path $env:USERPROFILE "OneDrive\Desktop")
+    $candidates += (Join-Path $env:USERPROFILE "Desktop")
+
+    foreach ($candidate in ($candidates | Where-Object { $_ })) {
+      $expanded = [Environment]::ExpandEnvironmentVariables($candidate)
+      if (Test-Path -LiteralPath $expanded) { return $expanded }
+    }
+
+    $fallback = Join-Path $env:USERPROFILE "Desktop"
+    New-Item -ItemType Directory -Force -Path $fallback | Out-Null
+    return $fallback
+  }
+
+  $desktop = Get-DesktopPath
+  $icon = Join-Path $installDir "Codex.exe"
+  $ws = New-Object -ComObject WScript.Shell
+  function New-CodexShortcut([string]$Name, [string]$TargetPath) {
+    if (-not (Test-Path -LiteralPath $TargetPath)) { return }
+    $sc = $ws.CreateShortcut((Join-Path $desktop $Name))
+    $sc.TargetPath = $TargetPath
+    $sc.WorkingDirectory = Split-Path $TargetPath
+    if (Test-Path -LiteralPath $icon) { $sc.IconLocation = "$icon,0" }
+    $sc.Save()
+  }
+
+  New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
+  New-CodexShortcut "Codex (GitHub Patched Logs).lnk" (Join-Path $installDir "tools\Launch-Codex-Logs.vbs")
+  New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
+
   Write-Host "Installed latest patched release to: $installDir"
-  Write-Host "Launch with: $installDir\tools\Launch-Codex.vbs"
+  Write-Host "Shortcuts created on: $desktop"
 }'
 ```
 
@@ -137,15 +205,14 @@ the same `%LOCALAPPDATA%\CodexFromGithub` install directory and leaves
 
 ```powershell
 function Get-DesktopPath {
-  $candidates = @(
-    [Environment]::GetFolderPath("Desktop"),
-    (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction SilentlyContinue).Desktop,
-    (Join-Path $env:OneDrive "Desktop"),
-    (Join-Path $env:USERPROFILE "OneDrive\Desktop"),
-    (Join-Path $env:USERPROFILE "Desktop")
-  ) | Where-Object { $_ }
+  $candidates = @([Environment]::GetFolderPath("Desktop"))
+  $shellDesktop = (Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -ErrorAction SilentlyContinue).Desktop
+  if ($shellDesktop) { $candidates += $shellDesktop }
+  if ($env:OneDrive) { $candidates += (Join-Path $env:OneDrive "Desktop") }
+  $candidates += (Join-Path $env:USERPROFILE "OneDrive\Desktop")
+  $candidates += (Join-Path $env:USERPROFILE "Desktop")
 
-  foreach ($candidate in $candidates) {
+  foreach ($candidate in ($candidates | Where-Object { $_ })) {
     $expanded = [Environment]::ExpandEnvironmentVariables($candidate)
     if (Test-Path -LiteralPath $expanded) {
       return $expanded
@@ -160,6 +227,7 @@ function Get-DesktopPath {
 $desktop = Get-DesktopPath
 $target = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
 $logTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex-Logs.vbs"
+$updateTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.cmd"
 $icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
 
 if (-not (Test-Path -LiteralPath $target)) {
@@ -181,6 +249,7 @@ function New-CodexShortcut([string]$Name, [string]$TargetPath) {
 
 New-CodexShortcut "Codex (GitHub Patched).lnk" $target
 New-CodexShortcut "Codex (GitHub Patched Logs).lnk" $logTarget
+New-CodexShortcut "Update-Codex.lnk" $updateTarget
 ```
 
 ### Manual install

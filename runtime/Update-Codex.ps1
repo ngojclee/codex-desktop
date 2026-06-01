@@ -32,6 +32,7 @@ function Update-CodexShortcut {
 
     $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'
     $logLauncher = Join-Path $InstallDir 'tools\Launch-Codex-Logs.vbs'
+    $updateLauncher = Join-Path $InstallDir 'tools\Update-Codex.cmd'
     $icon = Join-Path $InstallDir 'Codex.exe'
     if (-not (Test-Path -LiteralPath $launcher)) { return }
 
@@ -58,6 +59,13 @@ function Update-CodexShortcut {
 
     $startShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex.lnk'
     Set-Shortcut -Path $startShortcut -TargetPath $launcher
+    if (Test-Path -LiteralPath $updateLauncher) {
+        $startUpdateShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Update-Codex.lnk'
+        Set-Shortcut `
+            -Path $startUpdateShortcut `
+            -TargetPath $updateLauncher `
+            -Description 'Update Codex Desktop (GitHub Patched)'
+    }
 
     $desktopDir = [Environment]::GetFolderPath('Desktop')
     if ($desktopDir) {
@@ -70,6 +78,13 @@ function Update-CodexShortcut {
                 -Path (Join-Path $desktopDir 'Codex (GitHub Patched Logs).lnk') `
                 -TargetPath $logLauncher `
                 -Description 'Codex Desktop (GitHub Patched) with visible shared-sidecar logs'
+        }
+
+        if (Test-Path -LiteralPath $updateLauncher) {
+            Set-Shortcut `
+                -Path (Join-Path $desktopDir 'Update-Codex.lnk') `
+                -TargetPath $updateLauncher `
+                -Description 'Update Codex Desktop (GitHub Patched)'
         }
     }
 
