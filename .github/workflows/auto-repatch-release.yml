@@ -322,6 +322,7 @@ jobs:
           - **Patch I** — source-built `resources/codex.exe` with `send_input` empty-items normalization baked into the default release lane
           - **Patch J** — bypass renderer Statsig gates for Computer Use (Any App + Chrome)
           - **Patch K** — expose the bundled Codex mobile setup route in the sidebar while preserving upstream account/auth checks
+          - **Patch L** — decode percent-escaped plugin package folders so Computer Use can resolve `@oai/sky` and its vendored pnpm deps
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I merged in.

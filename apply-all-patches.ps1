@@ -8,8 +8,8 @@
 #   <AppDir>\Codex.exe
 #   <AppDir>\resources\app.asar
 #
-# Order matters: A (limit-bump) must run before C v2 (auto-paginate) because
-# C v2 expects A's `limit:1000*pageCount` pattern. D is independent.
+# Order matters: A (limit-bump) must run before C v3 (auto-paginate) because
+# C v3 expects A's `limit:1000*pageCount` pattern. D is independent.
 # B (Electron fuse flip) is needed on builds that bake
 # `EnableEmbeddedAsarIntegrityValidation=ENABLE` into the Codex.exe — both the
 # official Microsoft Store build and the Haleclipse rebuild do. Without B the
@@ -31,6 +31,7 @@ param(
     [switch]$SkipH,
     [switch]$SkipJ,
     [switch]$SkipK,
+    [switch]$SkipL,
 
     [string]$UpstreamTag
 )
@@ -95,6 +96,10 @@ if (-not $SkipJ) {
 
 if (-not $SkipK) {
     Run-Patch 'patch_codex_asar_codex_mobile_gate.py' @('--app-dir', $AppDir) 'Patch K — expose Codex mobile setup entrypoint'
+}
+
+if (-not $SkipL) {
+    Run-Patch 'patch_codex_plugin_scoped_node_modules.py' @('--app-dir', $AppDir) 'Patch L — decode plugin package folders (%40 -> @)'
 }
 
 Write-Host ""

@@ -120,12 +120,34 @@ function Update-CodexShortcut {
 
     $shell = New-Object -ComObject WScript.Shell
 
+    function Get-DesktopPath {
+        $candidates = @([Environment]::GetFolderPath('Desktop'))
+        $shellDesktop = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders' -ErrorAction SilentlyContinue).Desktop
+        if ($shellDesktop) { $candidates += $shellDesktop }
+        if ($env:OneDrive) { $candidates += (Join-Path $env:OneDrive 'Desktop') }
+        $candidates += (Join-Path $env:USERPROFILE 'OneDrive\Desktop')
+        $candidates += (Join-Path $env:USERPROFILE 'Desktop')
+
+        foreach ($candidate in ($candidates | Where-Object { $_ })) {
+            $expanded = [Environment]::ExpandEnvironmentVariables($candidate)
+            if (Test-Path -LiteralPath $expanded) { return $expanded }
+        }
+
+        $fallback = Join-Path $env:USERPROFILE 'Desktop'
+        New-Item -ItemType Directory -Force -Path $fallback | Out-Null
+        return $fallback
+    }
+
     function Set-Shortcut {
         param(
             [Parameter(Mandatory=$true)][string]$Path,
             [Parameter(Mandatory=$true)][string]$TargetPath,
-            [string]$Description = 'Codex Desktop (GitHub Patched)'
+            [string]$Description = 'Codex Desktop (GitHub Patched)',
+            [switch]$ForceUpdate
         )
+
+        if (-not (Test-Path -LiteralPath $TargetPath)) { return }
+        if ((Test-Path -LiteralPath $Path) -and -not $ForceUpdate) { return }
 
         $shortcutDir = Split-Path -Parent $Path
         New-Item -ItemType Directory -Force -Path $shortcutDir | Out-Null
@@ -134,7 +156,7 @@ function Update-CodexShortcut {
         $shortcut.TargetPath = $TargetPath
         $shortcut.Arguments = ''
         $shortcut.WorkingDirectory = Split-Path -Parent $TargetPath
-        $shortcut.IconLocation = "$icon,0"
+        if (Test-Path -LiteralPath $icon) { $shortcut.IconLocation = "$icon,0" }
         $shortcut.Description = $Description
         $shortcut.Save()
     }
@@ -156,22 +178,15 @@ function Update-CodexShortcut {
             -Description 'Update Codex Desktop (GitHub Patched)'
     }
 
-    $desktopDir = [Environment]::GetFolderPath('Desktop')
+    $desktopDir = Get-DesktopPath
     if ($desktopDir) {
         Set-Shortcut `
             -Path (Join-Path $desktopDir 'Codex (GitHub Patched).lnk') `
             -TargetPath $launcher
 
-        if (Test-Path -LiteralPath $logLauncher) {
-            Set-Shortcut `
-                -Path (Join-Path $desktopDir 'Codex (GitHub Patched Logs).lnk') `
-                -TargetPath $logLauncher `
-                -Description 'Codex Desktop (GitHub Patched) with visible shared-sidecar logs'
-        }
-
         if (Test-Path -LiteralPath $devLauncher) {
             Set-Shortcut `
-                -Path (Join-Path $desktopDir 'Codex (GitHub Patched Dev).lnk') `
+                -Path (Join-Path $desktopDir 'Codex Dev (GitHub Patched).lnk') `
                 -TargetPath $devLauncher `
                 -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane'
         }
@@ -200,7 +215,7 @@ function Update-CodexShortcut {
                 ($devLauncher -and $target.Equals($devLauncher, [System.StringComparison]::OrdinalIgnoreCase))
 
             if ($isThisInstall) {
-                Set-Shortcut -Path $taskbarShortcut -TargetPath $launcher
+                Set-Shortcut -Path $taskbarShortcut -TargetPath $launcher -ForceUpdate
             }
         } catch {
             Log "WARN: could not update taskbar shortcut: $_"
