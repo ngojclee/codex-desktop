@@ -32,56 +32,56 @@ Combined effect: kill sidecar -> Electron respawn -> renderer reconnect ->
 Patch D fires -> Map cleared -> React re-fetches everything from fresh
 sidecar -> UI shows current content including external CLI appends.
 
-Idempotency: presence of marker `PATCH_D_RECONNECT_CLEAR` in the JS.
+Idempotency: presence of marker `__pdIds` in the JS.
 """
 import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import sys
 from pathlib import Path
 
 
-UNPATCHED_SEARCHES = (
-    (
-        "markAllConversationsNeedResumeAfterReconnect(){"
-        "let{previousStreamingCount:e,previousRoleCount:t}=this.streamState.resetAfterReconnect(),n=0;"
-        "for(let[e,t]of this.conversations)"
-        "t.resumeState!==`needs_resume`&&(n+=1,this.updateConversationState(e,e=>{e.resumeState=`needs_resume`}));"
-        "z.info(`websocket_reconnect_marked_threads_needing_resume`,"
-        "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t},sensitive:{}})"
-        "}"
-    ),
-    (
-        "markAllConversationsNeedResumeAfterReconnect(){"
-        "let{previousStreamingCount:e,previousRoleCount:t}=this.streamState.resetAfterReconnect(),n=0;"
-        "for(let[e,t]of this.conversations)"
-        "t.resumeState!==`needs_resume`&&(n+=1,this.updateConversationState(e,e=>{e.resumeState=`needs_resume`}));"
-        "R.info(`websocket_reconnect_marked_threads_needing_resume`,"
-        "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t},sensitive:{}})"
-        "}"
-    ),
-)
+JS_IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 
-PATCHED_REPLACE = (
-    "markAllConversationsNeedResumeAfterReconnect(){"
-    "let{previousStreamingCount:e,previousRoleCount:t}=this.streamState.resetAfterReconnect(),n=0;"
-    "for(let[e,t]of this.conversations)"
-    "t.resumeState!==`needs_resume`&&(n+=1,this.updateConversationState(e,e=>{e.resumeState=`needs_resume`}));"
-    # PATCH_D_RECONNECT_CLEAR start
-    "let __pdIds=[...this.conversations.keys()];"
-    "for(let __pdId of __pdIds){try{this.applyConversationState(__pdId,null)}catch(_){}}"
-    "try{this.recentConversationsLoaded=!1}catch(_){}"
-    "try{this.fetchedRecentConversations=!1}catch(_){}"
-    # PATCH_D_RECONNECT_CLEAR end
-    "__PATCH_D_LOGGER__.info(`websocket_reconnect_marked_threads_needing_resume`,"
-    "{safe:{conversationCount:this.conversations.size,markedCount:n,previousStreamingCount:e,previousRoleCount:t,patch_d_cleared:__pdIds.length},sensitive:{}})"
-    "}"
+UNPATCHED_RE = re.compile(
+    "markAllConversationsNeedResumeAfterReconnect\\(\\)\\{"
+    rf"let\{{previousStreamingCount:(?P<stream>{JS_IDENT}),previousRoleCount:(?P<role>{JS_IDENT})\}}=this\.streamState\.resetAfterReconnect\(\),(?P<count>{JS_IDENT})=0;"
+    rf"for\(let\[(?P<id>{JS_IDENT}),(?P<conv>{JS_IDENT})\]of this\.conversations\)"
+    r"(?P=conv)\.resumeState!==`needs_resume`&&\((?P=count)\+=1,this\.updateConversationState\((?P=id),"
+    rf"(?P<cb>{JS_IDENT})=>\{{(?P=cb)\.resumeState=`needs_resume`\}}\)\);"
+    rf"(?P<logger>{JS_IDENT})\.info\(`websocket_reconnect_marked_threads_needing_resume`,"
+    r"\{safe:\{conversationCount:this\.conversations\.size,markedCount:(?P=count),previousStreamingCount:(?P=stream),previousRoleCount:(?P=role)\},sensitive:\{\}\}\)"
+    r"\}"
 )
 
 MARKER = "__pdIds"  # unique token in patched output
+
+
+def make_patched_replace(match: re.Match) -> str:
+    stream = match.group("stream")
+    role = match.group("role")
+    count = match.group("count")
+    ident = match.group("id")
+    conv = match.group("conv")
+    cb = match.group("cb")
+    logger = match.group("logger")
+    return (
+        "markAllConversationsNeedResumeAfterReconnect(){"
+        f"let{{previousStreamingCount:{stream},previousRoleCount:{role}}}=this.streamState.resetAfterReconnect(),{count}=0;"
+        f"for(let[{ident},{conv}]of this.conversations)"
+        f"{conv}.resumeState!==`needs_resume`&&({count}+=1,this.updateConversationState({ident},{cb}=>{{{cb}.resumeState=`needs_resume`}}));"
+        "let __pdIds=[...this.conversations.keys()];"
+        "for(let __pdId of __pdIds){try{this.applyConversationState(__pdId,null)}catch(_){}}"
+        "try{this.recentConversationsLoaded=!1}catch(_){}"
+        "try{this.fetchedRecentConversations=!1}catch(_){}"
+        f"{logger}.info(`websocket_reconnect_marked_threads_needing_resume`,"
+        f"{{safe:{{conversationCount:this.conversations.size,markedCount:{count},previousStreamingCount:{stream},previousRoleCount:{role},patch_d_cleared:__pdIds.length}},sensitive:{{}}}})"
+        "}"
+    )
 
 
 def read_header(asar_path: Path):
@@ -201,15 +201,9 @@ def apply(app_dir: Path) -> dict:
     if MARKER in original:
         return {"status": "already_patched", "asar": str(asar_path)}
 
-    matched_search = None
-    matched_logger = None
-    for candidate in UNPATCHED_SEARCHES:
-        if candidate in original:
-            matched_search = candidate
-            matched_logger = "R" if "R.info(" in candidate else "z"
-            break
+    match = UNPATCHED_RE.search(original)
 
-    if matched_search is None:
+    if match is None:
         # Try to give a useful hint
         sample = ""
         idx = original.find("markAllConversationsNeedResumeAfterReconnect")
@@ -217,11 +211,7 @@ def apply(app_dir: Path) -> dict:
             sample = original[idx:idx+400]
         return {"status": "pattern_not_found", "asar": str(asar_path), "near": sample}
 
-    patched_text = original.replace(
-        matched_search,
-        PATCHED_REPLACE.replace("__PATCH_D_LOGGER__", matched_logger),
-        1,
-    )
+    patched_text = original[: match.start()] + make_patched_replace(match) + original[match.end() :]
     if MARKER not in patched_text:
         return {"status": "error", "reason": "marker missing after replace"}
 

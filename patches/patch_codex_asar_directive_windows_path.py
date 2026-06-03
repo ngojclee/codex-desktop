@@ -46,6 +46,9 @@ SEARCH_PATTERNS = (
     # 26.527-style directive parser bundle: sanitize before micromark parses
     # Codex app directives out of completed agent messages.
     "function JT(e,t){let n=t?.lineStartNames==null?e:ZT(e,t.lineStartNames);if(n==null)return[];let r=[];return XT(MT(n,void 0),r)",
+    # 26.601-style directive parser bundle: same parser path, new minified
+    # function names after upstream rebundle.
+    "function JE(e,t){let n=t?.lineStartNames==null?e:ZE(e,t.lineStartNames);if(n==null)return[];let r=[];return XE(ME(n,void 0),r)",
 )
 
 REPLACEMENTS = (
@@ -53,6 +56,7 @@ REPLACEMENTS = (
     "p??b,T=l===`indexed`,E=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`))),ne=T?ar(Hr(E)):E,re=(0,L.useMemo)",
     "function mr(e,t){return globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,e.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`))}",
     "function JT(e,t){let n=t?.lineStartNames==null?e:ZT(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return XT(MT(n,void 0),r)",
+    "function JE(e,t){let n=t?.lineStartNames==null?e:ZE(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return XE(ME(n,void 0),r)",
 )
 
 def read_header(asar_path: Path):
