@@ -101,20 +101,48 @@ function Get-MarketplacePluginNames([string]$Path) {
     }
 }
 
-function Reset-StaleComputerUseMarketplaceCache {
+function Get-RuntimeMarketplacePluginNames([string]$RuntimeRoot) {
+    $runtimeMarketplace = Join-Path $RuntimeRoot '.agents\plugins\marketplace.json'
+    $names = @(Get-MarketplacePluginNames $runtimeMarketplace)
+    if ($names.Count -gt 0) { return $names }
+
+    $pluginsDir = Join-Path $RuntimeRoot 'plugins'
+    if (-not (Test-Path -LiteralPath $pluginsDir)) { return @() }
+
+    return @(Get-ChildItem -LiteralPath $pluginsDir -Directory -Force -EA SilentlyContinue |
+        ForEach-Object { $_.Name } |
+        Where-Object { $_ })
+}
+
+function Test-StaleComputerUseMarketplaceCache {
     $bundleMarketplace = Join-Path $InstallDir 'resources\plugins\openai-bundled\.agents\plugins\marketplace.json'
     $runtimeRoot = Join-Path $env:USERPROFILE '.codex\.tmp\bundled-marketplaces\openai-bundled'
-    $runtimeMarketplace = Join-Path $runtimeRoot '.agents\plugins\marketplace.json'
 
-    $bundlePlugins = Get-MarketplacePluginNames $bundleMarketplace
-    if ($bundlePlugins -notcontains 'computer-use') { return }
+    $bundlePlugins = @(Get-MarketplacePluginNames $bundleMarketplace)
+    if ($bundlePlugins -notcontains 'computer-use') { return $false }
+    if (-not (Test-Path -LiteralPath $runtimeRoot)) { return $false }
 
-    $runtimePlugins = Get-MarketplacePluginNames $runtimeMarketplace
-    if ($runtimePlugins -contains 'computer-use') { return }
+    $runtimePlugins = @(Get-RuntimeMarketplacePluginNames $runtimeRoot)
+    if ($runtimePlugins.Count -eq 0) { return $true }
+
+    $requiredPlugins = @('browser', 'chrome', 'computer-use')
+    foreach ($plugin in $requiredPlugins) {
+        if (($bundlePlugins -contains $plugin) -and ($runtimePlugins -notcontains $plugin)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Reset-StaleComputerUseMarketplaceCache {
+    $runtimeRoot = Join-Path $env:USERPROFILE '.codex\.tmp\bundled-marketplaces\openai-bundled'
+    if (-not (Test-StaleComputerUseMarketplaceCache)) { return $false }
 
     # The generated marketplace is a cache. If it was produced before Patch J
     # or before a 26.527+ bundle, remove it so Desktop reconciles plugins again.
     Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    return $true
 }
 
 function Test-PortListen([int]$port) {
@@ -245,6 +273,25 @@ function Start-CurrentSidecarLogWindow {
 Refresh-SharedSkills
 Import-CodexMcpSecretEnvironment
 
+# --- Computer Use unlock (Patch J) ---
+# The bundled plugin reconciliation for computer-use on Windows requires:
+#   1. isInternal(buildFlavor) - only 'dev','agent','nightly','owl','internal-alpha' pass.
+#   2. features.computerUse === true - server-delivered feature flag.
+# The Haleclipse rebuild ships codexBuildFlavor=prod which fails (1).
+# Setting BUILD_FLAVOR=owl keeps the Owl shell lane while making isInternal pass.
+# CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 forces the feature flag (2).
+#
+# NOTE: These env vars are necessary but not sufficient on Windows. The plugin
+# files (computer-use folder + node_modules/@oai/sky) must also exist in the
+# bundle at resources/plugins/openai-bundled/plugins/computer-use/. Without
+# those files, the reconciliation has nothing to materialize. On macOS, the
+# plugin ships in the app bundle and only needs features.computerUse=true.
+$env:BUILD_FLAVOR = $ResolvedBuildFlavor
+if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
+    $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'
+}
+$pluginMarketplaceCacheIsStale = Test-StaleComputerUseMarketplaceCache
+
 # Honor an existing live Desktop instance only when it is already on the shared
 # sidecar. If Desktop was opened directly, it will have spawned a private stdio
 # app-server and must be restarted with CODEX_APP_SERVER_WS_URL in its env.
@@ -263,7 +310,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
         $stateBuildFlavor.Equals($ResolvedBuildFlavor, [System.StringComparison]::OrdinalIgnoreCase)
     )
 
-    if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile) -and $buildFlavorMatches) {
+    if ($privateSidecars.Count -eq 0 -and $sharedSidecars.Count -gt 0 -and (Test-HealthyStateFile) -and $buildFlavorMatches -and -not $pluginMarketplaceCacheIsStale) {
         Write-Host "Codex Desktop already running on shared sidecar - focusing existing window."
         if ($ShowSidecarWindow) {
             Start-CurrentSidecarLogWindow
@@ -272,7 +319,11 @@ if ((Get-DesktopProcessCount) -gt 0) {
         return
     }
 
-    Write-Host "Codex Desktop is running without the shared sidecar - restarting into shared WS mode."
+    if ($pluginMarketplaceCacheIsStale) {
+        Write-Host "Codex Desktop bundled plugin cache is stale - restarting into a clean marketplace."
+    } else {
+        Write-Host "Codex Desktop is running without the shared sidecar - restarting into shared WS mode."
+    }
     Stop-InstallProcesses
     Refresh-SharedSkills
 }
@@ -352,24 +403,9 @@ New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
 # Launch Desktop with env vars
 $env:CODEX_APP_SERVER_WS_URL = $WsUrl
 
-# --- Computer Use unlock (Patch J) ---
-# The bundled plugin reconciliation for computer-use on Windows requires:
-#   1. isInternal(buildFlavor) - only 'dev','agent','nightly','owl','internal-alpha' pass.
-#   2. features.computerUse === true - server-delivered feature flag.
-# The Haleclipse rebuild ships codexBuildFlavor=prod which fails (1).
-# Setting BUILD_FLAVOR=owl keeps the Owl shell lane while making isInternal pass.
-# CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE=1 forces the feature flag (2).
-#
-# NOTE: These env vars are necessary but not sufficient on Windows. The plugin
-# files (computer-use folder + node_modules/@oai/sky) must also exist in the
-# bundle at resources/plugins/openai-bundled/plugins/computer-use/. Without
-# those files, the reconciliation has nothing to materialize. On macOS, the
-# plugin ships in the app bundle and only needs features.computerUse=true.
-$env:BUILD_FLAVOR = $ResolvedBuildFlavor
-if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
-    $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'
+if (Reset-StaleComputerUseMarketplaceCache) {
+    Write-Host "Reset stale bundled plugin marketplace cache."
 }
-Reset-StaleComputerUseMarketplaceCache
 
 $desktopArgs = @()
 if ($env:CODEX_ELECTRON_PROXY_SERVER) {
