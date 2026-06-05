@@ -339,6 +339,9 @@ jobs:
              Use `tools\Launch-Codex-Dev.vbs` only when you want the same
              shared-sidecar launch path with `BUILD_FLAVOR=dev` for feature
              probing; the default lane stays on Owl.
+          4. If `~\.codex\skills` points at a network/share path and sidecar
+             logs show `.codex\skills\.system` access or network errors, close
+             Codex and run `tools\Repair-Codex-SystemSkills.ps1 -Apply` once.
 
           ## Shared sidecar usage
           CLI can join the same sidecar with `codex resume <id> --remote ws://127.0.0.1:<PORT>`
