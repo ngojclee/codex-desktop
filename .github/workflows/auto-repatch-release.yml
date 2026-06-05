@@ -344,6 +344,9 @@ jobs:
              Codex and run `tools\Repair-Codex-SystemSkills.ps1 -Apply` once.
           5. `tools\Launch-Codex.vbs` runs `tools\Refresh-Codex-SharedSkills.ps1`
              on startup, linking new shared user skills while skipping `.system`.
+             If a machine previously used copy mode, rerun refresh once from an
+             elevated PowerShell with `-RelinkExistingSharedSkills` to back up
+             copied shared skills and replace them with individual symlinks.
              Use `tools\Publish-Codex-Skill.ps1 -SkillName <name>` to explicitly
              publish a local skill to the shared directory.
 

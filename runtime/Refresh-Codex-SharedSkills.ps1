@@ -7,8 +7,10 @@
 # skills can still live on a shared UNC/NAS directory as individual symlinks.
 #
 # This script links or copies any missing shared skills into the local skills
-# directory, always skipping .system. It never overwrites existing local skills
-# and never auto-publishes local-only skills back to the shared directory.
+# directory, always skipping .system. By default it never overwrites existing
+# local skills and never auto-publishes local-only skills back to the shared
+# directory. Pass -RelinkExistingSharedSkills for a deliberate one-time
+# conversion of copied shared skills back into individual symlinks.
 
 [CmdletBinding()]
 param(
@@ -16,6 +18,8 @@ param(
     [string]$SharedSkillsDir,
     [switch]$CopySharedSkills,
     [switch]$RepairRootLink,
+    [switch]$RelinkExistingSharedSkills,
+    [string]$RelinkBackupRoot,
     [switch]$Quiet
 )
 
@@ -223,11 +227,71 @@ function New-SharedSkillEntry([string]$LocalPath, [string]$TargetPath, [bool]$Is
     }
 }
 
+function Get-RelinkBackupDir {
+    if ($script:RelinkBackupDir) { return $script:RelinkBackupDir }
+
+    $backupRoot = $RelinkBackupRoot
+    if (-not $backupRoot) {
+        $backupRoot = Join-Path (Split-Path -Parent $LocalSkillsDir) 'skills-copy-backups'
+    }
+
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $script:RelinkBackupDir = Join-Path $backupRoot $stamp
+    New-Item -ItemType Directory -Force -Path $script:RelinkBackupDir | Out-Null
+    return $script:RelinkBackupDir
+}
+
+function Move-LocalSkillToRelinkBackup([string]$LocalPath) {
+    $backupDir = Get-RelinkBackupDir
+    $name = Split-Path -Leaf $LocalPath
+    $backupPath = Join-Path $backupDir $name
+    if (Test-PathOrLink $backupPath) {
+        $backupPath = Join-Path $backupDir ($name + '-' + [guid]::NewGuid().Guid.Substring(0,8))
+    }
+
+    Log "backup local copy: $LocalPath -> $backupPath"
+    Move-Item -LiteralPath $LocalPath -Destination $backupPath -ErrorAction Stop
+    return $backupPath
+}
+
+function Relink-ExistingSharedSkill([string]$LocalPath, [string]$TargetPath, [bool]$IsDirectory) {
+    if (-not $RelinkExistingSharedSkills) { return }
+    if (-not (Test-PathOrLink $LocalPath)) { return }
+
+    $localItem = Get-ItemOrNull $LocalPath
+    if (-not $localItem) { return }
+    if ($localItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+    if ([bool]$localItem.PSIsContainer -ne $IsDirectory) {
+        Warn "Skipping relink for '$($localItem.Name)': local/shared item types differ."
+        return
+    }
+
+    $kind = if ($IsDirectory) { 'Directory' } else { 'File' }
+    $backupPath = Move-LocalSkillToRelinkBackup -LocalPath $LocalPath
+    try {
+        Log "relink $kind`: $LocalPath -> $TargetPath"
+        New-Item -ItemType SymbolicLink -Path $LocalPath -Target $TargetPath -ErrorAction Stop | Out-Null
+    } catch {
+        Warn "Could not relink '$([IO.Path]::GetFileName($LocalPath))': $($_.Exception.Message)"
+        if ((-not (Test-PathOrLink $LocalPath)) -and (Test-PathOrLink $backupPath)) {
+            Move-Item -LiteralPath $backupPath -Destination $LocalPath -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $script:ResolvedSharedSkillsDir = Resolve-SharedSkillsDir
+$script:RelinkBackupDir = $null
 
 Log "Local skills : $LocalSkillsDir"
 Log "Shared skills: $(if ($script:ResolvedSharedSkillsDir) { $script:ResolvedSharedSkillsDir } else { '(none configured)' })"
 Log "Shared mode  : $(if ($CopySharedSkills) { 'copy' } else { 'symlink' })"
+if ($RelinkExistingSharedSkills) {
+    Log "Relink mode  : existing local shared-skill copies will be backed up and replaced with symlinks"
+}
+
+if ($CopySharedSkills -and $RelinkExistingSharedSkills) {
+    throw "-RelinkExistingSharedSkills requires symlink mode. Remove -CopySharedSkills and rerun from an elevated PowerShell or with Windows Developer Mode enabled."
+}
 
 if ($script:ResolvedSharedSkillsDir -and -not (Test-Path -LiteralPath $script:ResolvedSharedSkillsDir)) {
     Warn "Shared skills directory is not reachable: $($script:ResolvedSharedSkillsDir)"
@@ -266,6 +330,7 @@ $sharedItems = Get-ChildItem -LiteralPath $script:ResolvedSharedSkillsDir -Force
 foreach ($item in $sharedItems) {
     $localPath = Join-Path $LocalSkillsDir $item.Name
     if (Test-PathOrLink $localPath) {
+        Relink-ExistingSharedSkill -LocalPath $localPath -TargetPath $item.FullName -IsDirectory ([bool]$item.PSIsContainer)
         continue
     }
     New-SharedSkillEntry -LocalPath $localPath -TargetPath $item.FullName -IsDirectory ([bool]$item.PSIsContainer)
