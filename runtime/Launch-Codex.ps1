@@ -261,9 +261,12 @@ $logErr = Join-Path $LogDir "app-server-$ts.err.log"
 
 if ($ShowSidecarWindow) {
     # Visible window - handy for debugging
+    $cmdSidecar = '"' + $SidecarExe + '" app-server --listen "' + $WsUrl + '" 2>&1'
+    $cmdSidecar = $cmdSidecar -replace "'", "''"
     $inner = "`$Host.UI.RawUI.WindowTitle = 'Codex Shared Sidecar ($WsUrl)'; " +
              "Write-Host 'Sidecar - close this window to stop Codex.' -Fore Yellow; " +
-             "& '$SidecarExe' app-server --listen '$WsUrl' 2>&1 | " +
+             "`$cmd = '$cmdSidecar'; " +
+             "& cmd.exe /d /c `$cmd | ForEach-Object { `$_.ToString() } | " +
              "Tee-Object -FilePath '$logOut'"
     $sidecarHost = Start-Process powershell.exe `
         -ArgumentList @('-NoExit','-NoProfile','-Command',$inner) `
