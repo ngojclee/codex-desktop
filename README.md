@@ -295,6 +295,19 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
        -ThreadId "019df565-7953-7bf2-af3e-cea3c59cc576" -Prompt "ping"
    ```
    Replaces `codex exec resume <id> "<text>"` for the Planner -> Worker pattern when you want Desktop UI to show progress live.
+5. If `~\.codex\skills` is a symlink/junction to a NAS, SMB share, or shared
+   drive, keep Codex's generated system skills local per machine. Close Codex,
+   run the repair dry-run, then apply only if the plan looks right:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Repair-Codex-SystemSkills.ps1"
+   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Repair-Codex-SystemSkills.ps1" -Apply
+   ```
+   This replaces the single shared `skills` link with a local `skills`
+   directory, keeps shared user skills as individual links, and leaves
+   `~\.codex\skills\.system` as a real local directory.
+   If Windows cannot create directory symlinks, run the apply command from an
+   elevated PowerShell or append `-CopySharedSkills` to make local copies of
+   shared skills instead of links.
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
@@ -423,6 +436,7 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
+- **Repair system skills** — if sidecar logs show `failed to install system skills` or `failed to read skills dir ...\.codex\skills\.system`, run `tools\Repair-Codex-SystemSkills.ps1` once. This is for setups where `~\.codex\skills` points at a network/share path; generated `.system` skills should stay local on each Windows machine.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. Missing standard desktop shortcuts are created after update.
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
