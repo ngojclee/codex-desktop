@@ -135,14 +135,60 @@ function Test-StaleComputerUseMarketplaceCache {
     return $false
 }
 
+function Get-BundledPluginCacheProcesses {
+    $pluginRoots = @(
+        (Join-Path $env:USERPROFILE '.codex\.tmp\bundled-marketplaces'),
+        (Join-Path $env:USERPROFILE '.codex\plugins\cache\openai-bundled')
+    )
+
+    @(Get-CimInstance Win32_Process | Where-Object {
+        if (-not $_.ExecutablePath) { return $false }
+        foreach ($root in $pluginRoots) {
+            if ($_.ExecutablePath.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        }
+        return $false
+    })
+}
+
+function Stop-BundledPluginCacheProcesses {
+    $procs = Get-BundledPluginCacheProcesses
+    foreach ($p in $procs) {
+        try { Stop-Process -Id $p.ProcessId -Force -EA Stop } catch {}
+    }
+
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline) {
+        if ((Get-BundledPluginCacheProcesses).Count -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    }
+}
+
 function Reset-StaleComputerUseMarketplaceCache {
     $runtimeRoot = Join-Path $env:USERPROFILE '.codex\.tmp\bundled-marketplaces\openai-bundled'
     if (-not (Test-StaleComputerUseMarketplaceCache)) { return $false }
 
+    Stop-BundledPluginCacheProcesses
+
     # The generated marketplace is a cache. If it was produced before Patch J
-    # or before a 26.527+ bundle, remove it so Desktop reconciles plugins again.
-    Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
-    return $true
+    # or before a 26.527+ bundle, quarantine it so Desktop reconciles plugins
+    # again while preserving evidence for debugging.
+    $parent = Split-Path -Parent $runtimeRoot
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backupRoot = Join-Path $parent "openai-bundled.stale-$stamp"
+    try {
+        Move-Item -LiteralPath $runtimeRoot -Destination $backupRoot -Force -EA Stop
+        return $true
+    } catch {
+        try {
+            Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -EA Stop
+            return $true
+        } catch {
+            Write-Host "WARN: failed to reset stale bundled plugin marketplace cache: $($_.Exception.Message)"
+            return $false
+        }
+    }
 }
 
 function Test-PortListen([int]$port) {
@@ -342,6 +388,10 @@ if (Test-Path -LiteralPath $StateFile) {
     Remove-Item -LiteralPath $StateFile -Force -EA SilentlyContinue
 }
 
+if (Reset-StaleComputerUseMarketplaceCache) {
+    Write-Host "Reset stale bundled plugin marketplace cache."
+}
+
 $Port = Get-FreePort -min $PortMin -max $PortMax
 $WsUrl = "ws://127.0.0.1:$Port"
 
@@ -402,10 +452,6 @@ New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
 
 # Launch Desktop with env vars
 $env:CODEX_APP_SERVER_WS_URL = $WsUrl
-
-if (Reset-StaleComputerUseMarketplaceCache) {
-    Write-Host "Reset stale bundled plugin marketplace cache."
-}
 
 $desktopArgs = @()
 if ($env:CODEX_ELECTRON_PROXY_SERVER) {
