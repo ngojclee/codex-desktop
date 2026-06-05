@@ -264,9 +264,40 @@ jobs:
           $tools = 'build/tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
           Copy-Item -Recurse -Force runtime/* $tools
+
+          $runtimeRoot = (Resolve-Path 'runtime').Path
+          $copied = 0
+          foreach ($src in Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse) {
+            $rel = [IO.Path]::GetRelativePath($runtimeRoot, $src.FullName)
+            $dst = Join-Path $tools $rel
+            if (-not (Test-Path -LiteralPath $dst)) {
+              throw "Bundled tools verification failed: missing $rel"
+            }
+            $srcHash = (Get-FileHash -LiteralPath $src.FullName -Algorithm SHA256).Hash
+            $dstHash = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
+            if ($srcHash -ne $dstHash) {
+              throw "Bundled tools verification failed: hash mismatch for $rel"
+            }
+            $copied++
+          }
+
+          $markerChecks = @{
+            'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
+            'Launch-Codex.ps1' = 'Refresh-Codex-SharedSkills.ps1'
+            'Update-Codex.ps1' = 'Preserving tools/ from previous install'
+          }
+          foreach ($entry in $markerChecks.GetEnumerator()) {
+            $path = Join-Path $tools $entry.Key
+            if (-not (Select-String -LiteralPath $path -Pattern $entry.Value -SimpleMatch -Quiet)) {
+              throw "Bundled tools verification failed: $($entry.Key) missing marker '$($entry.Value)'"
+            }
+          }
+          Write-Host "Verified $copied runtime file(s) bundled into tools/ from repo commit $env:GITHUB_SHA."
+
           $sidecarSource = @"
           upstream_rebuild_repo=${{ steps.upstream.outputs.repo }}
           upstream_tag=${{ steps.upstream.outputs.tag }}
+          codex_desktop_tools_sha=${{ github.sha }}
           codex_ref=${{ steps.codexsrc.outputs.resolved_ref }}
           codex_source_sha=${{ steps.codexsrc.outputs.source_sha }}
           codex_source_date=${{ steps.codexsrc.outputs.source_date }}
