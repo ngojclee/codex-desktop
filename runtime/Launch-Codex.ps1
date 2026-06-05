@@ -48,6 +48,24 @@ $ResolvedBuildFlavor = if ($BuildFlavor) {
 if (-not (Test-Path -LiteralPath $SidecarExe)) { throw "Sidecar missing: $SidecarExe" }
 if (-not (Test-Path -LiteralPath $DesktopExe)) { throw "Desktop missing: $DesktopExe" }
 
+function Import-CodexMcpSecretEnvironment {
+    $loaderScripts = @(
+        (Join-Path $env:USERPROFILE '.codex\scripts\import-mcp-secret-env.ps1'),
+        (Join-Path $PSScriptRoot 'import-mcp-secret-env.ps1')
+    )
+
+    foreach ($loaderScript in $loaderScripts) {
+        if (-not (Test-Path -LiteralPath $loaderScript)) { continue }
+
+        try {
+            & $loaderScript
+            return
+        } catch {
+            Write-Host ("WARN: failed to load MCP secret env with {0}: {1}" -f $loaderScript, $_)
+        }
+    }
+}
+
 function Refresh-SharedSkills {
     $refreshScript = Join-Path $PSScriptRoot 'Refresh-Codex-SharedSkills.ps1'
     if (-not (Test-Path -LiteralPath $refreshScript)) { return }
@@ -225,6 +243,7 @@ function Start-CurrentSidecarLogWindow {
 # Keep shared user skills visible on every launch while keeping generated
 # .system skills local per Windows machine.
 Refresh-SharedSkills
+Import-CodexMcpSecretEnvironment
 
 # Honor an existing live Desktop instance only when it is already on the shared
 # sidecar. If Desktop was opened directly, it will have spawned a private stdio
