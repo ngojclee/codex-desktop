@@ -309,6 +309,17 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    If Windows cannot create directory symlinks, run the apply command from an
    elevated PowerShell or append `-CopySharedSkills` to make local copies of
    shared skills instead of links.
+   If you previously used copy mode and later enable Developer Mode or run an
+   elevated PowerShell, convert those copied shared skills back to individual
+   symlinks with a one-time relink pass:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Refresh-Codex-SharedSkills.ps1" `
+     -RepairRootLink `
+     -RelinkExistingSharedSkills `
+     -SharedSkillsDir "\\10.21.2.2\data\_agentsync\.codex\skills"
+   ```
+   The relink pass skips `.system`, backs up replaced local copies under
+   `~\.codex\skills-copy-backups\`, and leaves local-only skills alone.
    The launcher also attempts this root-link repair before sidecar startup when
    no Codex process is running; the dry-run remains the safest way to preview a
    machine's current topology.
