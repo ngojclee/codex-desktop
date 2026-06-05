@@ -287,6 +287,7 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    - Picks a free port in `24567..24600`
    - Starts a shared `codex.exe app-server --listen ws://127.0.0.1:<PORT>` in the background
    - Sets `CODEX_APP_SERVER_WS_URL` and launches `Codex.exe`
+   - Refreshes shared user skills into `~\.codex\skills` while keeping `.system` local
    - Cleans up the sidecar when the last `Codex.exe` process exits
    - Writes live state to `~/.codex/desktop-shared-app-server.json`
 4. From any terminal, the bundled wrapper dispatches into the same sidecar so Desktop sees real-time updates:
@@ -308,6 +309,27 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    If Windows cannot create directory symlinks, run the apply command from an
    elevated PowerShell or append `-CopySharedSkills` to make local copies of
    shared skills instead of links.
+   The launcher also attempts this root-link repair before sidecar startup when
+   no Codex process is running; the dry-run remains the safest way to preview a
+   machine's current topology.
+6. After the one-time repair, `tools\Launch-Codex.vbs` automatically runs a
+   safe shared-skill refresh on every launch. It links any new skills found in
+   the shared skills directory, skips `.system`, and never overwrites local-only
+   skills. Run it manually when needed:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Refresh-Codex-SharedSkills.ps1"
+   ```
+   If the shared directory is not recorded in
+   `~\.codex\skills\.shared-skills-target.txt`, pass `-SharedSkillsDir` once or
+   set `CODEX_SHARED_SKILLS_DIR`.
+7. To publish a skill you created locally, use the explicit publish command.
+   This copies the local skill to the shared directory and replaces the local
+   copy with a symlink back to the shared copy:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Publish-Codex-Skill.ps1" -SkillName "my-skill"
+   ```
+   Local skills are not auto-published. Passing `-Force` replaces an existing
+   shared skill with the same name, so use it deliberately.
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
@@ -432,11 +454,13 @@ exists when the Computer Use plugin is bundled.
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
 - **Repair system skills** — if sidecar logs show `failed to install system skills` or `failed to read skills dir ...\.codex\skills\.system`, run `tools\Repair-Codex-SystemSkills.ps1` once. This is for setups where `~\.codex\skills` points at a network/share path; generated `.system` skills should stay local on each Windows machine.
+- **Refresh shared skills** — `tools\Refresh-Codex-SharedSkills.ps1` is run by the launcher. It creates missing local symlinks for skills that already exist on the shared skills directory, skips `.system`, and leaves local-only skills untouched.
+- **Publish local skill** — `tools\Publish-Codex-Skill.ps1 -SkillName <name>` copies one local skill to the shared skills directory and replaces the local copy with a symlink. This is intentionally explicit; local skills are not auto-published.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. Missing standard desktop shortcuts are created after update.
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 

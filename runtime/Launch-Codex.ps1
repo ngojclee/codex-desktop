@@ -48,6 +48,22 @@ $ResolvedBuildFlavor = if ($BuildFlavor) {
 if (-not (Test-Path -LiteralPath $SidecarExe)) { throw "Sidecar missing: $SidecarExe" }
 if (-not (Test-Path -LiteralPath $DesktopExe)) { throw "Desktop missing: $DesktopExe" }
 
+function Refresh-SharedSkills {
+    $refreshScript = Join-Path $PSScriptRoot 'Refresh-Codex-SharedSkills.ps1'
+    if (-not (Test-Path -LiteralPath $refreshScript)) { return }
+
+    $refreshArgs = @('-Quiet', '-RepairRootLink')
+    if ($env:CODEX_SHARED_SKILLS_COPY -eq '1') {
+        $refreshArgs += '-CopySharedSkills'
+    }
+
+    try {
+        & $refreshScript @refreshArgs
+    } catch {
+        Write-Host "WARN: shared skills refresh failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -206,6 +222,10 @@ function Start-CurrentSidecarLogWindow {
     }
 }
 
+# Keep shared user skills visible on every launch while keeping generated
+# .system skills local per Windows machine.
+Refresh-SharedSkills
+
 # Honor an existing live Desktop instance only when it is already on the shared
 # sidecar. If Desktop was opened directly, it will have spawned a private stdio
 # app-server and must be restarted with CODEX_APP_SERVER_WS_URL in its env.
@@ -235,6 +255,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
 
     Write-Host "Codex Desktop is running without the shared sidecar - restarting into shared WS mode."
     Stop-InstallProcesses
+    Refresh-SharedSkills
 }
 
 # Cleanup any stale state file pointing at a dead sidecar.
