@@ -349,6 +349,7 @@ jobs:
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
             - skipped automatically on upstream `26.513.x` because that lane regressed thread-open hydration in the renderer
           - **Patch G** — bypass hardcoded SOCKS5 proxy in WS transport so a local sidecar can be shared between Desktop and CLI for real-time UI updates
+          - **Patch M** — raise the shared app-server WebSocket max payload to prevent heavy thread hydration from closing the UI connection with `Max payload size exceeded`
           - **Patch H** — sanitize Windows backslashes in app directive lines before markdown directive parsing so one malformed directive cannot crash thread rendering
           - **Patch I** — source-built `resources/codex.exe` with `send_input` empty-items normalization baked into the default release lane
           - **Patch J** — bypass renderer Statsig gates for Computer Use (Any App + Chrome)
