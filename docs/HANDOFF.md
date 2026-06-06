@@ -86,6 +86,13 @@ Then it applies the current patch set to the copied app only:
   Removes the hardcoded SOCKS5 agent from local WebSocket app-server transport
   so Desktop can attach to the shared sidecar launcher.
 
+- `patch_codex_asar_ws_max_payload.py` *(Patch M)*
+  Adds `maxPayload:1024*1024*1024` to the shared WebSocket app-server client.
+  This prevents heavy thread hydration from closing the UI connection with
+  `Max payload size exceeded` / close code `1006`, which otherwise makes
+  model, provider, MCP, and thread resume requests look unavailable until the
+  renderer reconnects.
+
 - `patch_codex_asar_directive_windows_path.py` *(Patch H)*
   Normalizes Windows paths inside one-line Codex app directives before markdown
   directive parsing, preventing renderer crashes from directive backslashes.

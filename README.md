@@ -10,6 +10,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 6. **Renderer directive crash guard** — Windows paths inside app directives are normalized before markdown directive parsing so a single persisted directive cannot crash the whole thread view.
 7. **`send_input` empty-items fix** — the default release now ships a source-patched `resources/codex.exe` that treats `items: []` as absent before validating mutually-exclusive `message` vs `items`.
 8. **Computer Use unlock (Any App + Google Chrome)** — bypasses Statsig feature gates and build-flavor restrictions that block Computer Use on non-internal builds and restricted regions. Google Chrome CUA works immediately; Any App requires upstream 26.527+ which ships the Windows CUA binary.
+9. **Shared-sidecar large payload guard** — raises the renderer WebSocket payload cap so heavy thread hydration does not disconnect the UI with `Max payload size exceeded`.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -356,6 +357,7 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_autopaginate_v3.py   Patch C v3 — always-paginate to 2000
 │   ├── patch_codex_asar_reconnect_clear.py   Patch D — clear conversations Map on reconnect
 │   ├── patch_codex_asar_ws_socks_bypass.py   Patch G — bypass SOCKS5 in WS transport (shared sidecar)
+│   ├── patch_codex_asar_ws_max_payload.py    Patch M — raise shared WS payload cap
 │   ├── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
 │   ├── patch_codex_asar_computer_use_gate.py Patch J — bypass Statsig gates for Computer Use
 │   ├── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
@@ -411,6 +413,18 @@ Note: upstream `26.513.x` changed renderer hydration behavior enough that Patch 
 ### Patch G — Bypass hardcoded SOCKS5 in WS transport
 
 The WS app-server transport class hardcodes `agent: new SocksProxyAgent(\`socks5h://127.0.0.1:1080\`)` for every WebSocket connection. When `CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:<PORT>` points Desktop at a local sidecar, the connection dials through a SOCKS proxy that doesn't exist and fails — and the renderer maps that failure to a login UI, which is misleading because the user is on apikey/cliproxy mode and the loopback `--ws-auth` is not even required. Patcher removes the `agent` option from the WS constructor (`th()` returns `{}` anyway, so no further tweak is needed) and the loopback connection succeeds. This unlocks the shared-sidecar pattern: Desktop and the bundled `codex-exec-remote.ps1` both attach to the same `app-server`, the sidecar broadcasts `item/agentMessage/delta` and `turn/completed` to every subscribed client, and any CLI dispatch shows up in Desktop's UI in real time.
+
+### Patch M -- Shared WebSocket payload cap
+
+The shared-sidecar lane routes Desktop through the Node `ws` client instead of
+the official private stdio app-server path. On machines with very large thread
+hydration payloads, many pending automation resumes, or a large MCP/skill
+surface, the renderer can exceed the default `ws` max payload. The app then
+logs `Max payload size exceeded`, closes the websocket with code `1006`, and
+temporarily reports `Codex app-server is not available`; model/provider/MCP
+state appears missing until reconnect. Patch M adds
+`maxPayload:1024*1024*1024` to the app-server WebSocket constructor only, using
+the `/*M*/` marker so CI can verify it.
 
 ### Patch H — Directive Windows path sanitizer
 
