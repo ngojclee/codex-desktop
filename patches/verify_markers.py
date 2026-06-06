@@ -21,6 +21,12 @@ import struct
 import sys
 from pathlib import Path
 
+PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
+WS_CONSTRUCTOR_PATTERN = re.compile(
+    r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
+)
+
 
 def _read_asar(app_dir: Path):
     asar = app_dir / "resources" / "app.asar"
@@ -73,6 +79,34 @@ def find_js_occurrences(app_dir: Path, needle: str):
             if needle in text:
                 hits.append(path)
     return hits
+
+
+def websocket_max_payload_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_paths = []
+    unpatched_paths = []
+    target_paths = []
+    for path, meta in _walk(header):
+        if not (path.endswith(".js") and "offset" in meta):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if PATCH_M_MARKER in text:
+            marker_paths.append(path)
+        if "this.options.websocketUrl" not in text or "perMessageDeflate:!1" not in text:
+            continue
+        for match in WS_CONSTRUCTOR_PATTERN.finditer(text):
+            body = match.group("body")
+            if "headers:" not in body:
+                continue
+            target_paths.append(path)
+            if "maxPayload:" not in body:
+                unpatched_paths.append(path)
+    return {
+        "marker_paths": sorted(set(marker_paths)),
+        "target_paths": sorted(set(target_paths)),
+        "unpatched_paths": sorted(set(unpatched_paths)),
+    }
+
 
 def find_patch_h_bundle(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
@@ -144,6 +178,7 @@ def main():
 
     signals_path, signals_txt = find_signals(app_dir)
     socks5_paths = find_js_occurrences(app_dir, "socks5h://127.0.0.1:1080")
+    ws_payload = websocket_max_payload_status(app_dir)
     patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
     patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
@@ -153,6 +188,13 @@ def main():
     print(f"Patch G SOCKS occurrences: {len(socks5_paths)}")
     for path in socks5_paths:
         print(f"  - {path}")
+    print(f"Patch M WS payload marker paths: {len(ws_payload['marker_paths'])}")
+    for path in ws_payload["marker_paths"]:
+        print(f"  - {path}")
+    if ws_payload["unpatched_paths"]:
+        print("Patch M unpatched WS targets:")
+        for path in ws_payload["unpatched_paths"]:
+            print(f"  - {path}")
     print(f"Patch H bundle: {patch_h_path}  ({len(patch_h_txt):,} bytes)")
     print(f"Patch K bundle: {patch_k_path}  ({len(patch_k_txt):,} bytes)")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
@@ -172,6 +214,9 @@ def main():
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
         ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in signals_txt, expect_patch_d),
         ("Patch G — SOCKS5 hardcode `socks5h://127.0.0.1:1080` ABSENT across JS", lambda: len(socks5_paths) == 0, True),
+        ("Patch M — shared WS transport target found", lambda: len(ws_payload["target_paths"]) > 0, True),
+        ("Patch M — `maxPayload` marker present", lambda: len(ws_payload["marker_paths"]) > 0, True),
+        ("Patch M — no shared WS target missing `maxPayload`", lambda: len(ws_payload["unpatched_paths"]) == 0, True),
         ("Patch H — directive Windows path sanitizer marker", lambda: "__PATCH_H_DIRECTIVE_WINDOWS_PATH__" in patch_h_txt, True),
         ("Patch K — Codex mobile sidebar gate marker", lambda: "/*K*/" in patch_k_txt, True),
         ("Patch K — remote-control visibility Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "1042620455"), True),

@@ -28,6 +28,7 @@ param(
     [switch]$SkipC,
     [switch]$SkipD,
     [switch]$SkipG,
+    [switch]$SkipM,
     [switch]$SkipH,
     [switch]$SkipJ,
     [switch]$SkipK,
@@ -84,6 +85,10 @@ if (-not $SkipD -and -not $autoSkipD) {
 
 if (-not $SkipG) {
     Run-Patch 'patch_codex_asar_ws_socks_bypass.py' @('--app-dir', $AppDir) 'Patch G — WS transport SOCKS5 proxy bypass (enables shared-sidecar)'
+}
+
+if (-not $SkipM) {
+    Run-Patch 'patch_codex_asar_ws_max_payload.py' @('--app-dir', $AppDir) 'Patch M — raise shared-sidecar WS max payload'
 }
 
 if (-not $SkipH) {
