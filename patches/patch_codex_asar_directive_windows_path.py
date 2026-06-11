@@ -52,6 +52,9 @@ SEARCH_PATTERNS = (
     # 26.602-style directive parser bundle. Upstream now has its own
     # quoted-attribute sentinel sanitizer; Patch H only marks that safe path.
     "function ZT(e,t=QT(e)){let n=e.includes(`{`)&&t?$T(e):e;return n.includes(`:::`)?eE(n):n}",
+    # 26.608-style directive parser bundle: same parser path as 26.601, new
+    # minified names after upstream rebundle.
+    "function xD(e,t){let n=t?.lineStartNames==null?e:wD(e,t.lineStartNames);if(n==null)return[];let r=[];return CD(aD(n,void 0),r)",
 )
 
 REPLACEMENTS = (
@@ -61,6 +64,7 @@ REPLACEMENTS = (
     "function JT(e,t){let n=t?.lineStartNames==null?e:ZT(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return XT(MT(n,void 0),r)",
     "function JE(e,t){let n=t?.lineStartNames==null?e:ZE(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return XE(ME(n,void 0),r)",
     "function ZT(e,t=QT(e)){globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0;let n=e.includes(`{`)&&t?$T(e):e;return n.includes(`:::`)?eE(n):n}",
+    "function xD(e,t){let n=t?.lineStartNames==null?e:wD(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return CD(aD(n,void 0),r)",
 )
 
 UPSTREAM_DIRECTIVE_SANITIZER_NEEDLES = (

@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+"""Patch A — widen the recent-thread discovery window.
+
+Problem: official Codex Desktop builds historically capped the sidebar at a
+small recent-thread window (`limit:50`). Codex Desktop 26.608.x introduced a
+new native expanded-history path (`getHistoryLimit` + `useStateDbOnly`) while
+keeping the old paged load-more path. A patcher that only knows the older
+minified shape fails even though the feature can still be widened safely.
+
+Fix: bump the known old initial/load-more limits, and on newer builds bump the
+native `getHistoryLimit` fallback from 50 to the requested limit. Verification
+accepts either the old widened initial-refresh shape or the new native widened
+history shape, while still requiring the load-more literal to be patched.
+"""
 import argparse
 import hashlib
 import json
@@ -15,6 +28,13 @@ PATCH_PATTERNS = (
     # in this build, so search patterns are no longer needed here.
     ("limit:50*this.recentConversationPageCount,cursor:null", "limit:{limit}*this.recentConversationPageCount,cursor:null"),
     ("limit:50,cursor:this.nextRecentConversationCursor", "limit:{limit},cursor:this.nextRecentConversationCursor"),
+    # Codex Desktop 26.608.x has a native expanded-history path. The default is
+    # still 50, so bumping it to 1000 makes the new native path do the work that
+    # Patch C's old manual paginate loop used to do.
+    (
+        "this.params.getHistoryLimit?.()??50,n=t>50,r=n?t:50*this.recentConversationPageCount",
+        "this.params.getHistoryLimit?.()??{limit},n=t>50,r=n?t:50*this.recentConversationPageCount",
+    ),
 )
 
 
@@ -204,8 +224,11 @@ def main():
     expected = {
         "refresh_limit": verify_text.count(f"limit:{args.limit}*this.recentConversationPageCount,cursor:null"),
         "load_more_limit": verify_text.count(f"limit:{args.limit},cursor:this.nextRecentConversationCursor"),
+        "native_history_limit": verify_text.count(
+            f"this.params.getHistoryLimit?.()??{args.limit},n=t>50,r=n?t:50*this.recentConversationPageCount"
+        ),
     }
-    if expected["refresh_limit"] != 1 or expected["load_more_limit"] != 1:
+    if expected["load_more_limit"] != 1 or (expected["refresh_limit"] != 1 and expected["native_history_limit"] != 1):
         raise SystemExit(f"Patch verification failed: {expected}")
 
     print(

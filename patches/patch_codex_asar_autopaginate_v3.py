@@ -28,6 +28,12 @@ to call listRecentThreads({limit:100, cursor}) in a loop, paging until
 nextCursor is exhausted or a safety cap of 2000 threads is reached. No
 guard. Idempotent via marker `__capV3=2000`.
 
+Codex Desktop 26.608.x added a native expanded-history path:
+`getHistoryLimit` + `useStateDbOnly` + `threadSummaries`. When Patch A has
+already bumped that native fallback to 1000, this patch records the same v3
+marker and leaves the native path intact instead of inserting the older manual
+paginate loop.
+
 The script automatically rolls back from v1 or v2 state (via the existing
 `app.asar.bak-before-autopaginate` snapshot) before applying v3.
 """
@@ -54,6 +60,10 @@ V1_SEARCH = (
 
 V2_GUARD = "if(!this.fetchedRecentConversations)"
 V3_MARKER = "__capV3=2000"
+NATIVE_HISTORY_PATCHED = (
+    "this.params.getHistoryLimit?.()??1000,n=t>50,r=n?t:50*this.recentConversationPageCount"
+)
+NATIVE_HISTORY_MARKER_ANCHOR = "this.params.onHistoryLoaded?.("
 
 UNPATCHED_SEARCH = (
     "let t=await this.listRecentThreads({limit:1000*this.recentConversationPageCount,cursor:null});"
@@ -124,6 +134,8 @@ def detect_state(text: str) -> str:
         return "v1"
     if UNPATCHED_SEARCH in text:
         return "unpatched"
+    if NATIVE_HISTORY_PATCHED in text and "useStateDbOnly:n" in text:
+        return "native_expanded_history"
     return "unknown"
 
 
@@ -219,6 +231,35 @@ def apply_v3(app_dir: Path) -> dict:
         state = detect_state(original)
 
     if state != "unpatched":
+        if state == "native_expanded_history":
+            if NATIVE_HISTORY_MARKER_ANCHOR not in original:
+                return {"status": "error", "reason": "native marker anchor missing", "asar": str(asar_path)}
+
+            pre_v3_bak = asar_path.with_name("app.asar.bak-before-v3")
+            if not pre_v3_bak.exists():
+                shutil.copy2(asar_path, pre_v3_bak)
+
+            patched_text = original.replace(
+                NATIVE_HISTORY_MARKER_ANCHOR,
+                f"/*{V3_MARKER}*/{NATIVE_HISTORY_MARKER_ANCHOR}",
+                1,
+            )
+            repack(asar_path, header, payload_start, target_path, patched_text.encode("utf-8"))
+
+            h2, ps2 = read_header(asar_path)
+            tp2, tm2 = find_target(h2)
+            js2 = extract(asar_path, ps2, tm2).decode("utf-8", "replace")
+            if detect_state(js2) != "v3":
+                return {"status": "error", "reason": "native marker verify failed"}
+
+            return {
+                "status": "native_expanded_history_marked_v3",
+                "asar": str(asar_path),
+                "target": target_path,
+                "old_size": len(original),
+                "new_size": len(patched_text),
+                "delta_bytes": len(patched_text) - len(original),
+            }
         return {"status": "error", "reason": f"unexpected state after rollback: {state}", "asar": str(asar_path)}
 
     if UNPATCHED_SEARCH not in original:

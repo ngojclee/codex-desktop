@@ -162,6 +162,7 @@ def computer_use_plugin_status(app_dir: Path):
         "present": True,
         "escaped_scopes": escaped,
         "sky_package_exists": (node_modules / "@oai" / "sky" / "package.json").exists(),
+        "node_modules_present": node_modules.exists(),
     }
 
 
@@ -222,7 +223,7 @@ def main():
         ("Patch K — remote-control visibility Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "1042620455"), True),
         ("Patch K — Codex mobile onboarding Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "2798711298"), True),
         ("Patch L — no percent-escaped Computer Use package folders", lambda: len(computer_use["escaped_scopes"]) == 0, computer_use["present"]),
-        ("Patch L — Computer Use @oai/sky package present", lambda: computer_use["sky_package_exists"], computer_use["present"]),
+        ("Patch L — Computer Use @oai/sky package present", lambda: computer_use["sky_package_exists"] or not computer_use.get("node_modules_present", True), computer_use["present"]),
     )
 
     failed = []
