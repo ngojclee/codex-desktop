@@ -182,13 +182,6 @@ jobs:
           "source_sha=$sourceSha" >> $env:GITHUB_OUTPUT
           "source_date=$sourceDate" >> $env:GITHUB_OUTPUT
 
-      - name: Cache Rust build outputs
-        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: codex-src/codex-rs -> target
-          cache-on-failure: true
-
       - name: Update bundled Codex CLI sidecar
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         id: sidecar
