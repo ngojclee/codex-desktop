@@ -55,6 +55,9 @@ SEARCH_PATTERNS = (
     # 26.608-style directive parser bundle: same parser path as 26.601, new
     # minified names after upstream rebundle.
     "function xD(e,t){let n=t?.lineStartNames==null?e:wD(e,t.lineStartNames);if(n==null)return[];let r=[];return CD(aD(n,void 0),r)",
+    # 26.609-style directive parser bundle: same parser path, another
+    # minified-name rotation.
+    "function fO(e,t){let n=t?.lineStartNames==null?e:hO(e,t.lineStartNames);if(n==null)return[];let r=[];return mO(XD(n,void 0),r)",
 )
 
 REPLACEMENTS = (
@@ -65,6 +68,7 @@ REPLACEMENTS = (
     "function JE(e,t){let n=t?.lineStartNames==null?e:ZE(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return XE(ME(n,void 0),r)",
     "function ZT(e,t=QT(e)){globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0;let n=e.includes(`{`)&&t?$T(e):e;return n.includes(`:::`)?eE(n):n}",
     "function xD(e,t){let n=t?.lineStartNames==null?e:wD(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return CD(aD(n,void 0),r)",
+    "function fO(e,t){let n=t?.lineStartNames==null?e:hO(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return mO(XD(n,void 0),r)",
 )
 
 UPSTREAM_DIRECTIVE_SANITIZER_NEEDLES = (
