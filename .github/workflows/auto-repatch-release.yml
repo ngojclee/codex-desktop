@@ -107,8 +107,28 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download upstream Windows zip
+      - name: Check upstream Windows asset
         if: steps.ours.outputs.skip == 'false'
+        id: upstream_asset
+        shell: pwsh
+        run: |
+          $tag = '${{ steps.upstream.outputs.tag }}'
+          $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
+          $release = gh release view $tag --repo $upstreamRepo --json assets | ConvertFrom-Json
+          $asset = $release.assets | Where-Object { $_.name -like 'Codex-win-x64-*.zip' } | Select-Object -First 1
+          if (-not $asset) {
+            Write-Host "::notice::Upstream $upstreamRepo $tag has no Codex-win-x64 asset yet; skipping Windows repatch until rebuild publishes one."
+            "available=false" >> $env:GITHUB_OUTPUT
+            return
+          }
+          Write-Host "Found upstream Windows asset: $($asset.name)"
+          "available=true" >> $env:GITHUB_OUTPUT
+          "name=$($asset.name)" >> $env:GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download upstream Windows zip
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           $tag = '${{ steps.upstream.outputs.tag }}'
@@ -120,7 +140,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           $zip = Get-ChildItem artifacts -Filter 'Codex-win-x64-*.zip' | Select-Object -First 1
@@ -131,14 +151,14 @@ jobs:
           Get-ChildItem build | Format-Table -AutoSize
 
       - name: Apply patches
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
           .\apply-all-patches.ps1 -AppDir $appDir -UpstreamTag '${{ steps.upstream.outputs.tag }}'
 
       - name: Checkout OpenAI Codex sidecar source
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         id: codexsrc
         shell: pwsh
         run: |
@@ -163,14 +183,14 @@ jobs:
           "source_date=$sourceDate" >> $env:GITHUB_OUTPUT
 
       - name: Cache Rust build outputs
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: codex-src/codex-rs -> target
           cache-on-failure: true
 
       - name: Update bundled Codex CLI sidecar
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         id: sidecar
         shell: pwsh
         timeout-minutes: 45
@@ -225,14 +245,14 @@ jobs:
           "patch_i=true" >> $env:GITHUB_OUTPUT
 
       - name: Verify patch markers
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
           python patches/verify_markers.py "$appDir" --upstream-tag '${{ steps.upstream.outputs.tag }}'
 
       - name: Remove patcher backup artifacts from package
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
@@ -254,7 +274,7 @@ jobs:
           Write-Host ("Removed {0} package backup artifact(s), saving about {1:N1} MB." -f $backupFiles.Count, ($total / 1MB))
 
       - name: Bundle runtime/ into build/tools/
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           # Copy runtime/ scripts into the install's tools/ folder so fresh
@@ -308,7 +328,7 @@ jobs:
           Get-ChildItem $tools | Format-Table -AutoSize
 
       - name: Repackage zip
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         id: pack
         shell: pwsh
         run: |
@@ -320,7 +340,7 @@ jobs:
           "asset=$out" >> $env:GITHUB_OUTPUT
 
       - name: Delete existing release if force-rebuild
-        if: steps.ours.outputs.skip == 'false' && inputs.force == true
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true' && inputs.force == true
         shell: pwsh
         run: |
           $tag = '${{ steps.ours.outputs.tag }}'
@@ -332,7 +352,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create release in this repo
-        if: steps.ours.outputs.skip == 'false'
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
           $tag = '${{ steps.ours.outputs.tag }}'
