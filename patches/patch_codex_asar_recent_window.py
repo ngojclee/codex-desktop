@@ -35,6 +35,13 @@ PATCH_PATTERNS = (
         "this.params.getHistoryLimit?.()??50,n=t>50,r=n?t:50*this.recentConversationPageCount",
         "this.params.getHistoryLimit?.()??{limit},n=t>50,r=n?t:50*this.recentConversationPageCount",
     ),
+    # Codex Desktop 26.611.x keeps the native expanded-history path, but the
+    # initial page size is now held in a local `a` rather than the old
+    # `recentConversationPageCount` expression.
+    (
+        "this.params.getHistoryLimit?.()??50,i=(t===`expanded`||n)&&r>50,a=i?r:50",
+        "this.params.getHistoryLimit?.()??{limit},i=(t===`expanded`||n)&&r>50,a=i?r:50",
+    ),
 )
 
 
@@ -224,11 +231,17 @@ def main():
     expected = {
         "refresh_limit": verify_text.count(f"limit:{args.limit}*this.recentConversationPageCount,cursor:null"),
         "load_more_limit": verify_text.count(f"limit:{args.limit},cursor:this.nextRecentConversationCursor"),
-        "native_history_limit": verify_text.count(
+        "native_history_limit_26_608": verify_text.count(
             f"this.params.getHistoryLimit?.()??{args.limit},n=t>50,r=n?t:50*this.recentConversationPageCount"
         ),
+        "native_history_limit_26_611": verify_text.count(
+            f"this.params.getHistoryLimit?.()??{args.limit},i=(t===`expanded`||n)&&r>50,a=i?r:50"
+        ),
     }
-    if expected["load_more_limit"] != 1 or (expected["refresh_limit"] != 1 and expected["native_history_limit"] != 1):
+    native_history_limit = expected["native_history_limit_26_608"] + expected["native_history_limit_26_611"]
+    if native_history_limit:
+        pass
+    elif expected["load_more_limit"] != 1 or expected["refresh_limit"] != 1:
         raise SystemExit(f"Patch verification failed: {expected}")
 
     print(

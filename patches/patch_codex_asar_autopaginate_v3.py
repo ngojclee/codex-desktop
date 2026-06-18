@@ -60,8 +60,9 @@ V1_SEARCH = (
 
 V2_GUARD = "if(!this.fetchedRecentConversations)"
 V3_MARKER = "__capV3=2000"
-NATIVE_HISTORY_PATCHED = (
-    "this.params.getHistoryLimit?.()??1000,n=t>50,r=n?t:50*this.recentConversationPageCount"
+NATIVE_HISTORY_PATCHED_PATTERNS = (
+    "this.params.getHistoryLimit?.()??1000,n=t>50,r=n?t:50*this.recentConversationPageCount",
+    "this.params.getHistoryLimit?.()??1000,i=(t===`expanded`||n)&&r>50,a=i?r:50",
 )
 NATIVE_HISTORY_MARKER_ANCHOR = "this.params.onHistoryLoaded?.("
 
@@ -134,7 +135,7 @@ def detect_state(text: str) -> str:
         return "v1"
     if UNPATCHED_SEARCH in text:
         return "unpatched"
-    if NATIVE_HISTORY_PATCHED in text and "useStateDbOnly:n" in text:
+    if any(pattern in text for pattern in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text:
         return "native_expanded_history"
     return "unknown"
 
