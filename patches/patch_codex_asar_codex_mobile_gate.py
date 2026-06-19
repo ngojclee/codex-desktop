@@ -36,10 +36,11 @@ SIDEBAR_GATE_PATTERN = re.compile(
     rb"(?P<prefix>function [A-Za-z_$][A-Za-z0-9_$]*\(\{"
     rb"enabled:(?P<enabled>[A-Za-z_$][A-Za-z0-9_$]*),"
     rb"hasCompletedCodexMobileSetup:(?P<completed>[A-Za-z_$][A-Za-z0-9_$]*),"
+    rb"(?:isChatGptAuth:(?P<auth>[A-Za-z_$][A-Za-z0-9_$]*),)?"
     rb"remoteControlFeaturesVisible:(?P<visible>[A-Za-z_$][A-Za-z0-9_$]*),"
     rb"remoteControlOnboardingEnabled:(?P<onboard>[A-Za-z_$][A-Za-z0-9_$]*)"
     rb"\}\)\{)"
-    rb"(?P<expr>return (?P=enabled)&&(?P=visible)&&(?P=onboard)&&!(?P=completed))"
+    rb"(?P<expr>return (?P=enabled)&&(?:(?P=auth)&&)?(?P=visible)&&(?P=onboard)&&!(?P=completed))"
 )
 
 PATCH_MARKER = b"/*K*/"

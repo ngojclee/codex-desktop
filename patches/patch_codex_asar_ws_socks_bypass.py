@@ -35,6 +35,11 @@ SOCKS_PATTERN = re.compile(
     r",agent:new\s+[A-Za-z_$][A-Za-z0-9_$]*\.SocksProxyAgent\((?P<q>[`'\"])"
     r"socks5h://127\.0\.0\.1:1080(?P=q)\)"
 )
+SOCKS_SPREAD_PATTERN = re.compile(
+    r",\.\.\.[A-Za-z_$][A-Za-z0-9_$]*\(this\.options\.websocketUrl\)\?\{\}:\{agent:new\s+"
+    r"[A-Za-z_$][A-Za-z0-9_$]*\.SocksProxyAgent\((?P<q>[`'\"])"
+    r"socks5h://127\.0\.0\.1:1080(?P=q)\)\}"
+)
 
 
 def read_header(asar_path: Path):
@@ -73,7 +78,11 @@ def extract(asar_path, payload_start, meta):
 def patch_js(data: bytes):
     text = data.decode("utf-8")
     matches = list(SOCKS_PATTERN.finditer(text))
+    spread_matches = list(SOCKS_SPREAD_PATTERN.finditer(text))
     if not matches:
+        if spread_matches:
+            patched = SOCKS_SPREAD_PATTERN.sub("", text)
+            return patched.encode("utf-8"), {"status": "patched", "replaced": len(spread_matches)}
         if SOCKS_LITERAL not in text:
             return data, {"status": "already_patched", "replaced": 0}
         raise RuntimeError(

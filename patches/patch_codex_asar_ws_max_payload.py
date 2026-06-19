@@ -34,6 +34,11 @@ WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
 )
+WS_OPTIONS_VAR_PATTERN = re.compile(
+    r"(?P<prefix>[A-Za-z_$][A-Za-z0-9_$]*=)\{(?P<body>headers:[^{}]*?perMessageDeflate:!1[^{}]*?)\}"
+    r"(?P<suffix>,[A-Za-z_$][A-Za-z0-9_$]*=.*?new\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\(this\.options\.websocketUrl,)",
+)
 
 MAX_PAYLOAD_PATTERN = re.compile(r"(?:/\*M\*/)?maxPayload:[^,}]+")
 
@@ -105,9 +110,23 @@ def patch_js(data: bytes):
         last = match.end()
 
     if not targets:
-        raise RuntimeError(
-            "Found websocketUrl/perMessageDeflate hints but target constructor pattern did not match"
+        var_match = WS_OPTIONS_VAR_PATTERN.search(text)
+        if var_match is None:
+            raise RuntimeError(
+                "Found websocketUrl/perMessageDeflate hints but target constructor pattern did not match"
+            )
+        body = var_match.group("body")
+        patched_body, did_change = patch_body(body)
+        targets = 1
+        changed = 1 if did_change else 0
+        patched = (
+            text[: var_match.start()]
+            + f"{var_match.group('prefix')}{{{patched_body}}}{var_match.group('suffix')}"
+            + text[var_match.end() :]
         )
+        if changed == 0:
+            return data, {"status": "already_patched", "changed": 0, "targets": targets}
+        return patched.encode("utf-8"), {"status": "patched", "changed": changed, "targets": targets}
 
     if changed == 0:
         return data, {"status": "already_patched", "changed": 0, "targets": targets}
