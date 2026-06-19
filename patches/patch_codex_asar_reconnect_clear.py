@@ -107,7 +107,7 @@ def iter_files(node, parts=()):
             yield "/".join(cp), meta
 
 
-def find_target(header):
+def find_target(header, asar_path: Path | None = None, payload_start: int | None = None):
     for path, meta in iter_files(header):
         if (
             path.startswith("webview/assets/")
@@ -116,7 +116,19 @@ def find_target(header):
             and "offset" in meta
         ):
             return path, meta
-    raise RuntimeError("Could not find app-server-manager-signals-*.js")
+    if asar_path is not None and payload_start is not None:
+        candidates = []
+        for path, meta in iter_files(header):
+            if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+                continue
+            text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
+            if MARKER in text or "markAllConversationsNeedResumeAfterReconnect(){" in text:
+                candidates.append((path, meta))
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            raise RuntimeError(f"Multiple reconnect chunks found: {[p for p, _ in candidates]}")
+    raise RuntimeError("Could not find reconnect renderer chunk")
 
 
 def extract(asar_path: Path, payload_start: int, meta: dict) -> bytes:
@@ -195,7 +207,7 @@ def apply(app_dir: Path) -> dict:
         return {"status": "missing", "asar": str(asar_path)}
 
     header, payload_start = read_header(asar_path)
-    target_path, target_meta = find_target(header)
+    target_path, target_meta = find_target(header, asar_path, payload_start)
     original = extract(asar_path, payload_start, target_meta).decode("utf-8", "replace")
 
     if MARKER in original:
@@ -222,7 +234,7 @@ def apply(app_dir: Path) -> dict:
     repack(asar_path, header, payload_start, target_path, patched_text.encode("utf-8"))
 
     h2, ps2 = read_header(asar_path)
-    tp2, tm2 = find_target(h2)
+    tp2, tm2 = find_target(h2, asar_path, ps2)
     js2 = extract(asar_path, ps2, tm2).decode("utf-8", "replace")
     if MARKER not in js2:
         return {"status": "error", "reason": "verify failed"}

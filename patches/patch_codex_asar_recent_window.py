@@ -68,7 +68,7 @@ def iter_files(node, parts=()):
             yield "/".join(child_parts), meta
 
 
-def find_target(header):
+def find_target(header, asar_path: Path | None = None, payload_start: int | None = None):
     candidates = []
     for path, meta in iter_files(header):
         if (
@@ -78,8 +78,19 @@ def find_target(header):
             and "offset" in meta
         ):
             candidates.append((path, meta))
+    if not candidates and asar_path is not None and payload_start is not None:
+        for path, meta in iter_files(header):
+            if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+                continue
+            text = extract_file(asar_path, payload_start, meta).decode("utf-8", "replace")
+            if (
+                "listRecentThreads" in text
+                and "getHistoryLimit" in text
+                and "recentConversationSortKey" in text
+            ):
+                candidates.append((path, meta))
     if not candidates:
-        raise RuntimeError("Could not find app-server-manager-signals-*.js in app.asar")
+        raise RuntimeError("Could not find recent-conversation renderer chunk in app.asar")
     if len(candidates) > 1:
         raise RuntimeError(f"Expected one target chunk, found {len(candidates)}: {[p for p, _ in candidates]}")
     return candidates[0]
@@ -206,7 +217,7 @@ def main():
         raise SystemExit(f"Missing ASAR: {asar_path}")
 
     header, payload_start = read_header(asar_path)
-    target_path, target_meta = find_target(header)
+    target_path, target_meta = find_target(header, asar_path, payload_start)
     original = extract_file(asar_path, payload_start, target_meta)
     patched, info = patch_js(original, args.limit)
 
@@ -225,7 +236,7 @@ def main():
     repack(asar_path, header, payload_start, target_path, patched)
 
     verify_header, verify_payload_start = read_header(asar_path)
-    verify_target_path, verify_target_meta = find_target(verify_header)
+    verify_target_path, verify_target_meta = find_target(verify_header, asar_path, verify_payload_start)
     verify_data = extract_file(asar_path, verify_payload_start, verify_target_meta)
     verify_text = verify_data.decode("utf-8")
     expected = {
