@@ -26,6 +26,10 @@ WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
 )
+WS_OPTIONS_VAR_PATTERN = re.compile(
+    r"[A-Za-z_$][A-Za-z0-9_$]*=\{(?P<body>headers:[^{}]*?perMessageDeflate:!1[^{}]*?)\}"
+    r",[A-Za-z_$][A-Za-z0-9_$]*=.*?new\s+[A-Za-z_$][A-Za-z0-9_$]*\(this\.options\.websocketUrl,"
+)
 
 
 def _read_asar(app_dir: Path):
@@ -60,6 +64,7 @@ def _extract(asar: Path, payload_start: int, meta: dict) -> str:
 
 def find_signals(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
+    candidates = []
     for path, meta in _walk(header):
         if (
             path.startswith("webview/assets/")
@@ -67,7 +72,20 @@ def find_signals(app_dir: Path):
             and path.endswith(".js")
         ):
             return path, _extract(asar, payload_start, meta)
-    raise SystemExit("Could not find app-server-manager-signals-*.js in app.asar")
+        if path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta:
+            text = _extract(asar, payload_start, meta)
+            if (
+                "__capV3=2000" in text
+                and "__pdIds" in text
+                and "getHistoryLimit" in text
+                and "markAllConversationsNeedResumeAfterReconnect" in text
+            ):
+                candidates.append((path, text))
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise SystemExit(f"Multiple recent state chunks found: {[p for p, _ in candidates]}")
+    raise SystemExit("Could not find recent state renderer chunk in app.asar")
 
 
 def find_js_occurrences(app_dir: Path, needle: str):
@@ -98,6 +116,11 @@ def websocket_max_payload_status(app_dir: Path):
             body = match.group("body")
             if "headers:" not in body:
                 continue
+            target_paths.append(path)
+            if "maxPayload:" not in body:
+                unpatched_paths.append(path)
+        for match in WS_OPTIONS_VAR_PATTERN.finditer(text):
+            body = match.group("body")
             target_paths.append(path)
             if "maxPayload:" not in body:
                 unpatched_paths.append(path)
