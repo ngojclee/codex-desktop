@@ -11,6 +11,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 7. **`send_input` empty-items fix** — the default release now ships a source-patched `resources/codex.exe` that treats `items: []` as absent before validating mutually-exclusive `message` vs `items`.
 8. **Computer Use unlock (Any App + Google Chrome)** — bypasses Statsig feature gates and build-flavor restrictions that block Computer Use on non-internal builds and restricted regions. Google Chrome CUA works immediately; Any App requires upstream 26.527+ which ships the Windows CUA binary.
 9. **Shared-sidecar large payload guard** — raises the renderer WebSocket payload cap so heavy thread hydration does not disconnect the UI with `Max payload size exceeded`.
+10. **Persistent log churn guard** — source-built `resources\codex.exe` applies/verifies OpenAI fixes for excessive `~\.codex\logs_2.sqlite` churn so older sidecar refs do not keep writing noisy TRACE diagnostics.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -363,6 +364,7 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
 │   └── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
+├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
 ├── apply-all-patches.ps1    Orchestrator — runs the patch set on a given app dir
@@ -434,6 +436,12 @@ Renderer markdown parsing can throw on app directives that contain Windows paths
 ### Patch I — `send_input` empty-items sidecar fix
 
 Patch I is now part of the default stable lane. The failure lives in the bundled Rust sidecar/CLI (`resources\codex.exe`): some Codex tool adapters serialize `functions.send_input` as `message` plus `items: []`, and the backend rejects that as "Provide either message or items, but not both". The release pipeline now builds `openai/codex` from source and inserts one normalization line in `parse_collab_input`: empty `items` becomes absent before mutual-exclusion validation. No separate `-sendinput` lane is required for the default release.
+
+### Patch N -- Persistent SQLite log churn guard
+
+Patch N protects the source-built bundled sidecar from the upstream persistent log churn fixed by OpenAI in `openai/codex` PRs #29432 and #29457. Affected builds write very noisy TRACE diagnostics into `~\.codex\logs_2.sqlite`/WAL, especially per-event WebSocket and OpenTelemetry mirror logs. The file may not grow quickly because Codex prunes old rows, but SQLite still performs repeated writes.
+
+The release pipeline removes the per-event `trace!("websocket event: {text}")` call when present, adds/verifies `log_db::default_filter()`, and filters the noisy `log`, `codex_otel.log_only`, and `codex_otel.trace_safe` targets from the persistent log sink. The patch is idempotent: once the selected `openai/codex` source ref already contains the upstream fix, Patch N only verifies the markers and makes no source change.
 
 ### Patch J -- Computer Use gate bypass
 
