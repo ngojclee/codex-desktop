@@ -253,3 +253,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFrom
 ```
 
 Verification target: a `functions.send_input` call serialized as `message` plus empty `items: []` should return a `submission_id` instead of `Provide either message or items, but not both`. Shared-sidecar dispatch via `codex-exec-remote.ps1` must continue to work.
+
+## Patch N / persistent log churn guard
+
+Patch N is included in the source-built sidecar lane to cover OpenAI Codex sources before the upstream persistent logging fix. It applies/verifies the same behavioral markers as OpenAI PRs #29432 and #29457:
+
+- `codex-rs/codex-api/src/endpoint/responses_websocket.rs` must not log every WebSocket payload with `trace!("websocket event: {text}")`.
+- `codex-rs/state/src/log_db.rs` must expose `log_db::default_filter()` with `log`, `codex_otel.log_only`, and `codex_otel.trace_safe` set to `LevelFilter::OFF`.
+- `codex-rs/app-server/src/lib.rs` and `codex-rs/tui/src/lib.rs` must attach the persistent SQLite log layer with `log_db::default_filter()` instead of `Targets::new().with_default(Level::TRACE)`.
+
+This is a self-retiring guard. Newer source refs that already include the upstream fix pass verification without modification, so it can remain in the workflow until the sidecar lane is permanently pinned to `rust-v0.142.0` or newer.

@@ -212,6 +212,67 @@ jobs:
             throw 'Patch I verification failed: empty-items normalization marker missing'
           }
 
+          # Patch N: upstream fixed excessive persistent SQLite log churn in
+          # openai/codex#29432 and #29457. Keep this as an idempotent guard so
+          # source refs before rust-v0.142.0 are protected, while newer refs
+          # simply verify the upstream fix markers and move on.
+          $wsSource = Join-Path $codexSrc 'codex-rs\codex-api\src\endpoint\responses_websocket.rs'
+          $logDbSource = Join-Path $codexSrc 'codex-rs\state\src\log_db.rs'
+          $appServerSource = Join-Path $codexSrc 'codex-rs\app-server\src\lib.rs'
+          $tuiSource = Join-Path $codexSrc 'codex-rs\tui\src\lib.rs'
+          foreach ($requiredSource in @($wsSource, $logDbSource, $appServerSource, $tuiSource)) {
+            if (-not (Test-Path -LiteralPath $requiredSource)) { throw "Missing upstream source file for Patch N: $requiredSource" }
+          }
+
+          $wsText = Get-Content -Raw -LiteralPath $wsSource
+          $wsPatched = $wsText -replace '(?m)^\s*trace!\("websocket event: \{text\}"\);\r?\n', ''
+          if ($wsPatched -ne $wsText) {
+            Set-Content -LiteralPath $wsSource -Value $wsPatched -NoNewline
+          }
+          if ((Get-Content -Raw -LiteralPath $wsSource) -match 'websocket event: \{text\}') {
+            throw 'Patch N verification failed: per-event WebSocket trace marker is still present'
+          }
+
+          $logDbText = Get-Content -Raw -LiteralPath $logDbSource
+          if ($logDbText -notmatch 'pub fn default_filter\(\) -> Targets') {
+            if ($logDbText -notmatch 'use tracing::level_filters::LevelFilter;') {
+              $logDbText = $logDbText -replace 'use tracing::field::Visit;\r?\n', "use tracing::field::Visit;`nuse tracing::level_filters::LevelFilter;`n"
+            }
+            if ($logDbText -notmatch 'use tracing_subscriber::filter::Targets;') {
+              $logDbText = $logDbText -replace 'use tracing_subscriber::field::RecordFields;\r?\n', "use tracing_subscriber::field::RecordFields;`nuse tracing_subscriber::filter::Targets;`n"
+            }
+            $defaultFilter = @'
+          pub fn default_filter() -> Targets {
+              Targets::new()
+                  .with_default(LevelFilter::TRACE)
+                  .with_target("log", LevelFilter::OFF)
+                  .with_target("codex_otel.log_only", LevelFilter::OFF)
+                  .with_target("codex_otel.trace_safe", LevelFilter::OFF)
+          }
+          '@
+            $logDbText = [regex]::Replace(
+              $logDbText,
+              'const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs\(2\);\r?\n',
+              { param($m) "$($m.Value)`n$defaultFilter`n" },
+              1
+            )
+            Set-Content -LiteralPath $logDbSource -Value $logDbText -NoNewline
+          }
+
+          foreach ($logLayerSource in @($appServerSource, $tuiSource)) {
+            $layerText = Get-Content -Raw -LiteralPath $logLayerSource
+            $layerPatched = $layerText -replace 'Targets::new\(\)\.with_default\(Level::TRACE\)', 'log_db::default_filter()'
+            if ($layerPatched -ne $layerText) {
+              Set-Content -LiteralPath $logLayerSource -Value $layerPatched -NoNewline
+            }
+            if ((Get-Content -Raw -LiteralPath $logLayerSource) -notmatch 'log_db::default_filter\(\)') {
+              throw "Patch N verification failed: persistent log filter marker missing in $logLayerSource"
+            }
+          }
+          if ((Get-Content -Raw -LiteralPath $logDbSource) -notmatch 'with_target\("codex_otel\.trace_safe", LevelFilter::OFF\)') {
+            throw 'Patch N verification failed: noisy persistent log target filter marker missing'
+          }
+
           Push-Location (Join-Path $codexSrc 'codex-rs')
           Write-Host 'Rust/Cargo versions:'
           rustc --version
@@ -236,6 +297,7 @@ jobs:
           "old_version=$oldVersion" >> $env:GITHUB_OUTPUT
           "new_version=$verifiedVersion" >> $env:GITHUB_OUTPUT
           "patch_i=true" >> $env:GITHUB_OUTPUT
+          "patch_n=true" >> $env:GITHUB_OUTPUT
 
       - name: Verify patch markers
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -365,12 +427,13 @@ jobs:
           - **Patch M** — raise the shared app-server WebSocket max payload to prevent heavy thread hydration from closing the UI connection with `Max payload size exceeded`
           - **Patch H** — sanitize Windows backslashes in app directive lines before markdown directive parsing so one malformed directive cannot crash thread rendering
           - **Patch I** — source-built `resources/codex.exe` with `send_input` empty-items normalization baked into the default release lane
+          - **Patch N** — guard source-built `resources/codex.exe` against excessive persistent `logs_2.sqlite` churn by applying/verifying upstream OpenAI fixes #29432 and #29457
           - **Patch J** — bypass renderer Statsig gates for Computer Use (Any App + Chrome)
           - **Patch K** — expose the bundled Codex mobile setup route in the sidebar while preserving upstream account/auth checks
           - **Patch L** — decode percent-escaped plugin package folders so Computer Use can resolve `@oai/sky` and its vendored pnpm deps
 
           ## Bundled Codex CLI sidecar
-          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I merged in.
+          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
           - Source ref ${{ steps.codexsrc.outputs.resolved_ref }} resolved to [${{ steps.codexsrc.outputs.source_sha }}](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from ${{ steps.codexsrc.outputs.source_date }}. The same metadata is bundled at tools\.sidecar-source.
 
           ## Install
