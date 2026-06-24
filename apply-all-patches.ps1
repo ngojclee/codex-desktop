@@ -33,6 +33,7 @@ param(
     [switch]$SkipJ,
     [switch]$SkipK,
     [switch]$SkipL,
+    [switch]$SkipO,
 
     [string]$UpstreamTag
 )
@@ -105,6 +106,10 @@ if (-not $SkipK) {
 
 if (-not $SkipL) {
     Run-Patch 'patch_codex_plugin_scoped_node_modules.py' @('--app-dir', $AppDir) 'Patch L — decode plugin package folders (%40 -> @)'
+}
+
+if (-not $SkipO) {
+    Run-Patch 'patch_codex_asar_model_availability_filter.py' @('--app-dir', $AppDir) 'Patch O — keep local catalog models visible through Statsig allowlist'
 }
 
 Write-Host ""

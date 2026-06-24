@@ -358,7 +358,8 @@ jobs:
 
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
-            'Launch-Codex.ps1' = 'Refresh-Codex-SharedSkills.ps1'
+            'Launch-Codex.ps1' = 'Sync-Codex-ModelCatalog.ps1'
+            'Sync-Codex-ModelCatalog.ps1' = 'CODEX_MODEL_SYNC_ALL_TRAY'
             'Update-Codex.ps1' = 'Preserving tools/ from previous install'
           }
           foreach ($entry in $markerChecks.GetEnumerator()) {
@@ -431,6 +432,7 @@ jobs:
           - **Patch J** — bypass renderer Statsig gates for Computer Use (Any App + Chrome)
           - **Patch K** — expose the bundled Codex mobile setup route in the sidebar while preserving upstream account/auth checks
           - **Patch L** — decode percent-escaped plugin package folders so Computer Use can resolve `@oai/sky` and its vendored pnpm deps
+          - **Patch O** — keep non-hidden local model catalog entries visible even when the renderer receives a Statsig model allowlist, so custom proxy models and `GPT-5.3 Codex Spark` are not hidden from the picker
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
