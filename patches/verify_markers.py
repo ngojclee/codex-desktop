@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 
 PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
+PATCH_O_MARKER = "if(s?(t.has(n.model)||!n.hidden):!n.hidden)"
+PATCH_O_OLD = "if(s?t.has(n.model):!n.hidden)"
 WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
@@ -151,6 +153,28 @@ def find_patch_k_bundle(app_dir: Path):
     raise SystemExit("Could not find Patch K marker in Codex mobile sidebar bundle")
 
 
+def model_availability_filter_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_paths = []
+    unpatched_paths = []
+    candidate_paths = []
+    for path, meta in _walk(header):
+        if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if "model-list-filter" in path or "availableModels" in text or "useHiddenModels" in text:
+            candidate_paths.append(path)
+        if PATCH_O_MARKER in text:
+            marker_paths.append(path)
+        if PATCH_O_OLD in text:
+            unpatched_paths.append(path)
+    return {
+        "candidate_paths": sorted(set(candidate_paths)),
+        "marker_paths": sorted(set(marker_paths)),
+        "unpatched_paths": sorted(set(unpatched_paths)),
+    }
+
+
 def has_statsig_gate_call(app_dir: Path, gate_id: str) -> bool:
     asar, payload_start, header = _read_asar(app_dir)
     pattern = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*\(`" + re.escape(gate_id) + r"`\)")
@@ -205,6 +229,7 @@ def main():
     ws_payload = websocket_max_payload_status(app_dir)
     patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
     patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
+    patch_o = model_availability_filter_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -221,6 +246,13 @@ def main():
             print(f"  - {path}")
     print(f"Patch H bundle: {patch_h_path}  ({len(patch_h_txt):,} bytes)")
     print(f"Patch K bundle: {patch_k_path}  ({len(patch_k_txt):,} bytes)")
+    print(f"Patch O model filter marker paths: {len(patch_o['marker_paths'])}")
+    for path in patch_o["marker_paths"]:
+        print(f"  - {path}")
+    if patch_o["unpatched_paths"]:
+        print("Patch O unpatched model filters:")
+        for path in patch_o["unpatched_paths"]:
+            print(f"  - {path}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -251,6 +283,8 @@ def main():
         ("Patch K — Codex mobile onboarding Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "2798711298"), True),
         ("Patch L — no percent-escaped Computer Use package folders", lambda: len(computer_use["escaped_scopes"]) == 0, computer_use["present"]),
         ("Patch L — Computer Use @oai/sky package present", lambda: computer_use["sky_package_exists"] or not computer_use.get("node_modules_present", True), computer_use["present"]),
+        ("Patch O — model availability filter marker", lambda: len(patch_o["marker_paths"]) > 0, True),
+        ("Patch O — old Statsig-only model filter absent", lambda: len(patch_o["unpatched_paths"]) == 0, True),
     )
 
     failed = []
