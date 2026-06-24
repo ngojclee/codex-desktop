@@ -108,6 +108,13 @@ Then it applies the current patch set to the copied app only:
   checks. Pairing still depends on upstream ChatGPT account auth and server-side
   entitlement.
 
+- `patch_codex_asar_model_availability_filter.py` *(Patch O)*
+  Keeps local non-hidden model catalog entries visible when Desktop receives a
+  Statsig `available_models` allowlist. Without this patch, recent renderer
+  builds can show only upstream allowlisted models and hide local proxy/custom
+  models such as `GPT-5.3 Codex Spark`, even though sidecar `model/list`
+  returns them.
+
 After patching, the script also deletes any older `OpenAI.Codex_*_x64*` sibling
 directories under `CodexDesktopPatched` (each stale Store version leaves ~1.6 GB
 behind). The currently-patched version and the source under
@@ -263,3 +270,30 @@ Patch N is included in the source-built sidecar lane to cover OpenAI Codex sourc
 - `codex-rs/app-server/src/lib.rs` and `codex-rs/tui/src/lib.rs` must attach the persistent SQLite log layer with `log_db::default_filter()` instead of `Targets::new().with_default(Level::TRACE)`.
 
 This is a self-retiring guard. Newer source refs that already include the upstream fix pass verification without modification, so it can remain in the workflow until the sidecar lane is permanently pinned to `rust-v0.142.0` or newer.
+
+## Patch O / local model visibility
+
+Patch O is an `app.asar` renderer patch for the model picker. Current Desktop
+bundles read Statsig config gate `107580212` and pass `available_models`,
+`use_hidden_models`, and `default_model` into a minified model-list filter. The
+affected filter behaves like:
+
+```js
+if (useHiddenModels ? availableModels.has(model.model) : !model.hidden)
+```
+
+So when `use_hidden_models` is enabled, the renderer only shows server
+allowlisted models and hides local catalog entries, even if they are normal
+`hidden=false` models returned by sidecar `model/list`.
+
+Patch O changes that condition to keep non-hidden local models visible:
+
+```js
+if (useHiddenModels ? (availableModels.has(model.model) || !model.hidden) : !model.hidden)
+```
+
+The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startup
+so pinned models from `~\.codex\tray_config.json` are present in both
+`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. Default sync is
+limited to `pinned_models`; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the full
+tray catalog.

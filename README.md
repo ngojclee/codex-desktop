@@ -12,6 +12,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 8. **Computer Use unlock (Any App + Google Chrome)** — bypasses Statsig feature gates and build-flavor restrictions that block Computer Use on non-internal builds and restricted regions. Google Chrome CUA works immediately; Any App requires upstream 26.527+ which ships the Windows CUA binary.
 9. **Shared-sidecar large payload guard** — raises the renderer WebSocket payload cap so heavy thread hydration does not disconnect the UI with `Max payload size exceeded`.
 10. **Persistent log churn guard** — source-built `resources\codex.exe` applies/verifies OpenAI fixes for excessive `~\.codex\logs_2.sqlite` churn so older sidecar refs do not keep writing noisy TRACE diagnostics.
+11. **Local/custom model visibility guard** — keeps local non-hidden catalog models visible when Desktop receives a Statsig model allowlist, so pinned proxy models and `GPT-5.3 Codex Spark` do not disappear from the picker.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -362,7 +363,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_directive_windows_path.py Patch H — normalize directive Windows paths
 │   ├── patch_codex_asar_computer_use_gate.py Patch J — bypass Statsig gates for Computer Use
 │   ├── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
-│   └── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
+│   ├── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
+│   └── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -483,11 +485,28 @@ back to their decoded names and verifies
 `resources\plugins\openai-bundled\plugins\computer-use\node_modules\@oai\sky`
 exists when the Computer Use plugin is bundled.
 
+### Patch O -- Local model availability filter
+
+Recent Desktop builds read a Statsig payload containing `available_models`,
+`use_hidden_models`, and `default_model`. In the affected renderer bundle, when
+`use_hidden_models` is true the model picker only shows models named by that
+server allowlist. That hides local catalog entries even when the sidecar
+returns them as normal non-hidden models, including custom proxy ids and
+`GPT-5.3 Codex Spark`.
+
+Patch O changes the renderer filter so the Statsig allowlist can still expose
+hidden upstream models, but non-hidden models returned by `model/list` remain
+visible. The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` on startup
+to copy pinned entries from `~\.codex\tray_config.json` into
+`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. By default only
+`pinned_models` are imported; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the
+full tray catalog.
+
 ## Runtime workflow
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, syncs pinned tray models into the local model catalog, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.

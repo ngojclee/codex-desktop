@@ -82,6 +82,17 @@ function Refresh-SharedSkills {
     }
 }
 
+function Sync-ModelCatalog {
+    $syncScript = Join-Path $PSScriptRoot 'Sync-Codex-ModelCatalog.ps1'
+    if (-not (Test-Path -LiteralPath $syncScript)) { return }
+
+    try {
+        & $syncScript -Quiet
+    } catch {
+        Write-Host "WARN: model catalog sync failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -317,6 +328,7 @@ function Start-CurrentSidecarLogWindow {
 # Keep shared user skills visible on every launch while keeping generated
 # .system skills local per Windows machine.
 Refresh-SharedSkills
+Sync-ModelCatalog
 Import-CodexMcpSecretEnvironment
 
 # --- Computer Use unlock (Patch J) ---
@@ -372,6 +384,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
     }
     Stop-InstallProcesses
     Refresh-SharedSkills
+    Sync-ModelCatalog
 }
 
 # Cleanup any stale state file pointing at a dead sidecar.
