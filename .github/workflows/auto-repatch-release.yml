@@ -359,7 +359,7 @@ jobs:
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
             'Launch-Codex.ps1' = 'Sync-Codex-ModelCatalog.ps1'
-            'Sync-Codex-ModelCatalog.ps1' = 'CODEX_MODEL_SYNC_ALL_TRAY'
+            'Sync-Codex-ModelCatalog.ps1' = 'CODEX_MODEL_SYNC_PINNED_ONLY'
             'Update-Codex.ps1' = 'Preserving tools/ from previous install'
           }
           foreach ($entry in $markerChecks.GetEnumerator()) {
