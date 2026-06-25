@@ -6,10 +6,9 @@
 #   ~/.codex/models_cache.json   - same shape, used by some local flows
 #   ~/.codex/tray_config.json    - user curated pinned proxy/custom models
 #
-# By default this syncs every tray_config.json:model_catalog entry so models
-# added by the tray/proxy config appear in Desktop. Set
-# CODEX_MODEL_SYNC_PINNED_ONLY=1 to import only tray_config.json:pinned_models
-# when you want a smaller picker.
+# By default this syncs only tray_config.json:pinned_models. Set
+# CODEX_MODEL_SYNC_ALL_TRAY=1 to import every tray_config.json:model_catalog
+# entry.
 
 [CmdletBinding()]
 param(
@@ -214,13 +213,13 @@ if ($null -eq $tray) {
 
 $trayModels = Ensure-Array $tray.model_catalog
 $pinned = Ensure-Array $tray.pinned_models
-$syncPinnedOnly = $env:CODEX_MODEL_SYNC_PINNED_ONLY -eq '1'
-$desired = if ($syncPinnedOnly) {
+$syncAll = $env:CODEX_MODEL_SYNC_ALL_TRAY -eq '1'
+$desired = if ($syncAll) {
+    $trayModels
+} else {
     $pinnedSet = @{}
     foreach ($id in $pinned) { $pinnedSet[[string]$id] = $true }
     @($trayModels | Where-Object { $pinnedSet.ContainsKey((Get-ModelId $_)) })
-} else {
-    $trayModels
 }
 
 $catalogResults = @()
@@ -231,8 +230,7 @@ foreach ($path in @($catalogPath, $cachePath)) {
 $changed = [bool](@($catalogResults | Where-Object { $_.changed }).Count -gt 0)
 $result = [pscustomobject]@{
     changed = $changed
-    sync_all = -not $syncPinnedOnly
-    pinned_only = $syncPinnedOnly
+    sync_all = $syncAll
     desired_count = @($desired).Count
     desired_models = @($desired | ForEach-Object { Get-ModelId $_ })
     catalogs = $catalogResults
