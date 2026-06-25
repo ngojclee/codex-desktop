@@ -293,8 +293,7 @@ if (useHiddenModels ? (availableModels.has(model.model) || !model.hidden) : !mod
 ```
 
 The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startup
-so tray models from `~\.codex\tray_config.json` are present in both
-`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. Default sync
-imports the full `tray_config.json:model_catalog` so newly added proxy/custom
-models appear in the picker; set `CODEX_MODEL_SYNC_PINNED_ONLY=1` to import only
-`pinned_models`.
+so pinned models from `~\.codex\tray_config.json` are present in both
+`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. Default sync is
+limited to `pinned_models`; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the full
+tray catalog.

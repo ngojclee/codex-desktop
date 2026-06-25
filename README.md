@@ -497,16 +497,16 @@ returns them as normal non-hidden models, including custom proxy ids and
 Patch O changes the renderer filter so the Statsig allowlist can still expose
 hidden upstream models, but non-hidden models returned by `model/list` remain
 visible. The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` on startup
-to copy entries from `~\.codex\tray_config.json:model_catalog` into
-`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. By default the
-full tray catalog is imported so newly added proxy/custom models appear in the
-picker; set `CODEX_MODEL_SYNC_PINNED_ONLY=1` to import only `pinned_models`.
+to copy pinned entries from `~\.codex\tray_config.json` into
+`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. By default only
+`pinned_models` are imported; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the
+full tray catalog.
 
 ## Runtime workflow
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, syncs the tray model catalog into the local model catalog, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, syncs pinned tray models into the local model catalog, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
