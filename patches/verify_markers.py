@@ -22,8 +22,14 @@ import sys
 from pathlib import Path
 
 PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
-PATCH_O_MARKER = "if(s?(t.has(n.model)||!n.hidden):!n.hidden)"
-PATCH_O_OLD = "if(s?t.has(n.model):!n.hidden)"
+PATCH_O_MARKERS = (
+    "if(s?(t.has(n.model)||!n.hidden):!n.hidden)",
+    "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
+)
+PATCH_O_OLDS = (
+    "if(s?t.has(n.model):!n.hidden)",
+    "if(u?n.has(r.model):!r.hidden)",
+)
 WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
@@ -148,9 +154,13 @@ def find_patch_k_bundle(app_dir: Path):
     for path, meta in _walk(header):
         if path.startswith("webview/assets/") and path.endswith(".js"):
             text = _extract(asar, payload_start, meta)
-            if "/*K*/" in text and "sidebarElectron.codexMobileSetupNavLink" in text:
+            if "/*K*/" in text and (
+                "sidebarElectron.codexMobileSetupNavLink" in text
+                or "codex.profileFooter.codexMobileTooltip" in text
+                or "codex.profileFooter.codexMobileAriaLabel" in text
+            ):
                 return path, text
-    raise SystemExit("Could not find Patch K marker in Codex mobile sidebar bundle")
+    raise SystemExit("Could not find Patch K marker in Codex mobile entrypoint bundle")
 
 
 def model_availability_filter_status(app_dir: Path):
@@ -164,9 +174,9 @@ def model_availability_filter_status(app_dir: Path):
         text = _extract(asar, payload_start, meta)
         if "model-list-filter" in path or "availableModels" in text or "useHiddenModels" in text:
             candidate_paths.append(path)
-        if PATCH_O_MARKER in text:
+        if any(marker in text for marker in PATCH_O_MARKERS):
             marker_paths.append(path)
-        if PATCH_O_OLD in text:
+        if any(old in text for old in PATCH_O_OLDS):
             unpatched_paths.append(path)
     return {
         "candidate_paths": sorted(set(candidate_paths)),
@@ -278,7 +288,7 @@ def main():
         ("Patch M — `maxPayload` marker present", lambda: len(ws_payload["marker_paths"]) > 0, True),
         ("Patch M — no shared WS target missing `maxPayload`", lambda: len(ws_payload["unpatched_paths"]) == 0, True),
         ("Patch H — directive Windows path sanitizer marker", lambda: "__PATCH_H_DIRECTIVE_WINDOWS_PATH__" in patch_h_txt, True),
-        ("Patch K — Codex mobile sidebar gate marker", lambda: "/*K*/" in patch_k_txt, True),
+        ("Patch K — Codex mobile entrypoint gate marker", lambda: "/*K*/" in patch_k_txt, True),
         ("Patch K — remote-control visibility Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "1042620455"), True),
         ("Patch K — Codex mobile onboarding Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "2798711298"), True),
         ("Patch L — no percent-escaped Computer Use package folders", lambda: len(computer_use["escaped_scopes"]) == 0, computer_use["present"]),

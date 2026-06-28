@@ -21,6 +21,14 @@ from pathlib import Path
 OLD = "if(s?t.has(n.model):!n.hidden)"
 NEW = "if(s?(t.has(n.model)||!n.hidden):!n.hidden)"
 
+REPLACEMENTS = (
+    (OLD, NEW),
+    (
+        "if(u?n.has(r.model):!r.hidden)",
+        "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
+    ),
+)
+
 
 def read_header(asar_path: Path):
     with asar_path.open("rb") as f:
@@ -134,8 +142,18 @@ def find_targets(asar: Path):
 
 def verify(asar: Path):
     _header, _payload_start, targets = find_targets(asar)
-    marker_paths = [path for path, _meta, text in targets if NEW in text]
-    unpatched = [path for path, _meta, text in targets if OLD in text]
+    patched_needles = [new for _old, new in REPLACEMENTS]
+    unpatched_needles = [old for old, _new in REPLACEMENTS]
+    marker_paths = [
+        path
+        for path, _meta, text in targets
+        if any(needle in text for needle in patched_needles)
+    ]
+    unpatched = [
+        path
+        for path, _meta, text in targets
+        if any(needle in text for needle in unpatched_needles)
+    ]
     if not marker_paths:
         raise SystemExit("Verification failed: Patch O marker not found")
     if unpatched:
@@ -159,11 +177,16 @@ def main():
     scanned = []
     for path, meta, text in targets:
         scanned.append(path)
-        if NEW in text:
+        if any(new in text for _old, new in REPLACEMENTS):
             continue
-        if OLD not in text:
+        patched_text = text
+        for old, new in REPLACEMENTS:
+            if old in patched_text:
+                patched_text = patched_text.replace(old, new, 1)
+                break
+        if patched_text == text:
             continue
-        patched_by_path[path] = text.replace(OLD, NEW, 1).encode("utf-8")
+        patched_by_path[path] = patched_text.encode("utf-8")
 
     if not targets:
         raise SystemExit("Could not find renderer model-list filter target in app.asar")
