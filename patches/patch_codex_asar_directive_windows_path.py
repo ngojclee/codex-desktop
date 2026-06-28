@@ -63,6 +63,9 @@ SEARCH_PATTERNS = (
     "function VD(e,t){let n=t?.lineStartNames==null?e:WD(e,t.lineStartNames);if(n==null)return[];let r=[];return UD(TD(n,void 0),r),x.debug(`[parseDirectives] directives found`,{safe:{directiveCount:r.length,directiveNames:r.map(e=>e.name).join(`,`)},sensitive:{}}),r}",
     # 26.616-style split parse-directives bundle.
     "function cn(e,t){let r=t?.lineStartNames==null?e:dn(e,t.lineStartNames);if(r==null)return[];let i=[];return un(qt(r,void 0),i),n.debug(`[parseDirectives] directives found`,{safe:{directiveCount:i.length,directiveNames:i.map(e=>e.name).join(`,`)},sensitive:{}}),i}",
+    # 26.623-style split parse-directives bundle: same directive parser shape
+    # as 26.616 with another minified-name rotation.
+    "function ss(e,t){let n=t?.lineStartNames==null?e:us(e,t.lineStartNames);if(n==null)return[];let r=[];return ls(Bo(n,void 0),r),l.debug(`[parseDirectives] directives found`,{safe:{directiveCount:r.length,directiveNames:r.map(e=>e.name).join(`,`)},sensitive:{}}),r}",
 )
 
 REPLACEMENTS = (
@@ -76,6 +79,7 @@ REPLACEMENTS = (
     "function fO(e,t){let n=t?.lineStartNames==null?e:hO(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return mO(XD(n,void 0),r)",
     "function VD(e,t){let n=t?.lineStartNames==null?e:WD(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return UD(TD(n,void 0),r),x.debug(`[parseDirectives] directives found`,{safe:{directiveCount:r.length,directiveNames:r.map(e=>e.name).join(`,`)},sensitive:{}}),r}",
     "function cn(e,t){let r=t?.lineStartNames==null?e:dn(e,t.lineStartNames);if(r==null)return[];r=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,r.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let i=[];return un(qt(r,void 0),i),n.debug(`[parseDirectives] directives found`,{safe:{directiveCount:i.length,directiveNames:i.map(e=>e.name).join(`,`)},sensitive:{}}),i}",
+    "function ss(e,t){let n=t?.lineStartNames==null?e:us(e,t.lineStartNames);if(n==null)return[];n=(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,n.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{[^\\n]*\\})$/gm,e=>e.replace(/\\\\/g,`/`)));let r=[];return ls(Bo(n,void 0),r),l.debug(`[parseDirectives] directives found`,{safe:{directiveCount:r.length,directiveNames:r.map(e=>e.name).join(`,`)},sensitive:{}}),r}",
 )
 
 UPSTREAM_DIRECTIVE_SANITIZER_NEEDLES = (
