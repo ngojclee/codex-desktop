@@ -88,6 +88,28 @@ UPSTREAM_DIRECTIVE_SANITIZER_NEEDLES = (
     "codexDirective",
 )
 
+SPLIT_DIRECTIVE_PARSER_RE = re.compile(
+    r"function\s+(?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)\("
+    r"(?P<input>[A-Za-z_$][A-Za-z0-9_$]*),(?P<opts>[A-Za-z_$][A-Za-z0-9_$]*)\)"
+    r"\{let\s+(?P<src>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"(?P=opts)\?\.lineStartNames==null\?(?P=input):"
+    r"(?P<line_filter>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=input),(?P=opts)\.lineStartNames\);"
+    r"if\((?P=src)==null\)return\[\];"
+    r"let\s+(?P<out>[A-Za-z_$][A-Za-z0-9_$]*)=\[\];"
+    r"return\s+(?P<collector>[A-Za-z_$][A-Za-z0-9_$]*)\("
+    r"(?P<parser>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=src),void 0\),(?P=out)\),"
+    r"(?P<logger>[A-Za-z_$][A-Za-z0-9_$]*)\.debug\(`\[parseDirectives\] directives found`,"
+    r"\{safe:\{directiveCount:(?P=out)\.length,directiveNames:(?P=out)\.map\("
+    r"(?P<map_arg>[A-Za-z_$][A-Za-z0-9_$]*)=>(?P=map_arg)\.name\)\.join\(`,`\)\},"
+    r"sensitive:\{\}\}\),(?P=out)\}"
+)
+
+DIRECTIVE_SANITIZER_EXPR = (
+    r"(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,"
+    r"{src}.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{{[^\\n]*\\}})$/gm,"
+    r"e=>e.replace(/\\\\/g,`/`)))"
+)
+
 def read_header(asar_path: Path):
     with asar_path.open("rb") as f:
         prefix = f.read(16)
@@ -116,6 +138,11 @@ def find_target(header, asar_path, payload_start):
         if (
             MARKER in text
             or any(pattern in text for pattern in SEARCH_PATTERNS)
+            or (
+                "[parseDirectives] directives found" in text
+                and "lineStartNames" in text
+                and SPLIT_DIRECTIVE_PARSER_RE.search(text)
+            )
             or all(needle in text for needle in UPSTREAM_DIRECTIVE_SANITIZER_NEEDLES)
         ):
             candidates.append((p, m, text))
@@ -137,6 +164,23 @@ def patch_js(text: str):
     for search, repl in zip(SEARCH_PATTERNS, REPLACEMENTS):
         if search in text:
             return text.replace(search, repl, 1), {"status": "patched"}
+    match = SPLIT_DIRECTIVE_PARSER_RE.search(text)
+    if match:
+        src = match.group("src")
+        out = match.group("out")
+        insertion_point = f"if({src}==null)return[];let {out}=[];return"
+        replacement = (
+            f"if({src}==null)return[];"
+            f"{src}={DIRECTIVE_SANITIZER_EXPR.format(src=src)};"
+            f"let {out}=[];return"
+        )
+        if insertion_point not in match.group(0):
+            raise RuntimeError("Split directive parser matched but insertion point was not found")
+        patched_function = match.group(0).replace(insertion_point, replacement, 1)
+        return text[: match.start()] + patched_function + text[match.end() :], {
+            "status": "patched_generic_split_directive_parser",
+            "function": match.group("fn"),
+        }
     raise RuntimeError("Markdown sanitizer insertion point not found")
 
 def sha256_hex(b):
