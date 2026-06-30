@@ -150,6 +150,58 @@ jobs:
           Write-Host "Extracted to:"
           Get-ChildItem build | Format-Table -AutoSize
 
+      - name: Verify upstream Windows x64 architecture
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          function Get-PeMachineName([string]$Path) {
+            if (-not (Test-Path -LiteralPath $Path)) { return 'MISSING' }
+            $fs = [IO.File]::OpenRead($Path)
+            try {
+              $br = [IO.BinaryReader]::new($fs)
+              $fs.Seek(0x3c, [IO.SeekOrigin]::Begin) | Out-Null
+              $peOffset = $br.ReadInt32()
+              $fs.Seek($peOffset + 4, [IO.SeekOrigin]::Begin) | Out-Null
+              $machine = $br.ReadUInt16()
+              switch ($machine) {
+                0x8664 { 'x64' }
+                0xaa64 { 'arm64' }
+                0x14c { 'x86' }
+                default { '0x{0:x4}' -f $machine }
+              }
+            } finally {
+              $fs.Dispose()
+            }
+          }
+
+          function Assert-X64Pe([string]$Path, [string]$Label) {
+            $machine = Get-PeMachineName $Path
+            Write-Host "$Label : $machine : $Path"
+            if ($machine -ne 'x64') {
+              throw "Upstream Windows x64 asset has wrong architecture for ${Label}: expected x64, got $machine at $Path"
+            }
+          }
+
+          $appDir = (Resolve-Path build).Path
+          Assert-X64Pe (Join-Path $appDir 'Codex.exe') 'Codex.exe'
+
+          $cuaNode = Join-Path $appDir 'resources\cua_node\bin\node.exe'
+          if (Test-Path -LiteralPath $cuaNode) {
+            Assert-X64Pe $cuaNode 'CUA node.exe'
+          }
+
+          $chromePlugin = Join-Path $appDir 'resources\plugins\openai-bundled\plugins\chrome'
+          if (Test-Path -LiteralPath $chromePlugin) {
+            $chromeX64Host = Join-Path $chromePlugin 'extension-host\windows\x64\extension-host.exe'
+            Assert-X64Pe $chromeX64Host 'Chrome extension host x64'
+          }
+
+          $sharpX64 = Join-Path $appDir 'resources\cua_node\bin\node_modules\%40img\sharp-win32-x64\lib\sharp-win32-x64.node'
+          $sharpArm64 = Join-Path $appDir 'resources\cua_node\bin\node_modules\%40img\sharp-win32-arm64\lib\sharp-win32-arm64.node'
+          if ((Test-Path -LiteralPath $sharpArm64) -and -not (Test-Path -LiteralPath $sharpX64)) {
+            throw "Upstream Windows x64 asset contains ARM64 sharp native module but no x64 sharp native module."
+          }
+
       - name: Apply patches
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
