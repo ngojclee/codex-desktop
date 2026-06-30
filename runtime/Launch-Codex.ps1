@@ -93,6 +93,17 @@ function Sync-ModelCatalog {
     }
 }
 
+function Ensure-GoogleMcpConfig {
+    $ensureScript = Join-Path $PSScriptRoot 'Ensure-Codex-GoogleMcp.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Write-Host "WARN: Google MCP config ensure failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -330,6 +341,7 @@ function Start-CurrentSidecarLogWindow {
 Refresh-SharedSkills
 Sync-ModelCatalog
 Import-CodexMcpSecretEnvironment
+Ensure-GoogleMcpConfig
 
 # --- Computer Use unlock (Patch J) ---
 # The bundled plugin reconciliation for computer-use on Windows requires:
@@ -385,6 +397,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
     Stop-InstallProcesses
     Refresh-SharedSkills
     Sync-ModelCatalog
+    Ensure-GoogleMcpConfig
 }
 
 # Cleanup any stale state file pointing at a dead sidecar.
