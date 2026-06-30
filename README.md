@@ -13,6 +13,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 9. **Shared-sidecar large payload guard** — raises the renderer WebSocket payload cap so heavy thread hydration does not disconnect the UI with `Max payload size exceeded`.
 10. **Persistent log churn guard** — source-built `resources\codex.exe` applies/verifies OpenAI fixes for excessive `~\.codex\logs_2.sqlite` churn so older sidecar refs do not keep writing noisy TRACE diagnostics.
 11. **Local/custom model visibility guard** — keeps local non-hidden catalog models visible when Desktop receives a Statsig model allowlist, so pinned proxy models and `GPT-5.3 Codex Spark` do not disappear from the picker.
+12. **Google Drive MCP bootstrap** — launch/update tools ensure Google Drive, Sheets, Docs, Slides, and Drive Comments MCP entries stay pointed at the shared connector endpoint after fresh installs or updates.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -103,6 +104,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
   New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
   New-CodexShortcut "Codex Dev (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex-Dev.vbs")
+
+  $googleMcp = Join-Path $installDir "tools\Ensure-Codex-GoogleMcp.ps1"
+  if (Test-Path -LiteralPath $googleMcp) {
+    & $googleMcp -Quiet
+  }
 
   Write-Host "Installed $($release.tag_name) to: $installDir"
   Write-Host "Standard shortcuts ensured on: $desktop"
@@ -195,6 +201,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
   New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
   New-CodexShortcut "Codex Dev (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex-Dev.vbs")
+
+  $googleMcp = Join-Path $installDir "tools\Ensure-Codex-GoogleMcp.ps1"
+  if (Test-Path -LiteralPath $googleMcp) {
+    & $googleMcp -Quiet
+  }
 
   Write-Host "Installed latest patched release to: $installDir"
   Write-Host "Standard shortcuts ensured on: $desktop"
@@ -291,6 +302,7 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    - Starts a shared `codex.exe app-server --listen ws://127.0.0.1:<PORT>` in the background
    - Sets `CODEX_APP_SERVER_WS_URL` and launches `Codex.exe`
    - Refreshes shared user skills into `~\.codex\skills` while keeping `.system` local
+   - Ensures Google Drive MCP entries in `~\.codex\config.toml` point at the shared connector endpoint
    - Cleans up the sidecar when the last `Codex.exe` process exits
    - Writes live state to `~/.codex/desktop-shared-app-server.json`
 4. From any terminal, the bundled wrapper dispatches into the same sidecar so Desktop sees real-time updates:
@@ -344,6 +356,17 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    ```
    Local skills are not auto-published. Passing `-Force` replaces an existing
    shared skill with the same name, so use it deliberately.
+8. Google Drive MCP configuration is kept in `~\.codex\config.toml`, not in
+   the curated Google Drive skill cache. The launcher and updater ensure these
+   five server entries exist and point at `http://10.21.4.101:3110/mcp`:
+   `google-drive`, `google-sheets`, `google-docs`, `google-slides`, and
+   `google-drive-comments`. Run the ensure step manually when needed:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Ensure-Codex-GoogleMcp.ps1"
+   ```
+   Override the endpoint with `CODEX_GOOGLE_MCP_URL`, or set
+   `CODEX_GOOGLE_MCP_DISABLE=1` to stop the launcher from managing these
+   entries.
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
@@ -502,17 +525,38 @@ to copy pinned entries from `~\.codex\tray_config.json` into
 `pinned_models` are imported; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the
 full tray catalog.
 
+### Runtime Google Drive MCP bootstrap
+
+The curated Google Drive plugin skills are Codex-managed cache content, so this
+repo does not patch their `SKILL.md` files. Instead, `tools\Ensure-Codex-GoogleMcp.ps1`
+keeps the MCP server entries durable in `~\.codex\config.toml`:
+
+- `google-drive`
+- `google-sheets`
+- `google-docs`
+- `google-slides`
+- `google-drive-comments`
+
+By default they point at `http://10.21.4.101:3110/mcp` with
+`startup_timeout_sec = 45.0`. The script is idempotent, backs up
+`config.toml` only when it changes, and keeps the five most recent
+`config.toml.bak-googlemcp-*` backups. `tools\Launch-Codex.ps1` runs it before
+sidecar startup; `tools\Update-Codex.ps1` runs it after an update. Set
+`CODEX_GOOGLE_MCP_URL` to use a different endpoint, or
+`CODEX_GOOGLE_MCP_DISABLE=1` to opt out.
+
 ## Runtime workflow
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, syncs pinned tray models into the local model catalog, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, syncs pinned tray models into the local model catalog, ensures Google Drive MCP config, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
 - **Repair system skills** — if sidecar logs show `failed to install system skills` or `failed to read skills dir ...\.codex\skills\.system`, run `tools\Repair-Codex-SystemSkills.ps1` once. This is for setups where `~\.codex\skills` points at a network/share path; generated `.system` skills should stay local on each Windows machine.
 - **Refresh shared skills** — `tools\Refresh-Codex-SharedSkills.ps1` is run by the launcher. It creates missing local symlinks for skills that already exist on the shared skills directory, skips `.system`, and leaves local-only skills untouched.
 - **Publish local skill** — `tools\Publish-Codex-Skill.ps1 -SkillName <name>` copies one local skill to the shared skills directory and replaces the local copy with a symlink. This is intentionally explicit; local skills are not auto-published.
+- **Ensure Google MCP** — `tools\Ensure-Codex-GoogleMcp.ps1` keeps the Google Drive connector MCP entries in `~\.codex\config.toml`. It defaults to `http://10.21.4.101:3110/mcp`, honors `CODEX_GOOGLE_MCP_URL`, and can be disabled with `CODEX_GOOGLE_MCP_DISABLE=1`.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. Missing standard desktop shortcuts are created after update.
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 

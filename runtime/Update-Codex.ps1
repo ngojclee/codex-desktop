@@ -223,6 +223,19 @@ function Update-CodexShortcut {
     }
 }
 
+function Ensure-GoogleMcpConfig {
+    param([string]$InstallDir)
+
+    $ensureScript = Join-Path $InstallDir 'tools\Ensure-Codex-GoogleMcp.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Log "WARN: Google MCP config ensure failed: $_"
+    }
+}
+
 # Resolve current installed version from tools/.version-tag if present
 $versionFile = Join-Path $InstallDir 'tools\.version-tag'
 $currentTag = if (Test-Path -LiteralPath $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { '(unknown)' }
@@ -307,6 +320,7 @@ try {
     Log "Update complete: $currentTag -> $($latest.tag)"
 
     Update-CodexShortcut -InstallDir $InstallDir
+    Ensure-GoogleMcpConfig -InstallDir $InstallDir
 
     if (-not $NoLaunch) {
         $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'

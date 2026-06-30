@@ -358,8 +358,9 @@ jobs:
 
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
-            'Launch-Codex.ps1' = 'Sync-Codex-ModelCatalog.ps1'
+            'Launch-Codex.ps1' = 'Ensure-Codex-GoogleMcp.ps1'
             'Sync-Codex-ModelCatalog.ps1' = 'CODEX_MODEL_SYNC_ALL_TRAY'
+            'Ensure-Codex-GoogleMcp.ps1' = 'CODEX_GOOGLE_MCP_DISABLE'
             'Update-Codex.ps1' = 'Preserving tools/ from previous install'
           }
           foreach ($entry in $markerChecks.GetEnumerator()) {
@@ -459,6 +460,11 @@ jobs:
              copied shared skills and replace them with individual symlinks.
              Use `tools\Publish-Codex-Skill.ps1 -SkillName <name>` to explicitly
              publish a local skill to the shared directory.
+          6. `tools\Launch-Codex.vbs` and `tools\Update-Codex.ps1` run
+             `tools\Ensure-Codex-GoogleMcp.ps1` so Google Drive, Sheets, Docs,
+             Slides, and Drive Comments MCP entries point at
+             `http://10.21.4.101:3110/mcp` unless `CODEX_GOOGLE_MCP_DISABLE=1`
+             is set.
 
           ## Shared sidecar usage
           CLI can join the same sidecar with `codex resume <id> --remote ws://127.0.0.1:<PORT>`
