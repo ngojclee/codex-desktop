@@ -35,6 +35,7 @@ $InstallDir   = "$env:LOCALAPPDATA\CodexFromGithub"
 $SidecarExe   = Join-Path $InstallDir 'resources\codex.exe'
 $DesktopExe   = Join-Path $InstallDir 'Codex.exe'
 $StateFile    = Join-Path $env:USERPROFILE '.codex\desktop-shared-app-server.json'
+$ModelCatalogPath = Join-Path $env:USERPROFILE '.codex\model_catalog.json'
 $LogDir       = Join-Path $env:TEMP 'codex-shared'
 $ExplicitBuildFlavor = [bool]$BuildFlavor
 $ResolvedBuildFlavor = if ($BuildFlavor) {
@@ -400,6 +401,10 @@ if ((Get-DesktopProcessCount) -gt 0) {
     Ensure-GoogleMcpConfig
 }
 
+function ConvertTo-TomlLiteralString([string]$Value) {
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
 # Cleanup any stale state file pointing at a dead sidecar.
 if (Test-Path -LiteralPath $StateFile) {
     try {
@@ -420,6 +425,7 @@ if (Reset-StaleComputerUseMarketplaceCache) {
 
 $Port = Get-FreePort -min $PortMin -max $PortMax
 $WsUrl = "ws://127.0.0.1:$Port"
+$ModelCatalogConfigArg = 'model_catalog_json=' + (ConvertTo-TomlLiteralString $ModelCatalogPath)
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $ts = Get-Date -Format yyyyMMdd-HHmmss
@@ -428,7 +434,7 @@ $logErr = Join-Path $LogDir "app-server-$ts.err.log"
 
 if ($ShowSidecarWindow) {
     # Visible window - handy for debugging
-    $cmdSidecar = '"' + $SidecarExe + '" app-server --listen "' + $WsUrl + '" 2>&1'
+    $cmdSidecar = '"' + $SidecarExe + '" app-server -c "' + $ModelCatalogConfigArg + '" --listen "' + $WsUrl + '" 2>&1'
     $cmdSidecar = $cmdSidecar -replace "'", "''"
     $inner = "`$Host.UI.RawUI.WindowTitle = 'Codex Shared Sidecar ($WsUrl)'; " +
              "Write-Host 'Sidecar - close this window to stop Codex.' -Fore Yellow; " +
@@ -443,7 +449,7 @@ if ($ShowSidecarWindow) {
 }
 else {
     $sidecar = Start-Process -FilePath $SidecarExe `
-        -ArgumentList 'app-server','--listen',$WsUrl `
+        -ArgumentList 'app-server','-c',$ModelCatalogConfigArg,'--listen',$WsUrl `
         -RedirectStandardOutput $logOut `
         -RedirectStandardError  $logErr `
         -WindowStyle Hidden `
