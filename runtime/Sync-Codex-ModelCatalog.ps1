@@ -82,6 +82,53 @@ function Backup-File([string]$Path, [string]$Prefix, [int]$Keep) {
     Remove-OldBackups -Path $Path -Prefix $Prefix -Keep $Keep
 }
 
+function ConvertTo-TomlLiteralString([string]$Value) {
+    return "'" + ($Value -replace "'", "''") + "'"
+}
+
+function Ensure-ModelCatalogConfig([string]$ConfigPath, [string]$CatalogPath, [int]$Keep) {
+    $desiredLine = "model_catalog_json = $(ConvertTo-TomlLiteralString $CatalogPath)"
+
+    if (Test-Path -LiteralPath $ConfigPath) {
+        $content = Get-Content -Raw -LiteralPath $ConfigPath
+        $lines = [System.Collections.Generic.List[string]]::new()
+        foreach ($line in [regex]::Split($content, "\r?\n")) {
+            if ($line -notmatch '^\s*model_catalog_json\s*=') {
+                $lines.Add($line)
+            }
+        }
+
+        $insertAt = 0
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^\s*(model|model_provider|model_context_window|model_auto_compact_token_limit|service_tier|model_reasoning_effort)\s*=') {
+                $insertAt = $i + 1
+            } elseif ($lines[$i] -match '^\s*\[') {
+                break
+            }
+        }
+
+        $updated = [System.Collections.Generic.List[string]]::new()
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($i -eq $insertAt) { $updated.Add($desiredLine) }
+            $updated.Add($lines[$i])
+        }
+        if ($insertAt -ge $lines.Count) { $updated.Add($desiredLine) }
+        $next = ($updated -join [Environment]::NewLine)
+        $changed = $next.TrimEnd() -ne $content.TrimEnd()
+    } else {
+        $next = $desiredLine + [Environment]::NewLine
+        $changed = $true
+    }
+
+    if ($changed) {
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ConfigPath) | Out-Null
+        Backup-File -Path $ConfigPath -Prefix 'bak-modelcatalogconfig' -Keep $Keep
+        $next | Set-Content -LiteralPath $ConfigPath -Encoding UTF8
+    }
+
+    return $changed
+}
+
 function Set-PropertyValue($Object, [string]$Name, $Value) {
     if ($Object.PSObject.Properties.Name -contains $Name) {
         $Object.$Name = $Value
@@ -198,6 +245,7 @@ function Sync-OneCatalog([string]$Path, [array]$DesiredEntries) {
 $trayPath = Join-Path $CodexHome 'tray_config.json'
 $catalogPath = Join-Path $CodexHome 'model_catalog.json'
 $cachePath = Join-Path $CodexHome 'models_cache.json'
+$configPath = Join-Path $CodexHome 'config.toml'
 $tray = Read-JsonFile $trayPath
 
 if ($null -eq $tray) {
@@ -227,9 +275,11 @@ foreach ($path in @($catalogPath, $cachePath)) {
     $catalogResults += Sync-OneCatalog -Path $path -DesiredEntries $desired
 }
 
+$configChanged = Ensure-ModelCatalogConfig -ConfigPath $configPath -CatalogPath $catalogPath -Keep $BackupKeep
 $changed = [bool](@($catalogResults | Where-Object { $_.changed }).Count -gt 0)
 $result = [pscustomobject]@{
-    changed = $changed
+    changed = ($changed -or $configChanged)
+    config_changed = $configChanged
     sync_all = $syncAll
     desired_count = @($desired).Count
     desired_models = @($desired | ForEach-Object { Get-ModelId $_ })
@@ -239,7 +289,7 @@ $result = [pscustomobject]@{
 if ($Json) {
     $result | ConvertTo-Json -Depth 32 -Compress
 } else {
-    Write-Info ("Model catalog sync complete. changed={0}, desired={1}" -f $changed, @($desired).Count)
+    Write-Info ("Model catalog sync complete. changed={0}, config_changed={1}, desired={2}" -f ($changed -or $configChanged), $configChanged, @($desired).Count)
     foreach ($catalogResult in $catalogResults) {
         Write-Info ("  {0}: changed={1}, added={2}, updated={3}, count={4}" -f
             $catalogResult.path,
