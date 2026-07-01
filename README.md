@@ -520,12 +520,11 @@ returns them as normal non-hidden models, including custom proxy ids and
 Patch O changes the renderer filter so the Statsig allowlist can still expose
 hidden upstream models, but non-hidden models returned by `model/list` remain
 visible. The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` on startup
-to copy pinned entries from `~\.codex\tray_config.json` into
-`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. By default only
-`pinned_models` are imported; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the
-full tray catalog. The sync tool intentionally does not add `model_catalog_json`
-to `~\.codex\config.toml`; opt in manually only when you want Codex to load the
-custom catalog at startup.
+to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
+needed, and mirror it to `~\.codex\models_cache.json`. The sync tool
+intentionally does not read `tray_config.json`, add model entries, or add
+`model_catalog_json` to `~\.codex\config.toml`; opt in manually only when you
+want Codex to load the custom catalog at startup.
 
 ### Runtime Google Drive MCP bootstrap
 

@@ -293,8 +293,8 @@ if (useHiddenModels ? (availableModels.has(model.model) || !model.hidden) : !mod
 ```
 
 The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startup
-so pinned models from `~\.codex\tray_config.json` are present in both
-`~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. Default sync is
-limited to `pinned_models`; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the full
-tray catalog. The sync tool intentionally does not write `model_catalog_json`
-into `~\.codex\config.toml`; that startup opt-in stays manual.
+to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
+needed, and mirror it to `~\.codex\models_cache.json`. The sync tool
+intentionally does not read `tray_config.json`, add model entries, or write
+`model_catalog_json` into `~\.codex\config.toml`; that startup opt-in stays
+manual.
