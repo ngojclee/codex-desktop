@@ -39,6 +39,17 @@ function ConvertTo-PrettyJson($Value) {
     $Value | ConvertTo-Json -Depth 96
 }
 
+function Test-HasUtf8Bom([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    return ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+}
+
+function Write-Utf8NoBom([string]$Path, [string]$Text) {
+    $utf8NoBom = [Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllText($Path, $Text, $utf8NoBom)
+}
+
 function Clone-JsonObject($Value) {
     return ($Value | ConvertTo-Json -Depth 96 | ConvertFrom-Json)
 }
@@ -183,11 +194,11 @@ function Sync-OneCatalog([string]$Path, [array]$DesiredEntries) {
     } })
     $after = ConvertTo-PrettyJson $catalog
 
-    $changed = $before.Trim() -ne $after.Trim()
+    $changed = ($before.Trim() -ne $after.Trim()) -or (Test-HasUtf8Bom $Path)
     if ($changed) {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
         Backup-File -Path $Path -Prefix 'bak-modelsync' -Keep $BackupKeep
-        $after | Set-Content -LiteralPath $Path -Encoding UTF8
+        Write-Utf8NoBom -Path $Path -Text ($after + [Environment]::NewLine)
     }
 
     return [pscustomobject]@{
