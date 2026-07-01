@@ -9,6 +9,10 @@
 # By default this syncs only tray_config.json:pinned_models. Set
 # CODEX_MODEL_SYNC_ALL_TRAY=1 to import every tray_config.json:model_catalog
 # entry.
+#
+# This script intentionally does not add model_catalog_json to config.toml.
+# Opting Codex into a custom catalog is manual because some Desktop builds can
+# fail during startup when forced to load a custom catalog.
 
 [CmdletBinding()]
 param(

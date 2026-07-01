@@ -523,7 +523,9 @@ visible. The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` on startup
 to copy pinned entries from `~\.codex\tray_config.json` into
 `~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. By default only
 `pinned_models` are imported; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the
-full tray catalog.
+full tray catalog. The sync tool intentionally does not add `model_catalog_json`
+to `~\.codex\config.toml`; opt in manually only when you want Codex to load the
+custom catalog at startup.
 
 ### Runtime Google Drive MCP bootstrap
 

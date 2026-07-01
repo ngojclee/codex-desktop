@@ -296,4 +296,5 @@ The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startu
 so pinned models from `~\.codex\tray_config.json` are present in both
 `~\.codex\model_catalog.json` and `~\.codex\models_cache.json`. Default sync is
 limited to `pinned_models`; set `CODEX_MODEL_SYNC_ALL_TRAY=1` to import the full
-tray catalog.
+tray catalog. The sync tool intentionally does not write `model_catalog_json`
+into `~\.codex\config.toml`; that startup opt-in stays manual.
