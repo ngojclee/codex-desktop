@@ -411,7 +411,7 @@ jobs:
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
             'Launch-Codex.ps1' = 'Ensure-Codex-GoogleMcp.ps1'
-            'Sync-Codex-ModelCatalog.ps1' = 'CODEX_MODEL_SYNC_ALL_TRAY'
+            'Sync-Codex-ModelCatalog.ps1' = 'does not read tray_config.json'
             'Ensure-Codex-GoogleMcp.ps1' = 'CODEX_GOOGLE_MCP_DISABLE'
             'Update-Codex.ps1' = 'Preserving tools/ from previous install'
           }
