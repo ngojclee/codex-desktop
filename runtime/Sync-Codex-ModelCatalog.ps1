@@ -13,7 +13,6 @@
 [CmdletBinding()]
 param(
     [string]$CodexHome = (Join-Path $env:USERPROFILE '.codex'),
-    [int]$BackupKeep = 5,
     [switch]$Quiet,
     [switch]$Json
 )
@@ -41,27 +40,6 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, $utf8NoBom)
 }
 
-function Remove-OldBackups([string]$Path, [string]$Prefix, [int]$Keep) {
-    if ($Keep -lt 0) { return }
-    $parent = Split-Path -Parent $Path
-    $leaf = Split-Path -Leaf $Path
-    Get-ChildItem -LiteralPath $parent -File -Force -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like "$leaf.$Prefix-*" } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -Skip $Keep |
-        ForEach-Object {
-            try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop } catch {}
-        }
-}
-
-function Backup-File([string]$Path, [string]$Prefix, [int]$Keep) {
-    if (-not (Test-Path -LiteralPath $Path)) { return }
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $backup = "$Path.$Prefix-$stamp"
-    Copy-Item -LiteralPath $Path -Destination $backup -Force
-    Remove-OldBackups -Path $Path -Prefix $Prefix -Keep $Keep
-}
-
 function Read-Catalog([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Model catalog not found: $Path"
@@ -85,14 +63,13 @@ function Read-Catalog([string]$Path) {
     return $catalog
 }
 
-function Write-CatalogIfChanged([string]$Path, $Catalog, [string]$Prefix, [int]$Keep) {
+function Write-CatalogIfChanged([string]$Path, $Catalog) {
     $before = if (Test-Path -LiteralPath $Path) { Get-Content -Raw -LiteralPath $Path } else { '' }
     $after = ConvertTo-PrettyJson $Catalog
     $changed = ($before.Trim() -ne $after.Trim()) -or (Test-HasUtf8Bom $Path)
 
     if ($changed) {
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Path) | Out-Null
-        Backup-File -Path $Path -Prefix $Prefix -Keep $Keep
         Write-Utf8NoBom -Path $Path -Text ($after + [Environment]::NewLine)
     }
 
@@ -108,8 +85,8 @@ $cachePath = Join-Path $CodexHome 'models_cache.json'
 
 $catalog = Read-Catalog -Path $catalogPath
 $catalogResults = @(
-    (Write-CatalogIfChanged -Path $catalogPath -Catalog $catalog -Prefix 'bak-modelsync' -Keep $BackupKeep),
-    (Write-CatalogIfChanged -Path $cachePath -Catalog $catalog -Prefix 'bak-modelsync' -Keep $BackupKeep)
+    (Write-CatalogIfChanged -Path $catalogPath -Catalog $catalog),
+    (Write-CatalogIfChanged -Path $cachePath -Catalog $catalog)
 )
 
 $changed = [bool](@($catalogResults | Where-Object { $_.changed }).Count -gt 0)
