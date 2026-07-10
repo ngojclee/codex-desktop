@@ -183,6 +183,10 @@ jobs:
           }
 
           $appDir = (Resolve-Path build).Path
+          $chatGptExe = Join-Path $appDir 'ChatGPT.exe'
+          if (Test-Path -LiteralPath $chatGptExe) {
+            Assert-X64Pe $chatGptExe 'ChatGPT.exe desktop'
+          }
           Assert-X64Pe (Join-Path $appDir 'Codex.exe') 'Codex.exe'
 
           $cuaNode = Join-Path $appDir 'resources\cua_node\bin\node.exe'
@@ -486,6 +490,7 @@ jobs:
           - **Patch K** — expose the bundled Codex mobile setup route in the sidebar while preserving upstream account/auth checks
           - **Patch L** — decode percent-escaped plugin package folders so Computer Use can resolve `@oai/sky` and its vendored pnpm deps
           - **Patch O** — keep non-hidden local model catalog entries visible even when the renderer receives a Statsig model allowlist, so custom proxy models and `GPT-5.3 Codex Spark` are not hidden from the picker
+          - **Patch P** — expose catalog-supported `max` reasoning for `gpt-5.6-sol` in both the Work power slider and advanced effort picker, including profiles with an older persisted effort allowlist
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
@@ -496,7 +501,8 @@ jobs:
           2. Extract to `%LOCALAPPDATA%\CodexFromGithub\`
           3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop)
              — the launcher starts a shared app-server sidecar, sets
-             `CODEX_APP_SERVER_WS_URL`, runs Codex.exe, then cleans up.
+             `CODEX_APP_SERVER_WS_URL`, runs `ChatGPT.exe` on current bundles
+             (falling back to `Codex.exe` on older bundles), then cleans up.
              Use `tools\Launch-Codex-Logs.vbs` when you want a visible
              sidecar log window while debugging.
              Use `tools\Launch-Codex-Dev.vbs` only when you want the same

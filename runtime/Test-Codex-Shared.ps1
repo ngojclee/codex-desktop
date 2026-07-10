@@ -22,7 +22,10 @@ $ErrorActionPreference = 'Stop'
 
 $InstallDir = "$env:LOCALAPPDATA\CodexFromGithub"
 $Sidecar    = Join-Path $InstallDir 'resources\codex.exe'
-$Desktop    = Join-Path $InstallDir 'Codex.exe'
+$Desktop    = Join-Path $InstallDir 'ChatGPT.exe'
+if (-not (Test-Path -LiteralPath $Desktop)) {
+    $Desktop = Join-Path $InstallDir 'Codex.exe'
+}
 $WsUrl      = "ws://127.0.0.1:$Port"
 
 if (-not (Test-Path -LiteralPath $Sidecar)) { throw "Sidecar exe missing: $Sidecar" }
@@ -34,7 +37,7 @@ function Test-PortInUse([int]$p) {
 
 if (-not $NoKill) {
     Write-Host "[1/5] Stopping any running Codex processes..."
-    Get-Process Codex,codex -ErrorAction SilentlyContinue | ForEach-Object {
+    Get-Process ChatGPT,Codex,codex -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Host "      kill PID $($_.Id) ($($_.Name))"
         try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch { Write-Host "        (already gone)" }
     }
@@ -105,4 +108,4 @@ Write-Host "CLI can connect with:"
 Write-Host "  & `"$Sidecar`" resume --remote `"$WsUrl`" --last"
 Write-Host ""
 Write-Host "Stop everything later with:"
-Write-Host "  Get-Process Codex,codex -EA SilentlyContinue | Stop-Process -Force"
+Write-Host "  Get-Process ChatGPT,Codex,codex -EA SilentlyContinue | Stop-Process -Force"

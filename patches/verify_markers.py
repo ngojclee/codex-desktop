@@ -17,11 +17,22 @@ import argparse
 import json
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
+PATCH_J_MARKER = "/*J*/"
+PATCH_J_GATES = ("1506311413", "410065390", "410262010")
+PATCH_J_CORRUPTED_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_$])[A-Za-z_$][A-Za-z0-9_$]{0,2}!0 {2,}"
+)
 PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
+PATCH_P_POWER_MARKER = "/*P:sol-max*/"
+PATCH_P_FILTER_MARKER = "/*P:max-filter*/"
+PATCH_P_SOL_MAX_ID = "id:`gpt-5.6-sol:max`"
 PATCH_O_MARKERS = (
     "if(s?(t.has(n.model)||!n.hidden):!n.hidden)",
     "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
@@ -199,6 +210,88 @@ def has_statsig_gate_call(app_dir: Path, gate_id: str) -> bool:
     return False
 
 
+def patch_j_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    gate_patterns = {
+        gate_id: re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*\(`" + re.escape(gate_id) + r"`\)")
+        for gate_id in PATCH_J_GATES
+    }
+    gate_paths = {gate_id: [] for gate_id in PATCH_J_GATES}
+    marker_entries = []
+    corrupted_paths = []
+
+    for path, meta in _walk(header):
+        if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if PATCH_J_MARKER in text:
+            marker_entries.append((path, text))
+        if PATCH_J_CORRUPTED_PATTERN.search(text):
+            corrupted_paths.append(path)
+        for gate_id, pattern in gate_patterns.items():
+            if pattern.search(text):
+                gate_paths[gate_id].append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch J syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-j-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(f"{path}: {detail[-1] if detail else 'node --check failed'}")
+
+    return {
+        "marker_paths": sorted(path for path, _text in marker_entries),
+        "corrupted_paths": sorted(set(corrupted_paths)),
+        "gate_paths": {gate_id: sorted(set(paths)) for gate_id, paths in gate_paths.items()},
+        "syntax_errors": syntax_errors,
+    }
+
+
+def sol_max_effort_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    power_paths = []
+    filter_paths = []
+    candidate_paths = []
+    max_filter_pattern = re.compile(
+        r"\.has\([A-Za-z_$][A-Za-z0-9_$]*\)\|\|"
+        r"[A-Za-z_$][A-Za-z0-9_$]*===`max`"
+    )
+
+    for path, meta in _walk(header):
+        if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if "model-and-reasoning-dropdown-" in path or "model-list-filter-" in path:
+            candidate_paths.append(path)
+        if "model-and-reasoning-dropdown-" in path and (
+            PATCH_P_POWER_MARKER in text or PATCH_P_SOL_MAX_ID in text
+        ):
+            power_paths.append(path)
+        if "model-list-filter-" in path and (
+            PATCH_P_FILTER_MARKER in text or max_filter_pattern.search(text)
+        ):
+            filter_paths.append(path)
+
+    return {
+        "candidate_paths": sorted(set(candidate_paths)),
+        "power_paths": sorted(set(power_paths)),
+        "filter_paths": sorted(set(filter_paths)),
+    }
+
+
 def computer_use_plugin_status(app_dir: Path):
     plugin = (
         app_dir
@@ -240,9 +333,11 @@ def main():
     signals_path, signals_txt = find_signals(app_dir)
     socks5_paths = find_js_occurrences(app_dir, "socks5h://127.0.0.1:1080")
     ws_payload = websocket_max_payload_status(app_dir)
+    patch_j = patch_j_status(app_dir)
     patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
     patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
     patch_o = model_availability_filter_status(app_dir)
+    patch_p = sol_max_effort_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -257,6 +352,17 @@ def main():
         print("Patch M unpatched WS targets:")
         for path in ws_payload["unpatched_paths"]:
             print(f"  - {path}")
+    print(f"Patch J marker paths: {len(patch_j['marker_paths'])}")
+    for path in patch_j["marker_paths"]:
+        print(f"  - {path}")
+    if patch_j["corrupted_paths"]:
+        print("Patch J corrupted token paths:")
+        for path in patch_j["corrupted_paths"]:
+            print(f"  - {path}")
+    if patch_j["syntax_errors"]:
+        print("Patch J syntax errors:")
+        for error in patch_j["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Patch H bundle: {patch_h_path}  ({len(patch_h_txt):,} bytes)")
     print(f"Patch K bundle: {patch_k_path}  ({len(patch_k_txt):,} bytes)")
     print(f"Patch O model filter marker paths: {len(patch_o['marker_paths'])}")
@@ -266,6 +372,12 @@ def main():
         print("Patch O unpatched model filters:")
         for path in patch_o["unpatched_paths"]:
             print(f"  - {path}")
+    print(f"Patch P Sol Max power paths: {len(patch_p['power_paths'])}")
+    for path in patch_p["power_paths"]:
+        print(f"  - {path}")
+    print(f"Patch P max-filter paths: {len(patch_p['filter_paths'])}")
+    for path in patch_p["filter_paths"]:
+        print(f"  - {path}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -290,6 +402,13 @@ def main():
         ("Patch M — shared WS transport target found", lambda: len(ws_payload["target_paths"]) > 0, True),
         ("Patch M — `maxPayload` marker present", lambda: len(ws_payload["marker_paths"]) > 0, True),
         ("Patch M — no shared WS target missing `maxPayload`", lambda: len(ws_payload["unpatched_paths"]) == 0, True),
+        (
+            "Patch J — Computer Use Statsig calls absent",
+            lambda: all(len(paths) == 0 for paths in patch_j["gate_paths"].values()),
+            True,
+        ),
+        ("Patch J — no corrupted true-literal tokens", lambda: len(patch_j["corrupted_paths"]) == 0, True),
+        ("Patch J — touched renderer chunks pass syntax check", lambda: len(patch_j["syntax_errors"]) == 0, True),
         ("Patch H — directive Windows path sanitizer marker", lambda: "__PATCH_H_DIRECTIVE_WINDOWS_PATH__" in patch_h_txt, True),
         ("Patch K — Codex mobile entrypoint gate marker", lambda: "/*K*/" in patch_k_txt, True),
         ("Patch K — remote-control visibility Statsig call absent", lambda: not has_statsig_gate_call(app_dir, "1042620455"), True),
@@ -298,6 +417,8 @@ def main():
         ("Patch L — Computer Use @oai/sky package present", lambda: computer_use["sky_package_exists"] or not computer_use.get("node_modules_present", True), computer_use["present"]),
         ("Patch O — model availability filter marker", lambda: len(patch_o["marker_paths"]) > 0, True),
         ("Patch O — old Statsig-only model filter absent", lambda: len(patch_o["unpatched_paths"]) == 0, True),
+        ("Patch P — gpt-5.6-sol Max power entry present", lambda: len(patch_p["power_paths"]) > 0, True),
+        ("Patch P — catalog-supported Max survives effort filter", lambda: len(patch_p["filter_paths"]) > 0, True),
     )
 
     failed = []

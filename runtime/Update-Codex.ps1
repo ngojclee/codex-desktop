@@ -115,7 +115,10 @@ function Update-CodexShortcut {
     $logLauncher = Join-Path $InstallDir 'tools\Launch-Codex-Logs.vbs'
     $devLauncher = Join-Path $InstallDir 'tools\Launch-Codex-Dev.vbs'
     $updateLauncher = Join-Path $InstallDir 'tools\Update-Codex.cmd'
-    $icon = Join-Path $InstallDir 'Codex.exe'
+    $icon = Join-Path $InstallDir 'ChatGPT.exe'
+    if (-not (Test-Path -LiteralPath $icon)) {
+        $icon = Join-Path $InstallDir 'Codex.exe'
+    }
     if (-not (Test-Path -LiteralPath $launcher)) { return }
 
     $shell = New-Object -ComObject WScript.Shell
@@ -162,40 +165,54 @@ function Update-CodexShortcut {
     }
 
     $startShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex.lnk'
-    Set-Shortcut -Path $startShortcut -TargetPath $launcher
+    Set-Shortcut -Path $startShortcut -TargetPath $launcher -ForceUpdate
     if (Test-Path -LiteralPath $devLauncher) {
         $startDevShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Codex Dev.lnk'
         Set-Shortcut `
             -Path $startDevShortcut `
             -TargetPath $devLauncher `
-            -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane'
+            -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane' `
+            -ForceUpdate
     }
     if (Test-Path -LiteralPath $updateLauncher) {
         $startUpdateShortcut = Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\Update-Codex.lnk'
         Set-Shortcut `
             -Path $startUpdateShortcut `
             -TargetPath $updateLauncher `
-            -Description 'Update Codex Desktop (GitHub Patched)'
+            -Description 'Update Codex Desktop (GitHub Patched)' `
+            -ForceUpdate
     }
 
     $desktopDir = Get-DesktopPath
     if ($desktopDir) {
         Set-Shortcut `
             -Path (Join-Path $desktopDir 'Codex (GitHub Patched).lnk') `
-            -TargetPath $launcher
+            -TargetPath $launcher `
+            -ForceUpdate
+
+        $desktopLogShortcut = Join-Path $desktopDir 'Codex (GitHub Patched Logs).lnk'
+        if ((Test-Path -LiteralPath $desktopLogShortcut) -and (Test-Path -LiteralPath $logLauncher)) {
+            Set-Shortcut `
+                -Path $desktopLogShortcut `
+                -TargetPath $logLauncher `
+                -Description 'Codex Desktop (GitHub Patched) with sidecar logs' `
+                -ForceUpdate
+        }
 
         if (Test-Path -LiteralPath $devLauncher) {
             Set-Shortcut `
                 -Path (Join-Path $desktopDir 'Codex Dev (GitHub Patched).lnk') `
                 -TargetPath $devLauncher `
-                -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane'
+                -Description 'Codex Desktop (GitHub Patched) Dev build-flavor lane' `
+                -ForceUpdate
         }
 
         if (Test-Path -LiteralPath $updateLauncher) {
             Set-Shortcut `
                 -Path (Join-Path $desktopDir 'Update-Codex.lnk') `
                 -TargetPath $updateLauncher `
-                -Description 'Update Codex Desktop (GitHub Patched)'
+                -Description 'Update Codex Desktop (GitHub Patched)' `
+                -ForceUpdate
         }
     }
 
@@ -208,8 +225,10 @@ function Update-CodexShortcut {
             $existing = $shell.CreateShortcut($taskbarShortcut)
             $target = [string]$existing.TargetPath
             $installExe = Join-Path $InstallDir 'Codex.exe'
+            $chatGptExe = Join-Path $InstallDir 'ChatGPT.exe'
             $isThisInstall =
                 $target.Equals($installExe, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $target.Equals($chatGptExe, [System.StringComparison]::OrdinalIgnoreCase) -or
                 $target.Equals($launcher, [System.StringComparison]::OrdinalIgnoreCase) -or
                 ($logLauncher -and $target.Equals($logLauncher, [System.StringComparison]::OrdinalIgnoreCase)) -or
                 ($devLauncher -and $target.Equals($devLauncher, [System.StringComparison]::OrdinalIgnoreCase))
@@ -220,6 +239,11 @@ function Update-CodexShortcut {
         } catch {
             Log "WARN: could not update taskbar shortcut: $_"
         }
+    }
+
+    $iconRefresh = Get-Command ie4uinit.exe -ErrorAction SilentlyContinue
+    if ($iconRefresh) {
+        & $iconRefresh.Source -show 2>$null
     }
 }
 
@@ -258,8 +282,8 @@ if (-not $Force -and $currentTag -eq $latest.tag) {
     return
 }
 
-# Close any running Codex from the install dir
-$running = Get-Process Codex,codex -EA SilentlyContinue | Where-Object { $_.Path -like "$InstallDir*" }
+# Close any running desktop/sidecar processes from the install dir.
+$running = Get-Process ChatGPT,Codex,codex -EA SilentlyContinue | Where-Object { $_.Path -like "$InstallDir*" }
 if ($running) {
     Log "Closing $($running.Count) running Codex process(es)..."
     foreach ($p in $running) {
@@ -324,15 +348,18 @@ try {
 
     if (-not $NoLaunch) {
         $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'
-        $exe = Join-Path $InstallDir 'Codex.exe'
+        $exe = Join-Path $InstallDir 'ChatGPT.exe'
+        if (-not (Test-Path -LiteralPath $exe)) {
+            $exe = Join-Path $InstallDir 'Codex.exe'
+        }
         if (Test-Path -LiteralPath $launcher) {
             Log "Launching Codex via shared-sidecar launcher..."
             Start-Process -FilePath $launcher
         } elseif (Test-Path -LiteralPath $exe) {
-            Log "WARN: shared-sidecar launcher missing; launching Codex.exe directly"
+            Log "WARN: shared-sidecar launcher missing; launching desktop executable directly"
             Start-Process -FilePath $exe
         } else {
-            Log "WARN: Codex.exe missing at $exe after update"
+            Log "WARN: desktop executable missing at $exe after update"
         }
     }
 } finally {

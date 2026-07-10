@@ -34,6 +34,7 @@ param(
     [switch]$SkipK,
     [switch]$SkipL,
     [switch]$SkipO,
+    [switch]$SkipP,
 
     [string]$UpstreamTag
 )
@@ -110,6 +111,10 @@ if (-not $SkipL) {
 
 if (-not $SkipO) {
     Run-Patch 'patch_codex_asar_model_availability_filter.py' @('--app-dir', $AppDir) 'Patch O — keep local catalog models visible through Statsig allowlist'
+}
+
+if (-not $SkipP) {
+    Run-Patch 'patch_codex_asar_sol_max_effort.py' @('--app-dir', $AppDir) 'Patch P — expose Max effort for gpt-5.6-sol'
 }
 
 Write-Host ""
