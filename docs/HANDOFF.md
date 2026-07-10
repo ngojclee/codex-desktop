@@ -298,3 +298,16 @@ needed, and mirror it to `~\.codex\models_cache.json`. The sync tool
 intentionally does not read `tray_config.json`, add model entries, or write
 `model_catalog_json` into `~\.codex\config.toml`; that startup opt-in stays
 manual.
+
+## Patch R / custom provider Fast selector
+
+Desktop's renderer treats Fast as a ChatGPT-only service tier and hides the
+Speed selector for API-key hosts. Patch R preserves that upstream entitlement
+path for ChatGPT, while allowing non-ChatGPT hosts to render the existing
+Standard/Fast options supplied by their local model catalog. It does not set a
+default `service_tier`, add a tier to any model, or grant OpenAI Fast credits.
+
+For a custom provider, declare the tier in the catalog and leave
+`service_tier` absent from `config.toml` to keep Standard as the default. The
+user can then choose Fast from the model picker; Codex sends that selected
+service tier to the configured Responses-compatible provider.

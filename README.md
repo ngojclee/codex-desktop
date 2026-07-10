@@ -395,7 +395,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
 │   ├── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
 │   ├── patch_codex_asar_sol_max_effort.py Patch P — expose Sol Max reasoning effort
-│   └── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
+│   ├── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
+│   └── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -553,6 +554,20 @@ makes catalog names such as `GPT-5.5`, `GPT-5.4-Mini`, and
 Patch Q changes this renderer normalization to replace a leading `GPT-` with
 `GPT ` instead of deleting it. Names already formatted as `GPT 5.x` are left
 unchanged, and the user's `model_catalog.json` is not rewritten.
+
+### Patch R -- Custom provider Fast selector
+
+Current Desktop builds only render the Standard/Fast service-tier controls when
+the current host is authenticated with ChatGPT. That prevents API-key users
+from selecting a Fast tier even when their own Responses-compatible provider
+and local `model_catalog.json` deliberately advertise one.
+
+Patch R preserves the upstream ChatGPT entitlement check. For non-ChatGPT
+providers, it allows the existing catalog service-tier entries to drive the
+model menu. It does not write `service_tier = "fast"` to `config.toml`, so the
+default remains Standard until the user selects Fast in the model picker. It
+does not grant OpenAI Fast credits; it only includes the selected tier in the
+request sent to the configured provider.
 
 ### Runtime Google Drive MCP bootstrap
 

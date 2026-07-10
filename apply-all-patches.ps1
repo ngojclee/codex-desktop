@@ -36,6 +36,7 @@ param(
     [switch]$SkipO,
     [switch]$SkipP,
     [switch]$SkipQ,
+    [switch]$SkipR,
 
     [string]$UpstreamTag
 )
@@ -120,6 +121,10 @@ if (-not $SkipP) {
 
 if (-not $SkipQ) {
     Run-Patch 'patch_codex_asar_gpt_model_labels.py' @('--app-dir', $AppDir) 'Patch Q — preserve GPT prefixes in model labels'
+}
+
+if (-not $SkipR) {
+    Run-Patch 'patch_codex_asar_custom_provider_fast_mode.py' @('--app-dir', $AppDir) 'Patch R — expose catalog-declared Fast selector for custom providers'
 }
 
 Write-Host ""
