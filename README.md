@@ -88,12 +88,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   }
 
   $desktop = Get-DesktopPath
-  $icon = Join-Path $installDir "Codex.exe"
+  $icon = Join-Path $installDir "ChatGPT.exe"
+  if (-not (Test-Path -LiteralPath $icon)) {
+    $icon = Join-Path $installDir "Codex.exe"
+  }
   $ws = New-Object -ComObject WScript.Shell
   function New-CodexShortcut([string]$Name, [string]$TargetPath) {
     if (-not (Test-Path -LiteralPath $TargetPath)) { return }
     $path = Join-Path $desktop $Name
-    if (Test-Path -LiteralPath $path) { return }
     $sc = $ws.CreateShortcut($path)
     $sc.TargetPath = $TargetPath
     $sc.WorkingDirectory = Split-Path $TargetPath
@@ -185,12 +187,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   }
 
   $desktop = Get-DesktopPath
-  $icon = Join-Path $installDir "Codex.exe"
+  $icon = Join-Path $installDir "ChatGPT.exe"
+  if (-not (Test-Path -LiteralPath $icon)) {
+    $icon = Join-Path $installDir "Codex.exe"
+  }
   $ws = New-Object -ComObject WScript.Shell
   function New-CodexShortcut([string]$Name, [string]$TargetPath) {
     if (-not (Test-Path -LiteralPath $TargetPath)) { return }
     $path = Join-Path $desktop $Name
-    if (Test-Path -LiteralPath $path) { return }
     $sc = $ws.CreateShortcut($path)
     $sc.TargetPath = $TargetPath
     $sc.WorkingDirectory = Split-Path $TargetPath
@@ -262,7 +266,10 @@ $target = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex.vbs"
 $logTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex-Logs.vbs"
 $devTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Launch-Codex-Dev.vbs"
 $updateTarget = "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.cmd"
-$icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
+$icon = "$env:LOCALAPPDATA\CodexFromGithub\ChatGPT.exe"
+if (-not (Test-Path -LiteralPath $icon)) {
+  $icon = "$env:LOCALAPPDATA\CodexFromGithub\Codex.exe"
+}
 
 if (-not (Test-Path -LiteralPath $target)) {
   throw "Missing launcher: $target"
@@ -275,7 +282,6 @@ $ws = New-Object -ComObject WScript.Shell
 function New-CodexShortcut([string]$Name, [string]$TargetPath) {
   if (-not (Test-Path -LiteralPath $TargetPath)) { return }
   $path = Join-Path $desktop $Name
-  if (Test-Path -LiteralPath $path) { return }
   $sc = $ws.CreateShortcut($path)
   $sc.TargetPath = $TargetPath
   $sc.WorkingDirectory = Split-Path $TargetPath
@@ -387,7 +393,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_computer_use_gate.py Patch J — bypass Statsig gates for Computer Use
 │   ├── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
 │   ├── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
-│   └── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
+│   ├── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
+│   └── patch_codex_asar_sol_max_effort.py Patch P — expose Sol Max reasoning effort
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -481,7 +488,7 @@ Gate IDs bypassed:
 - 410065390 -- browser_use_external (Google Chrome)
 - 410262010 -- browser_use (In-app Browser)
 
-The replacement is same-length (padded with spaces), so no ASAR repack is needed. The patcher uses regex [a-zA-Z_] + backtick-wrapped ID to handle minifier renaming across builds.
+The replacement is same-length (padded with spaces), so no ASAR repack is needed. The patcher matches the full minified identifier with `[a-zA-Z_$][a-zA-Z0-9_$]*` before the backtick-wrapped gate ID. It also repairs the known malformed output from older Patch J builds and marks touched chunks with `/*J*/` so CI can syntax-check them.
 
 Note: Google Chrome CUA works immediately. Any App requires upstream 26.527+ which ships codex-computer-use.exe (the Windows CUA helper binary). Earlier builds do not include this binary.
 
@@ -526,6 +533,16 @@ intentionally does not read `tray_config.json`, add model entries, or add
 `model_catalog_json` to `~\.codex\config.toml`; opt in manually only when you
 want Codex to load the custom catalog at startup.
 
+### Patch P -- GPT 5.6 Sol Max effort
+
+`gpt-5.6-sol` can advertise `max` in `model_catalog.json`, but the renderer
+still filters efforts through an older persisted allowlist and a static Work
+power sequence that omits `gpt-5.6-sol:max`. Patch P keeps catalog-supported
+`max` efforts visible even for existing profiles whose saved allowlist predates
+Max, and adds Sol Max to the Work power slider. The normal advanced effort
+picker and the compact power control therefore agree on the same supported
+catalog entry.
+
 ### Runtime Google Drive MCP bootstrap
 
 The curated Google Drive plugin skills are Codex-managed cache content, so this
@@ -550,7 +567,7 @@ sidecar startup; `tools\Update-Codex.ps1` runs it after an update. Set
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, syncs pinned tray models into the local model catalog, ensures Google Drive MCP config, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `Codex.exe`, kills the sidecar when the last `Codex.exe` process exits.
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, validates the local model catalog, ensures Google Drive MCP config, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `ChatGPT.exe` on current bundles with a `Codex.exe` fallback for older bundles, and kills the sidecar when the last desktop process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.

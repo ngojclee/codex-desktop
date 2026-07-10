@@ -4,9 +4,10 @@
 The Codex Desktop renderer checks Statsig gates before enabling Computer Use.
 Gate IDs: 1506311413 (Any App), 410065390 (Chrome), 410262010 (Browser).
 
-This patch uses a flexible regex to match any single-char function call wrapping
-the gate ID (e.g. c(`ID`), l(`ID`), C(`ID`)) and replaces with !0 (true) padded
-to the same byte length. No ASAR repack needed.
+This patch uses a flexible regex to match any minified identifier call wrapping
+the gate ID (e.g. c(`ID`), bc(`ID`), l(`ID`), C(`ID`)) and replaces the full
+call expression with !0 (true) padded to the same byte length. No ASAR repack
+needed.
 
 Idempotent: re-running on an already-patched asar is a no-op.
 """
@@ -24,10 +25,14 @@ GATES = [
 ]
 
 BT = b"\x60"
+PATCH_MARKER = b"/*J*/"
+CORRUPTED_TRUE_PATTERN = re.compile(
+    rb"(?<![a-zA-Z0-9_$])[a-zA-Z_$][a-zA-Z0-9_$]{0,2}!0 {2,}"
+)
 
 
 def make_pattern(gate_id: bytes):
-    return re.compile(rb"[a-zA-Z_]\(" + re.escape(BT + gate_id + BT) + rb"\)")
+    return re.compile(rb"[a-zA-Z_$][a-zA-Z0-9_$]*\(" + re.escape(BT + gate_id + BT) + rb"\)")
 
 
 def main():
@@ -47,6 +52,22 @@ def main():
     patched = data
     results = []
 
+    corrupted_matches = list(CORRUPTED_TRUE_PATTERN.finditer(patched))
+    for m in corrupted_matches:
+        old = m.group()
+        replacement = b"!0" + PATCH_MARKER
+        new = replacement + b" " * (len(old) - len(replacement))
+        patched = patched.replace(old, new, 1)
+    if corrupted_matches:
+        results.append(
+            {
+                "gate": "repair",
+                "label": "corrupted prior Patch J true literals",
+                "status": "patched",
+                "replaced": len(corrupted_matches),
+            }
+        )
+
     for gate_id, label in GATES:
         pattern = make_pattern(gate_id)
         matches = list(pattern.finditer(patched))
@@ -61,7 +82,8 @@ def main():
 
         for m in matches:
             old = m.group()
-            new = b"!0" + b" " * (len(old) - 2)
+            replacement = b"!0" + PATCH_MARKER
+            new = replacement + b" " * (len(old) - len(replacement))
             patched = patched.replace(old, new, 1)
         results.append({"gate": gate_id.decode(), "label": label, "status": "patched", "replaced": len(matches)})
 
@@ -75,6 +97,9 @@ def main():
 
     # Verify no raw gate patterns remain
     verify = asar.read_bytes()
+    corrupted = CORRUPTED_TRUE_PATTERN.search(verify)
+    if corrupted:
+        raise SystemExit(f"Verification failed: corrupted Patch J token remains: {corrupted.group()[:40]!r}")
     for gate_id, _ in GATES:
         pat = make_pattern(gate_id)
         if pat.search(verify):

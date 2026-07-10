@@ -8,7 +8,7 @@
 #      background; capture stdout/stderr to a rotating log under %TEMP%.
 #   3. Set `CODEX_APP_SERVER_WS_URL` so the Electron app uses the WS transport
 #      (Patch G must already be applied to the asar).
-#   4. Launch Codex.exe and wait until ALL Codex.exe processes exit.
+#   4. Launch the Electron desktop app and wait until all desktop processes exit.
 #   5. Kill the sidecar and clear the state file.
 #
 # If Codex Desktop is already running on the shared WS sidecar, this script
@@ -33,7 +33,13 @@ $ErrorActionPreference = 'Stop'
 
 $InstallDir   = "$env:LOCALAPPDATA\CodexFromGithub"
 $SidecarExe   = Join-Path $InstallDir 'resources\codex.exe'
-$DesktopExe   = Join-Path $InstallDir 'Codex.exe'
+$DesktopExe   = Join-Path $InstallDir 'ChatGPT.exe'
+if (-not (Test-Path -LiteralPath $DesktopExe)) {
+    # Older patched bundles used Codex.exe; newer upstream bundles keep the
+    # Codex product metadata but name the Electron runtime ChatGPT.exe.
+    $DesktopExe = Join-Path $InstallDir 'Codex.exe'
+}
+$DesktopProcessName = [IO.Path]::GetFileNameWithoutExtension($DesktopExe)
 $StateFile    = Join-Path $env:USERPROFILE '.codex\desktop-shared-app-server.json'
 $LogDir       = Join-Path $env:TEMP 'codex-shared'
 $ExplicitBuildFlavor = [bool]$BuildFlavor
@@ -70,13 +76,12 @@ function Refresh-SharedSkills {
     $refreshScript = Join-Path $PSScriptRoot 'Refresh-Codex-SharedSkills.ps1'
     if (-not (Test-Path -LiteralPath $refreshScript)) { return }
 
-    $refreshArgs = @('-Quiet', '-RepairRootLink')
-    if ($env:CODEX_SHARED_SKILLS_COPY -eq '1') {
-        $refreshArgs += '-CopySharedSkills'
-    }
-
     try {
-        & $refreshScript @refreshArgs
+        if ($env:CODEX_SHARED_SKILLS_COPY -eq '1') {
+            & $refreshScript -Quiet -RepairRootLink -CopySharedSkills
+        } else {
+            & $refreshScript -Quiet -RepairRootLink
+        }
     } catch {
         Write-Host "WARN: shared skills refresh failed: $_"
     }
@@ -226,7 +231,13 @@ function Get-FreePort([int]$min, [int]$max) {
 }
 
 function Get-DesktopProcessCount {
-    @(Get-Process -Name 'Codex' -EA SilentlyContinue | Where-Object { $_.Path -eq $DesktopExe }).Count
+    @(Get-Process -Name $DesktopProcessName -EA SilentlyContinue | Where-Object {
+        try {
+            $_.Path -and $_.Path.Equals($DesktopExe, [System.StringComparison]::OrdinalIgnoreCase)
+        } catch {
+            $false
+        }
+    }).Count
 }
 
 function Get-InstallProcesses {
@@ -494,7 +505,7 @@ if ($desktopArgs.Count -gt 0) {
 
 # Wait for Desktop to start spawning child processes, then poll until all gone.
 # Electron is multi-process: the launcher's $desktop.Id may exit before the
-# renderer/GPU children. We watch the count of Codex.exe by Path.
+# renderer/GPU children. We watch the selected desktop executable by path.
 Start-Sleep -Seconds 2
 while ((Get-DesktopProcessCount) -gt 0) { Start-Sleep -Seconds 2 }
 
