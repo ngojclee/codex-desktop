@@ -71,28 +71,21 @@
   - `gpt-5.2` -> `gpt-5.2`
 - The model dropdown strips a leading `GPT-` from display labels using bundle function `W(e).replace(/^GPT-/iu, ``)` in `model-and-reasoning-dropdown-*.js`.
 - That is why `GPT-5.5` appears as `5.5` in the UI.
-- To keep all GPT models visibly prefixed with `GPT`, either normalize catalog names to `GPT 5.x...` (space instead of hyphen) or patch the dropdown to stop stripping `GPT-`.
-- The least invasive immediate catalog fix is to normalize names:
+- Patch Q implements the renderer-side fix and normalizes only the leading
+  separator:
   - `GPT-5.5` -> `GPT 5.5`
-  - `GPT-5.4-Mini` -> `GPT 5.4 Mini`
+  - `GPT-5.4-Mini` -> `GPT 5.4-Mini`
   - `GPT-5.3 Codex Spark` -> `GPT 5.3 Codex Spark`
   - `gpt-5.2` -> `GPT 5.2`
+- Catalog names that already start with `GPT ` remain unchanged.
 
-## Required Dev Actions
-1. Commit and push these source changes:
-   - `runtime/Launch-Codex.ps1`
-   - `patches/patch_codex_asar_computer_use_gate.py`
-2. Re-run GitHub Actions release workflow so patched release contains:
-   - ChatGPT.exe desktop fallback launcher fix.
-   - Patch J full-identifier matching.
-   - Patch J repair/verification for prior corrupted tokens.
-3. Add CI verification to catch this class of bug:
-   - After all patches, parse or run a syntax check on packed `webview/assets/*.js` if feasible.
-   - At minimum, scan for corrupted tokens matching `[A-Za-z_$][A-Za-z0-9_$]*!0 {2,}` and fail release if found.
-4. Add/update a patch for model reasoning UI:
-   - Ensure `gpt-5.6-sol:max` is included in `model-and-reasoning-dropdown` power settings.
-   - Ensure default enabled reasoning efforts include `max` when the catalog has any model supporting `max`, or keep the existing max toggle but expose it in settings.
-5. Normalize GPT display names in the model catalog or patch dropdown display logic so GPT models keep the `GPT` prefix.
+## Completed Dev Actions
+1. Updated the launcher for `ChatGPT.exe` with a `Codex.exe` fallback.
+2. Fixed Patch J full-identifier matching and legacy corruption repair.
+3. Added CI syntax verification for Patch J and Patch Q renderer chunks.
+4. Added Patch P for `gpt-5.6-sol:max`.
+5. Added Patch Q so GPT model labels keep a visible `GPT` prefix.
+6. Updated the updater to refresh standard shortcut targets and icons.
 
 ## Implemented In Repository
 
@@ -104,11 +97,14 @@
   malformed Patch J tokens, and JavaScript syntax errors in Patch J chunks.
 - Patch P preserves catalog-supported `max` reasoning through the renderer
   effort filter and adds `gpt-5.6-sol:max` to the Work power sequence.
+- Patch Q normalizes leading `GPT-` labels to `GPT ` in all affected renderer
+  model-picker paths, so GPT model names keep a visible `GPT` prefix without
+  rewriting the user's model catalog.
 - CI verifies `ChatGPT.exe` architecture when the current upstream bundle
   includes it.
 
-The GPT display-name normalization investigation remains separate; this change
-does not rewrite the user's model catalog.
+The GPT display-name normalization is now implemented in the renderer patch
+set and does not rewrite the user's model catalog.
 
 ## Verification Commands
 ```powershell
@@ -122,11 +118,7 @@ C:\Users\ngocl\AppData\Local\CodexFromGithub\ChatGPT.exe
 C:\Users\ngocl\AppData\Local\CodexFromGithub\resources\codex.exe
 ```
 
-## Current Working Tree Notes
-- Modified:
-  - `runtime/Launch-Codex.ps1`
-  - `patches/patch_codex_asar_computer_use_gate.py`
-- Untracked before this handoff:
-  - `runtime/Diagnose-Codex-Desktop.ps1`
-- Added by this handoff:
-  - `docs/2026-07-10-codex-patched-update-handoff.md`
+## Repository Notes
+- The implementation is committed in the main repository patch/runtime set.
+- `runtime/Diagnose-Codex-Desktop.ps1` predates this handoff and remains
+  intentionally outside these release commits.

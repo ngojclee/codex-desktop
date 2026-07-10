@@ -35,6 +35,7 @@ param(
     [switch]$SkipL,
     [switch]$SkipO,
     [switch]$SkipP,
+    [switch]$SkipQ,
 
     [string]$UpstreamTag
 )
@@ -115,6 +116,10 @@ if (-not $SkipO) {
 
 if (-not $SkipP) {
     Run-Patch 'patch_codex_asar_sol_max_effort.py' @('--app-dir', $AppDir) 'Patch P — expose Max effort for gpt-5.6-sol'
+}
+
+if (-not $SkipQ) {
+    Run-Patch 'patch_codex_asar_gpt_model_labels.py' @('--app-dir', $AppDir) 'Patch Q — preserve GPT prefixes in model labels'
 }
 
 Write-Host ""
