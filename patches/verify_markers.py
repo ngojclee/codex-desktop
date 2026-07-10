@@ -35,8 +35,10 @@ WS_CONSTRUCTOR_PATTERN = re.compile(
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
 )
 WS_OPTIONS_VAR_PATTERN = re.compile(
-    r"[A-Za-z_$][A-Za-z0-9_$]*=\{(?P<body>headers:[^{}]*?perMessageDeflate:!1[^{}]*?)\}"
-    r",[A-Za-z_$][A-Za-z0-9_$]*=.*?new\s+[A-Za-z_$][A-Za-z0-9_$]*\(this\.options\.websocketUrl,"
+    r"(?P<options_var>[A-Za-z_$][A-Za-z0-9_$]*)=\{"
+    r"(?P<body>(?=[^;]{0,2500}headers:)[^;]{0,2500}?perMessageDeflate:!1[^;{}]{0,500})"
+    r"\},[^;]{0,800}?new\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\(this\.options\.websocketUrl,(?:[A-Za-z_$][A-Za-z0-9_$]*,)?(?P=options_var)\)"
 )
 
 
@@ -158,6 +160,7 @@ def find_patch_k_bundle(app_dir: Path):
                 "sidebarElectron.codexMobileSetupNavLink" in text
                 or "codex.profileFooter.codexMobileTooltip" in text
                 or "codex.profileFooter.codexMobileAriaLabel" in text
+                or "remote-connection-visibility-" in path
             ):
                 return path, text
     raise SystemExit("Could not find Patch K marker in Codex mobile entrypoint bundle")

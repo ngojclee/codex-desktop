@@ -14,6 +14,8 @@ Changes:
   enabled && remoteControlFeaturesVisible && remoteControlOnboardingEnabled &&
   !hasCompletedCodexMobileSetup
   to enabled && !hasCompletedCodexMobileSetup.
+- On 26.707+, accept the new setup-dialog layout where the old sidebar/profile
+  condition is gone and remote-control visibility is the remaining UI gate.
 
 All replacements are same-length byte patches inside app.asar. No ASAR repack
 is needed, and reruns are safe.
@@ -86,7 +88,8 @@ def patch_gate_calls(data: bytes):
 
         for match in matches:
             old = match.group()
-            new = b"!0" + b" " * (len(old) - 2)
+            replacement = b"!0" + (PATCH_MARKER if gate_id == b"1042620455" else b"")
+            new = replacement + b" " * (len(old) - len(replacement))
             patched = patched.replace(old, new, 1)
 
         results.append({
@@ -100,6 +103,18 @@ def patch_gate_calls(data: bytes):
 
 
 def patch_sidebar_gate(data: bytes):
+    if (
+        PATCH_MARKER in data
+        and b"codex-mobile-setup-dialog-" in data
+        and b"codexMobile.setupDialog.initial" in data
+        and b"hasCompletedCodexMobileSetup:" not in data
+        and b"codex.profileFooter.codexMobile" not in data
+    ):
+        return data, {
+            "status": "patched",
+            "layout": "remote_visibility_26_707",
+        }
+
     match = SIDEBAR_GATE_PATTERN.search(data)
     if match:
         old_expr = match.group("expr")
