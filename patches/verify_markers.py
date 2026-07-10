@@ -35,6 +35,14 @@ PATCH_P_FILTER_MARKER = "/*P:max-filter*/"
 PATCH_P_SOL_MAX_ID = "id:`gpt-5.6-sol:max`"
 PATCH_Q_MARKER = "/*Q:gpt-label*/"
 PATCH_Q_OLD_PATTERN = re.compile(r"\.replace\(/\^GPT-/iu,(?:``|\"\"|'')\)")
+PATCH_R_MARKER = "/*R:custom-provider-fast*/"
+PATCH_R_UPSTREAM_PATTERN = re.compile(
+    r"(?P<allowed>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"(?P<chatgpt>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"!(?P<loading>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"(?P<requirements>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
+    r"(?P=requirements)\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1"
+)
 PATCH_O_MARKERS = (
     "if(s?(t.has(n.model)||!n.hidden):!n.hidden)",
     "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
@@ -350,6 +358,53 @@ def gpt_model_label_status(app_dir: Path):
     }
 
 
+def custom_provider_fast_mode_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_entries = []
+    unpatched_paths = []
+
+    for path, meta in _walk(header):
+        if not (
+            path.startswith("webview/assets/")
+            and path.endswith(".js")
+            and "offset" in meta
+        ):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if PATCH_R_MARKER in text:
+            marker_entries.append((path, text))
+        if PATCH_R_UPSTREAM_PATTERN.search(text):
+            unpatched_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch R syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-r-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(
+                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+                    )
+
+    return {
+        "marker_paths": sorted(path for path, _text in marker_entries),
+        "unpatched_paths": sorted(set(unpatched_paths)),
+        "syntax_errors": syntax_errors,
+    }
+
+
 def computer_use_plugin_status(app_dir: Path):
     plugin = (
         app_dir
@@ -397,6 +452,7 @@ def main():
     patch_o = model_availability_filter_status(app_dir)
     patch_p = sol_max_effort_status(app_dir)
     patch_q = gpt_model_label_status(app_dir)
+    patch_r = custom_provider_fast_mode_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -449,6 +505,17 @@ def main():
         print("Patch Q syntax errors:")
         for error in patch_q["syntax_errors"]:
             print(f"  - {error}")
+    print(f"Patch R custom-provider Fast marker paths: {len(patch_r['marker_paths'])}")
+    for path in patch_r["marker_paths"]:
+        print(f"  - {path}")
+    if patch_r["unpatched_paths"]:
+        print("Patch R upstream Fast auth gates still present:")
+        for path in patch_r["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_r["syntax_errors"]:
+        print("Patch R syntax errors:")
+        for error in patch_r["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -493,6 +560,9 @@ def main():
         ("Patch Q — GPT label normalization marker", lambda: len(patch_q["marker_paths"]) > 0, True),
         ("Patch Q — no GPT-prefix stripping calls remain", lambda: len(patch_q["old_paths"]) == 0, True),
         ("Patch Q — touched renderer chunks pass syntax check", lambda: len(patch_q["syntax_errors"]) == 0, True),
+        ("Patch R — custom-provider Fast selector marker", lambda: len(patch_r["marker_paths"]) > 0, True),
+        ("Patch R — upstream Fast auth gate absent", lambda: len(patch_r["unpatched_paths"]) == 0, True),
+        ("Patch R — touched renderer chunks pass syntax check", lambda: len(patch_r["syntax_errors"]) == 0, True),
     )
 
     failed = []

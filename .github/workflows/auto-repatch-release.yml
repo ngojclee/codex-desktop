@@ -492,6 +492,7 @@ jobs:
           - **Patch O** — keep non-hidden local model catalog entries visible even when the renderer receives a Statsig model allowlist, so custom proxy models and `GPT-5.3 Codex Spark` are not hidden from the picker
           - **Patch P** — expose catalog-supported `max` reasoning for `gpt-5.6-sol` in both the Work power slider and advanced effort picker, including profiles with an older persisted effort allowlist
           - **Patch Q** — normalize leading `GPT-` model labels to `GPT ` instead of stripping the prefix, so entries such as `GPT-5.5`, `GPT-5.4-Mini`, and `gpt-5.2` remain visibly identified as GPT models
+          - **Patch R** — expose the catalog-declared Standard/Fast service-tier selector for custom API providers without changing the default tier or granting OpenAI Fast credits
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
