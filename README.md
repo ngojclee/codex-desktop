@@ -530,7 +530,8 @@ Patch O changes the renderer filter so the Statsig allowlist can still expose
 hidden upstream models, but non-hidden models returned by `model/list` remain
 visible. The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` on startup
 to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
-needed, and mirror it to `~\.codex\models_cache.json`. The sync tool
+needed, and mirror it to `~\.codex\models_cache.json`. It does not create
+model-catalog backup files. The sync tool
 intentionally does not read `tray_config.json`, add model entries, or add
 `model_catalog_json` to `~\.codex\config.toml`; opt in manually only when you
 want Codex to load the custom catalog at startup.
