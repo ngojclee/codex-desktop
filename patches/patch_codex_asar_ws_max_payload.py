@@ -35,9 +35,10 @@ WS_CONSTRUCTOR_PATTERN = re.compile(
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
 )
 WS_OPTIONS_VAR_PATTERN = re.compile(
-    r"(?P<prefix>[A-Za-z_$][A-Za-z0-9_$]*=)\{(?P<body>headers:[^{}]*?perMessageDeflate:!1[^{}]*?)\}"
-    r"(?P<suffix>,[A-Za-z_$][A-Za-z0-9_$]*=.*?new\s+[A-Za-z_$][A-Za-z0-9_$]*"
-    r"\(this\.options\.websocketUrl,)",
+    r"(?P<prefix>(?P<options_var>[A-Za-z_$][A-Za-z0-9_$]*)=)\{"
+    r"(?P<body>(?=[^;]{0,2500}headers:)[^;]{0,2500}?perMessageDeflate:!1[^;{}]{0,500})"
+    r"(?P<suffix>\},[^;]{0,800}?new\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\(this\.options\.websocketUrl,(?:[A-Za-z_$][A-Za-z0-9_$]*,)?(?P=options_var)\))",
 )
 
 MAX_PAYLOAD_PATTERN = re.compile(r"(?:/\*M\*/)?maxPayload:[^,}]+")
@@ -121,7 +122,7 @@ def patch_js(data: bytes):
         changed = 1 if did_change else 0
         patched = (
             text[: var_match.start()]
-            + f"{var_match.group('prefix')}{{{patched_body}}}{var_match.group('suffix')}"
+            + f"{var_match.group('prefix')}{{{patched_body}{var_match.group('suffix')}"
             + text[var_match.end() :]
         )
         if changed == 0:
