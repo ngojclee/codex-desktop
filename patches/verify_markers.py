@@ -33,6 +33,8 @@ PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
 PATCH_P_POWER_MARKER = "/*P:sol-max*/"
 PATCH_P_FILTER_MARKER = "/*P:max-filter*/"
 PATCH_P_SOL_MAX_ID = "id:`gpt-5.6-sol:max`"
+PATCH_Q_MARKER = "/*Q:gpt-label*/"
+PATCH_Q_OLD_PATTERN = re.compile(r"\.replace\(/\^GPT-/iu,(?:``|\"\"|'')\)")
 PATCH_O_MARKERS = (
     "if(s?(t.has(n.model)||!n.hidden):!n.hidden)",
     "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
@@ -292,6 +294,62 @@ def sol_max_effort_status(app_dir: Path):
     }
 
 
+def gpt_model_label_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_entries = []
+    old_paths = []
+    candidate_paths = []
+    marker_count = 0
+
+    for path, meta in _walk(header):
+        if not (
+            path.startswith("webview/assets/")
+            and path.endswith(".js")
+            and "offset" in meta
+        ):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if "model-and-reasoning-dropdown-" not in path:
+            continue
+        if "stripGptPrefix" in text or PATCH_Q_MARKER in text:
+            candidate_paths.append(path)
+        if PATCH_Q_MARKER in text:
+            marker_entries.append((path, text))
+            marker_count += text.count(PATCH_Q_MARKER)
+        if PATCH_Q_OLD_PATTERN.search(text):
+            old_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch Q syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-q-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(
+                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+                    )
+
+    return {
+        "candidate_paths": sorted(set(candidate_paths)),
+        "marker_paths": sorted(path for path, _text in marker_entries),
+        "marker_count": marker_count,
+        "old_paths": sorted(set(old_paths)),
+        "syntax_errors": syntax_errors,
+    }
+
+
 def computer_use_plugin_status(app_dir: Path):
     plugin = (
         app_dir
@@ -338,6 +396,7 @@ def main():
     patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
     patch_o = model_availability_filter_status(app_dir)
     patch_p = sol_max_effort_status(app_dir)
+    patch_q = gpt_model_label_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -378,6 +437,18 @@ def main():
     print(f"Patch P max-filter paths: {len(patch_p['filter_paths'])}")
     for path in patch_p["filter_paths"]:
         print(f"  - {path}")
+    print(f"Patch Q GPT label marker paths: {len(patch_q['marker_paths'])}")
+    for path in patch_q["marker_paths"]:
+        print(f"  - {path}")
+    print(f"Patch Q normalized label calls: {patch_q['marker_count']}")
+    if patch_q["old_paths"]:
+        print("Patch Q old GPT-prefix stripping paths:")
+        for path in patch_q["old_paths"]:
+            print(f"  - {path}")
+    if patch_q["syntax_errors"]:
+        print("Patch Q syntax errors:")
+        for error in patch_q["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -419,6 +490,9 @@ def main():
         ("Patch O — old Statsig-only model filter absent", lambda: len(patch_o["unpatched_paths"]) == 0, True),
         ("Patch P — gpt-5.6-sol Max power entry present", lambda: len(patch_p["power_paths"]) > 0, True),
         ("Patch P — catalog-supported Max survives effort filter", lambda: len(patch_p["filter_paths"]) > 0, True),
+        ("Patch Q — GPT label normalization marker", lambda: len(patch_q["marker_paths"]) > 0, True),
+        ("Patch Q — no GPT-prefix stripping calls remain", lambda: len(patch_q["old_paths"]) == 0, True),
+        ("Patch Q — touched renderer chunks pass syntax check", lambda: len(patch_q["syntax_errors"]) == 0, True),
     )
 
     failed = []

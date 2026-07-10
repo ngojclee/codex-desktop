@@ -376,7 +376,7 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
-The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release. The updater ensures the three standard desktop shortcuts exist and leaves existing shortcuts alone; use the shortcut snippet above when you also want the optional Logs shortcut.
+The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release. The updater creates or refreshes the three standard desktop shortcuts, updates their icon from `ChatGPT.exe` on current bundles, and refreshes an existing optional Logs shortcut without creating it automatically.
 
 ## Architecture
 
@@ -394,7 +394,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
 │   ├── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
 │   ├── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
-│   └── patch_codex_asar_sol_max_effort.py Patch P — expose Sol Max reasoning effort
+│   ├── patch_codex_asar_sol_max_effort.py Patch P — expose Sol Max reasoning effort
+│   └── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -542,6 +543,16 @@ power sequence that omits `gpt-5.6-sol:max`. Patch P keeps catalog-supported
 Max, and adds Sol Max to the Work power slider. The normal advanced effort
 picker and the compact power control therefore agree on the same supported
 catalog entry.
+
+### Patch Q -- GPT model label normalization
+
+The renderer strips a leading `GPT-` from several model-picker labels. That
+makes catalog names such as `GPT-5.5`, `GPT-5.4-Mini`, and
+`GPT-5.3 Codex Spark` appear as `5.5`, `5.4-Mini`, and
+`5.3 Codex Spark`; the case-insensitive rule also affects `gpt-5.2`.
+Patch Q changes this renderer normalization to replace a leading `GPT-` with
+`GPT ` instead of deleting it. Names already formatted as `GPT 5.x` are left
+unchanged, and the user's `model_catalog.json` is not rewritten.
 
 ### Runtime Google Drive MCP bootstrap
 
