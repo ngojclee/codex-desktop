@@ -294,7 +294,8 @@ if (useHiddenModels ? (availableModels.has(model.model) || !model.hidden) : !mod
 
 The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startup
 to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
-needed, and mirror it to `~\.codex\models_cache.json`. The sync tool
+needed, and mirror it to `~\.codex\models_cache.json`. It does not create
+model-catalog backup files. The sync tool
 intentionally does not read `tray_config.json`, add model entries, or write
 `model_catalog_json` into `~\.codex\config.toml`; that startup opt-in stays
 manual.
