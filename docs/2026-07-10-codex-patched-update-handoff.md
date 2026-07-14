@@ -57,7 +57,9 @@
   - `xhigh`
   - `ultra`
 - It omits `max`, so the dropdown can show up to `Extra High`/`Ultra` but not `Max` from the power-setting list.
-- `webview/assets/model-queries-*.js` also initializes `enabledReasoningEfforts` as `[`low`,`medium`,`high`,`xhigh`]`, so `max` can be filtered out unless enabled elsewhere.
+- `webview/assets/model-queries-*.js` initializes `enabledReasoningEfforts`
+  without `max`; users enable it through **Settings > Configuration > Model
+  features > Available reasoning efforts**.
 
 ### GPT Model Display Names
 - Catalog currently has mixed display names:
@@ -83,7 +85,8 @@
 1. Updated the launcher for `ChatGPT.exe` with a `Codex.exe` fallback.
 2. Fixed Patch J full-identifier matching and legacy corruption repair.
 3. Added CI syntax verification for Patch J and Patch Q renderer chunks.
-4. Added Patch P for `gpt-5.6-sol:max`.
+4. Added Patch P for `gpt-5.6-sol:max` in the compact Power slider while
+   preserving the built-in reasoning-effort setting.
 5. Added Patch Q so GPT model labels keep a visible `GPT` prefix.
 6. Updated the updater to refresh standard shortcut targets and icons.
 
@@ -95,8 +98,9 @@
   malformed legacy output, and marks touched chunks with `/*J*/`.
 - Release verification rejects remaining Computer Use gate calls, known
   malformed Patch J tokens, and JavaScript syntax errors in Patch J chunks.
-- Patch P preserves catalog-supported `max` reasoning through the renderer
-  effort filter and adds `gpt-5.6-sol:max` to the Work power sequence.
+- Patch P adds `gpt-5.6-sol:max` to the Work power sequence without bypassing
+  the renderer's `enabledReasoningEfforts` setting. Newer Patch P runs also
+  remove the legacy always-on Max filter marker from previously patched ASARs.
 - Patch Q normalizes leading `GPT-` labels to `GPT ` in all affected renderer
   model-picker paths, so GPT model names keep a visible `GPT` prefix without
   rewriting the user's model catalog.

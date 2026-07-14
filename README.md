@@ -394,7 +394,7 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_codex_mobile_gate.py Patch K — expose Codex mobile setup
 │   ├── patch_codex_plugin_scoped_node_modules.py Patch L — decode plugin `%40` package folders
 │   ├── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
-│   ├── patch_codex_asar_sol_max_effort.py Patch P — expose Sol Max reasoning effort
+│   ├── patch_codex_asar_sol_max_effort.py Patch P — add Sol Max to the compact Power slider
 │   ├── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
 │   └── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
@@ -538,13 +538,13 @@ want Codex to load the custom catalog at startup.
 
 ### Patch P -- GPT 5.6 Sol Max effort
 
-`gpt-5.6-sol` can advertise `max` in `model_catalog.json`, but the renderer
-still filters efforts through an older persisted allowlist and a static Work
-power sequence that omits `gpt-5.6-sol:max`. Patch P keeps catalog-supported
-`max` efforts visible even for existing profiles whose saved allowlist predates
-Max, and adds Sol Max to the Work power slider. The normal advanced effort
-picker and the compact power control therefore agree on the same supported
-catalog entry.
+`gpt-5.6-sol` can advertise `max` in `model_catalog.json`, and the built-in
+**Available reasoning efforts** setting controls whether Max is enabled in the
+model controls. The renderer's static Work power sequence still omits
+`gpt-5.6-sol:max`, so Patch P adds that one missing entry to the compact Power
+slider. It intentionally does not bypass `enabledReasoningEfforts`; turning Max
+off in Settings hides it again. When applied over an older patched ASAR, Patch P
+also removes the legacy always-on Max filter bypass.
 
 ### Patch Q -- GPT model label normalization
 

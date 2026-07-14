@@ -31,7 +31,7 @@ PATCH_J_CORRUPTED_PATTERN = re.compile(
 )
 PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
 PATCH_P_POWER_MARKER = "/*P:sol-max*/"
-PATCH_P_FILTER_MARKER = "/*P:max-filter*/"
+PATCH_P_LEGACY_FILTER_MARKER = "/*P:max-filter*/"
 PATCH_P_SOL_MAX_ID = "id:`gpt-5.6-sol:max`"
 PATCH_Q_MARKER = "/*Q:gpt-label*/"
 PATCH_Q_OLD_PATTERN = re.compile(r"\.replace\(/\^GPT-/iu,(?:``|\"\"|'')\)")
@@ -272,13 +272,10 @@ def patch_j_status(app_dir: Path):
 
 def sol_max_effort_status(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
+    marker_entries = []
     power_paths = []
-    filter_paths = []
+    legacy_filter_paths = []
     candidate_paths = []
-    max_filter_pattern = re.compile(
-        r"\.has\([A-Za-z_$][A-Za-z0-9_$]*\)\|\|"
-        r"[A-Za-z_$][A-Za-z0-9_$]*===`max`"
-    )
 
     for path, meta in _walk(header):
         if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
@@ -290,15 +287,38 @@ def sol_max_effort_status(app_dir: Path):
             PATCH_P_POWER_MARKER in text or PATCH_P_SOL_MAX_ID in text
         ):
             power_paths.append(path)
-        if "model-list-filter-" in path and (
-            PATCH_P_FILTER_MARKER in text or max_filter_pattern.search(text)
-        ):
-            filter_paths.append(path)
+            if PATCH_P_POWER_MARKER in text:
+                marker_entries.append((path, text))
+        if "model-list-filter-" in path and PATCH_P_LEGACY_FILTER_MARKER in text:
+            legacy_filter_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch P syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-p-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(
+                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+                    )
 
     return {
         "candidate_paths": sorted(set(candidate_paths)),
         "power_paths": sorted(set(power_paths)),
-        "filter_paths": sorted(set(filter_paths)),
+        "legacy_filter_paths": sorted(set(legacy_filter_paths)),
+        "syntax_errors": syntax_errors,
     }
 
 
@@ -490,9 +510,13 @@ def main():
     print(f"Patch P Sol Max power paths: {len(patch_p['power_paths'])}")
     for path in patch_p["power_paths"]:
         print(f"  - {path}")
-    print(f"Patch P max-filter paths: {len(patch_p['filter_paths'])}")
-    for path in patch_p["filter_paths"]:
+    print(f"Patch P legacy max-filter bypass paths: {len(patch_p['legacy_filter_paths'])}")
+    for path in patch_p["legacy_filter_paths"]:
         print(f"  - {path}")
+    if patch_p["syntax_errors"]:
+        print("Patch P syntax errors:")
+        for error in patch_p["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Patch Q GPT label marker paths: {len(patch_q['marker_paths'])}")
     for path in patch_q["marker_paths"]:
         print(f"  - {path}")
@@ -556,7 +580,8 @@ def main():
         ("Patch O — model availability filter marker", lambda: len(patch_o["marker_paths"]) > 0, True),
         ("Patch O — old Statsig-only model filter absent", lambda: len(patch_o["unpatched_paths"]) == 0, True),
         ("Patch P — gpt-5.6-sol Max power entry present", lambda: len(patch_p["power_paths"]) > 0, True),
-        ("Patch P — catalog-supported Max survives effort filter", lambda: len(patch_p["filter_paths"]) > 0, True),
+        ("Patch P — built-in reasoning-effort setting remains authoritative", lambda: len(patch_p["legacy_filter_paths"]) == 0, True),
+        ("Patch P — touched renderer chunks pass syntax check", lambda: len(patch_p["syntax_errors"]) == 0, True),
         ("Patch Q — GPT label normalization marker", lambda: len(patch_q["marker_paths"]) > 0, True),
         ("Patch Q — no GPT-prefix stripping calls remain", lambda: len(patch_q["old_paths"]) == 0, True),
         ("Patch Q — touched renderer chunks pass syntax check", lambda: len(patch_q["syntax_errors"]) == 0, True),

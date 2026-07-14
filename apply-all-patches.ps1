@@ -116,7 +116,7 @@ if (-not $SkipO) {
 }
 
 if (-not $SkipP) {
-    Run-Patch 'patch_codex_asar_sol_max_effort.py' @('--app-dir', $AppDir) 'Patch P — expose Max effort for gpt-5.6-sol'
+    Run-Patch 'patch_codex_asar_sol_max_effort.py' @('--app-dir', $AppDir) 'Patch P — add Sol Max to the compact Power slider'
 }
 
 if (-not $SkipQ) {
