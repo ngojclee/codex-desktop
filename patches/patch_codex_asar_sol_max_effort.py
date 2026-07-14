@@ -38,6 +38,15 @@ POWER_PATTERN = re.compile(
     r"modelLabel:`(?P=label)`,reasoningEffort:`ultra`\})"
 )
 
+POWER_SPLIT_PATTERN = re.compile(
+    r"(?P<xhigh>\{id:`gpt-5\.6-sol:xhigh`,model:`gpt-5\.6-sol`,"
+    r"modelLabel:`(?P<label>[^`]+)`,reasoningEffort:`xhigh`\})"
+    r"(?P<array_end>\])"
+    r"(?=,(?P<ultra_var>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"\{id:`gpt-5\.6-sol:ultra`,model:`gpt-5\.6-sol`,"
+    r"modelLabel:`(?P=label)`,reasoningEffort:`ultra`\})"
+)
+
 FILTER_PATTERN = re.compile(
     r"\.filter\(\(\{reasoningEffort:(?P<effort>[A-Za-z_$][A-Za-z0-9_$]*)\}\)=>"
     r"(?P<validator>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=effort)\)&&"
@@ -50,16 +59,29 @@ def patch_power(text: str):
         return text, False
 
     match = POWER_PATTERN.search(text)
-    if match is None:
-        raise RuntimeError("Could not find the gpt-5.6-sol xhigh/ultra power sequence")
+    if match is not None:
+        label = match.group("label")
+        max_entry = (
+            f"{POWER_MARKER}{{id:`gpt-5.6-sol:max`,model:`gpt-5.6-sol`,"
+            f"modelLabel:`{label}`,reasoningEffort:`max`}}"
+        )
+        replacement = f"{match.group('xhigh')},{max_entry},{match.group('ultra')}"
+        return text[: match.start()] + replacement + text[match.end() :], True
 
-    label = match.group("label")
-    max_entry = (
-        f"{POWER_MARKER}{{id:`gpt-5.6-sol:max`,model:`gpt-5.6-sol`,"
-        f"modelLabel:`{label}`,reasoningEffort:`max`}}"
+    split_match = POWER_SPLIT_PATTERN.search(text)
+    if split_match is not None:
+        label = split_match.group("label")
+        max_entry = (
+            f"{POWER_MARKER}{{id:`gpt-5.6-sol:max`,model:`gpt-5.6-sol`,"
+            f"modelLabel:`{label}`,reasoningEffort:`max`}}"
+        )
+        replacement = f"{split_match.group('xhigh')},{max_entry}{split_match.group('array_end')}"
+        return text[: split_match.start()] + replacement + text[split_match.end() :], True
+
+    raise RuntimeError(
+        "Could not find the gpt-5.6-sol power sequence "
+        "(adjacent xhigh/ultra or split xhigh array plus ultra entry)"
     )
-    replacement = f"{match.group('xhigh')},{max_entry},{match.group('ultra')}"
-    return text[: match.start()] + replacement + text[match.end() :], True
 
 
 def patch_filter(text: str):
