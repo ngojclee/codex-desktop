@@ -4,18 +4,23 @@
 Problem: official Codex Desktop builds historically capped the sidebar at a
 small recent-thread window (`limit:50`). Codex Desktop 26.608.x introduced a
 new native expanded-history path (`getHistoryLimit` + `useStateDbOnly`) while
-keeping the old paged load-more path. A patcher that only knows the older
-minified shape fails even though the feature can still be widened safely.
+keeping the old paged load-more path. Codex Desktop 26.715.x moved the default
+history limits into a runtime-settings helper and added native cursor
+pagination. A patcher that only knows the older minified shapes fails even
+though the feature can still be widened safely.
 
 Fix: bump the known old initial/load-more limits, and on newer builds bump the
-native `getHistoryLimit` fallback from 50 to the requested limit. Verification
-accepts either the old widened initial-refresh shape or the new native widened
-history shape, while still requiring the load-more literal to be patched.
+native `getHistoryLimit` fallback from 50 to the requested limit. On 26.715+
+replace the runtime helper's local/remote defaults (500/50) with the requested
+limit while preserving the catalog-consume value of 0. Verification accepts
+the old widened initial-refresh shape, either native fallback shape, or the new
+runtime-settings marker.
 """
 import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -42,6 +47,13 @@ PATCH_PATTERNS = (
         "this.params.getHistoryLimit?.()??50,i=(t===`expanded`||n)&&r>50,a=i?r:50",
         "this.params.getHistoryLimit?.()??{limit},i=(t===`expanded`||n)&&r>50,a=i?r:50",
     ),
+)
+
+RUNTIME_HISTORY_MARKER = "/*A:history-limit*/"
+RUNTIME_HISTORY_PATTERN = re.compile(
+    r"function (?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"\((?P<local>[A-Za-z_$][A-Za-z0-9_$]*),(?P<catalog>[A-Za-z_$][A-Za-z0-9_$]*)\)"
+    r"\{return (?P=local)&&(?P=catalog)\?0:(?P=local)\?500:50\}"
 )
 
 
@@ -114,6 +126,24 @@ def patch_js(data: bytes, limit: int):
         already[new] = new_count
         if old_count:
             text = text.replace(old, new)
+
+    runtime_matches = list(RUNTIME_HISTORY_PATTERN.finditer(text))
+    if len(runtime_matches) > 1:
+        raise RuntimeError(
+            f"Expected at most one 26.715 runtime history helper, found {len(runtime_matches)}"
+        )
+    replacements["runtime_history_defaults_26_715"] = len(runtime_matches)
+    runtime_marker = f"{RUNTIME_HISTORY_MARKER}{limit}"
+    already["runtime_history_limit_26_715"] = text.count(runtime_marker)
+    if runtime_matches:
+        match = runtime_matches[0]
+        replacement = (
+            f"function {match.group('fn')}({match.group('local')},{match.group('catalog')})"
+            f"{{return {match.group('local')}&&{match.group('catalog')}?0:"
+            f"{runtime_marker}}}"
+        )
+        text = text[: match.start()] + replacement + text[match.end() :]
+
     if not any(replacements.values()):
         if any(already.values()):
             return data, {"already_patched": True, "replacements": replacements, "already": already}
@@ -248,8 +278,15 @@ def main():
         "native_history_limit_26_611": verify_text.count(
             f"this.params.getHistoryLimit?.()??{args.limit},i=(t===`expanded`||n)&&r>50,a=i?r:50"
         ),
+        "runtime_history_limit_26_715": verify_text.count(
+            f"{RUNTIME_HISTORY_MARKER}{args.limit}"
+        ),
     }
-    native_history_limit = expected["native_history_limit_26_608"] + expected["native_history_limit_26_611"]
+    native_history_limit = (
+        expected["native_history_limit_26_608"]
+        + expected["native_history_limit_26_611"]
+        + expected["runtime_history_limit_26_715"]
+    )
     if native_history_limit:
         pass
     elif expected["load_more_limit"] != 1 or expected["refresh_limit"] != 1:

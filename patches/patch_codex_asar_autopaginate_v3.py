@@ -34,6 +34,11 @@ already bumped that native fallback to 1000, this patch records the same v3
 marker and leaves the native path intact instead of inserting the older manual
 paginate loop.
 
+Codex Desktop 26.715.x added native cursor pagination in the expanded-history
+path. Patch A marks its runtime discovery limit as `/*A:history-limit*/1000`;
+this patch recognizes the native pagination loop and records the v3 marker
+without injecting a duplicate loop.
+
 The script automatically rolls back from v1 or v2 state (via the existing
 `app.asar.bak-before-autopaginate` snapshot) before applying v3.
 """
@@ -63,6 +68,13 @@ V3_MARKER = "__capV3=2000"
 NATIVE_HISTORY_PATCHED_PATTERNS = (
     "this.params.getHistoryLimit?.()??1000,n=t>50,r=n?t:50*this.recentConversationPageCount",
     "this.params.getHistoryLimit?.()??1000,i=(t===`expanded`||n)&&r>50,a=i?r:50",
+)
+NATIVE_HISTORY_26_715_MARKER = "/*A:history-limit*/1000"
+NATIVE_HISTORY_26_715_EVIDENCE = (
+    "Math.min(a,100)",
+    "for(;e.length<a&&n!=null&&!t.has(n);)",
+    "loadedThreadCount:s.data.length",
+    "useStateDbOnly:!0",
 )
 NATIVE_HISTORY_MARKER_ANCHOR = "this.params.onHistoryLoaded?.("
 
@@ -127,6 +139,10 @@ def find_target(header, asar_path: Path | None = None, payload_start: int | None
                 V3_MARKER in text
                 or UNPATCHED_SEARCH in text
                 or (any(pattern in text for pattern in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text)
+                or (
+                    NATIVE_HISTORY_26_715_MARKER in text
+                    and all(evidence in text for evidence in NATIVE_HISTORY_26_715_EVIDENCE)
+                )
             ):
                 candidates.append((path, meta))
         if len(candidates) == 1:
@@ -152,6 +168,11 @@ def detect_state(text: str) -> str:
     if UNPATCHED_SEARCH in text:
         return "unpatched"
     if any(pattern in text for pattern in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text:
+        return "native_expanded_history"
+    if (
+        NATIVE_HISTORY_26_715_MARKER in text
+        and all(evidence in text for evidence in NATIVE_HISTORY_26_715_EVIDENCE)
+    ):
         return "native_expanded_history"
     return "unknown"
 

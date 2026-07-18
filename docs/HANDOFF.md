@@ -54,7 +54,9 @@ The PowerShell entrypoint copies the Microsoft Store Codex app into:
 Then it applies the current patch set to the copied app only:
 
 - `patch_codex_asar_recent_window.py`
-  Bumps renderer `limit:50` patterns to `limit:1000`.
+  Bumps older renderer `limit:50`/`getHistoryLimit` patterns to `1000`. On
+  26.715+ it raises the runtime helper's live-history defaults from `500/50`
+  to `1000` while preserving catalog-consume mode `0`.
 
 - `patch_codex_electron_fuse.py`
   Flips Electron fuse index 4, `EnableEmbeddedAsarIntegrityValidation`, from
@@ -84,7 +86,9 @@ Then it applies the current patch set to the copied app only:
 
 - `patch_codex_asar_ws_socks_bypass.py` *(Patch G)*
   Removes the hardcoded SOCKS5 agent from local WebSocket app-server transport
-  so Desktop can attach to the shared sidecar launcher.
+  so Desktop can attach to the shared sidecar launcher. On 26.715+ it recognizes
+  the upstream hostname guard (`localhost`, `127.0.0.1`, `[::1]`) as already
+  safe and preserves SOCKS for remote WebSocket hosts.
 
 - `patch_codex_asar_ws_max_payload.py` *(Patch M)*
   Adds `maxPayload:1024*1024*1024` to the shared WebSocket app-server client.

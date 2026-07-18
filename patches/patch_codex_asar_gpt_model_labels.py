@@ -39,14 +39,7 @@ def find_targets(asar: Path):
         ):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if (
-            "model-and-reasoning-dropdown-" in path
-            and (
-                "stripGptPrefix" in text
-                or OLD_PATTERN.search(text)
-                or PATCH_MARKER in text
-            )
-        ):
+        if OLD_PATTERN.search(text) or PATCH_MARKER in text:
             targets.append((path, meta, text))
     return header, payload_start, targets
 
