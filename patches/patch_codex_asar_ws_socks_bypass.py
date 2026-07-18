@@ -12,10 +12,16 @@ This patch removes the `agent: new <minified>.SocksProxyAgent(...)` option from
 the WS transport so the connection goes direct. Auth headers from `th()` are
 already empty `{}`; no other tweak is needed.
 
+Codex Desktop 26.715+ moved proxy selection into the main process and now
+returns no SOCKS URL for `localhost`, `127.0.0.1`, or `[::1]`. That upstream
+layout is already safe for the shared local sidecar, so this patch preserves
+the SOCKS URL for genuinely remote websocket hosts and reports an upstream-safe
+no-op.
+
 Idempotent: re-running on an already-patched asar is a no-op. Verified by the
-absence of the `socks5h://127.0.0.1:1080` string in any packed JavaScript
-bundle. Older builds placed this code in `workspace-root-drop-handler-*`; Owl
-26.527 moved it into `.vite/build/src-*.js`.
+absence of an unsafe `socks5h://127.0.0.1:1080` use in packed JavaScript.
+Older builds placed this code in `workspace-root-drop-handler-*`; Owl 26.527
+moved it into `.vite/build/src-*.js`.
 """
 import argparse
 import hashlib
@@ -39,6 +45,13 @@ SOCKS_SPREAD_PATTERN = re.compile(
     r",\.\.\.[A-Za-z_$][A-Za-z0-9_$]*\(this\.options\.websocketUrl\)\?\{\}:\{agent:new\s+"
     r"[A-Za-z_$][A-Za-z0-9_$]*\.SocksProxyAgent\((?P<q>[`'\"])"
     r"socks5h://127\.0\.0\.1:1080(?P=q)\)\}"
+)
+SAFE_LOOPBACK_PATTERN = re.compile(
+    r"function\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\([^)]*\)\{let\s+(?P<host>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"new URL\([^)]*\)\.hostname;if\(!\("
+    r"(?P=host)===`localhost`\|\|(?P=host)===`127\.0\.0\.1`\|\|"
+    r"(?P=host)===`\[::1\]`\)\)return\s+[A-Za-z_$][A-Za-z0-9_$]*\}"
 )
 
 
@@ -77,6 +90,9 @@ def extract(asar_path, payload_start, meta):
 
 def patch_js(data: bytes):
     text = data.decode("utf-8")
+    if SOCKS_LITERAL in text and SAFE_LOOPBACK_PATTERN.search(text):
+        return data, {"status": "upstream_loopback_safe", "replaced": 0}
+
     matches = list(SOCKS_PATTERN.finditer(text))
     spread_matches = list(SOCKS_SPREAD_PATTERN.finditer(text))
     if not matches:
@@ -179,19 +195,33 @@ def main():
     patched_by_path = {}
     replaced = 0
     literal_paths = []
+    upstream_safe_paths = []
     for js_path, js_meta in iter_js_entries(header):
         original = extract(asar, payload_start, js_meta)
         if SOCKS_LITERAL.encode("utf-8") not in original:
             continue
         literal_paths.append(js_path)
         patched, info = patch_js(original)
+        if info["status"] == "upstream_loopback_safe":
+            upstream_safe_paths.append(js_path)
+            continue
         if info["status"] != "patched":
             raise RuntimeError(f"Patch G failed for {js_path}: {info}")
         patched_by_path[js_path] = patched
         replaced += info["replaced"]
 
     if not patched_by_path:
-        print(json.dumps({"status": "already_patched", "targets": []}, indent=2))
+        status = "upstream_loopback_safe" if upstream_safe_paths else "already_patched"
+        print(
+            json.dumps(
+                {
+                    "status": status,
+                    "targets": [],
+                    "upstream_safe_paths": upstream_safe_paths,
+                },
+                indent=2,
+            )
+        )
         return
 
     if not args.no_backup:
@@ -203,10 +233,14 @@ def main():
 
     vh, vps = read_header(asar)
     residual = []
+    safe_residual = []
     for js_path, js_meta in iter_js_entries(vh):
         vd = extract(asar, vps, js_meta).decode("utf-8", "replace")
         if SOCKS_LITERAL in vd:
-            residual.append(js_path)
+            if SAFE_LOOPBACK_PATTERN.search(vd):
+                safe_residual.append(js_path)
+            else:
+                residual.append(js_path)
     if residual:
         raise SystemExit(f"Verification failed: SOCKS5 hardcode still present in {residual}")
 
@@ -216,6 +250,7 @@ def main():
                 "status": "patched",
                 "targets": literal_paths,
                 "replaced": replaced,
+                "upstream_safe_paths": sorted(set(upstream_safe_paths + safe_residual)),
                 "asar": str(asar),
             },
             indent=2,
