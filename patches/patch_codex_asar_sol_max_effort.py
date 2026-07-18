@@ -108,7 +108,10 @@ def find_targets(asar: Path):
         if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if "model-and-reasoning-dropdown-" in path and "gpt-5.6-sol:xhigh" in text:
+        if (
+            "gpt-5.6-sol:xhigh" in text
+            and ("gpt-5.6-sol:ultra" in text or SOL_MAX_ID in text)
+        ):
             targets.append((path, meta, text, "power"))
         elif "model-list-filter-" in path and LEGACY_FILTER_MARKER in text:
             targets.append((path, meta, text, "legacy_filter"))

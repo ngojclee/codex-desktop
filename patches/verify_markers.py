@@ -29,6 +29,15 @@ PATCH_J_GATES = ("1506311413", "410065390", "410262010")
 PATCH_J_CORRUPTED_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_$])[A-Za-z_$][A-Za-z0-9_$]{0,2}!0 {2,}"
 )
+PATCH_A_RUNTIME_HISTORY_MARKER = "/*A:history-limit*/1000"
+SOCKS_LITERAL = "socks5h://127.0.0.1:1080"
+SAFE_SOCKS_LOOPBACK_PATTERN = re.compile(
+    r"function\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\([^)]*\)\{let\s+(?P<host>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"new URL\([^)]*\)\.hostname;if\(!\("
+    r"(?P=host)===`localhost`\|\|(?P=host)===`127\.0\.0\.1`\|\|"
+    r"(?P=host)===`\[::1\]`\)\)return\s+[A-Za-z_$][A-Za-z0-9_$]*\}"
+)
 PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
 PATCH_P_POWER_MARKER = "/*P:sol-max*/"
 PATCH_P_LEGACY_FILTER_MARKER = "/*P:max-filter*/"
@@ -128,6 +137,29 @@ def find_js_occurrences(app_dir: Path, needle: str):
             if needle in text:
                 hits.append(path)
     return hits
+
+
+def socks5_proxy_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    literal_paths = []
+    safe_paths = []
+    unsafe_paths = []
+    for path, meta in _walk(header):
+        if not (path.endswith(".js") and "offset" in meta):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if SOCKS_LITERAL not in text:
+            continue
+        literal_paths.append(path)
+        if SAFE_SOCKS_LOOPBACK_PATTERN.search(text):
+            safe_paths.append(path)
+        else:
+            unsafe_paths.append(path)
+    return {
+        "literal_paths": sorted(set(literal_paths)),
+        "safe_paths": sorted(set(safe_paths)),
+        "unsafe_paths": sorted(set(unsafe_paths)),
+    }
 
 
 def websocket_max_payload_status(app_dir: Path):
@@ -281,10 +313,14 @@ def sol_max_effort_status(app_dir: Path):
         if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
             continue
         text = _extract(asar, payload_start, meta)
-        if "model-and-reasoning-dropdown-" in path or "model-list-filter-" in path:
+        if (
+            "gpt-5.6-sol:xhigh" in text
+            or "model-list-filter-" in path
+        ):
             candidate_paths.append(path)
-        if "model-and-reasoning-dropdown-" in path and (
-            PATCH_P_POWER_MARKER in text or PATCH_P_SOL_MAX_ID in text
+        if (
+            "gpt-5.6-sol:xhigh" in text
+            and (PATCH_P_POWER_MARKER in text or PATCH_P_SOL_MAX_ID in text)
         ):
             power_paths.append(path)
             if PATCH_P_POWER_MARKER in text:
@@ -337,9 +373,7 @@ def gpt_model_label_status(app_dir: Path):
         ):
             continue
         text = _extract(asar, payload_start, meta)
-        if "model-and-reasoning-dropdown-" not in path:
-            continue
-        if "stripGptPrefix" in text or PATCH_Q_MARKER in text:
+        if PATCH_Q_OLD_PATTERN.search(text) or PATCH_Q_MARKER in text:
             candidate_paths.append(path)
         if PATCH_Q_MARKER in text:
             marker_entries.append((path, text))
@@ -464,7 +498,7 @@ def main():
     expect_patch_d = not args.upstream_tag.startswith('v26.513.')
 
     signals_path, signals_txt = find_signals(app_dir)
-    socks5_paths = find_js_occurrences(app_dir, "socks5h://127.0.0.1:1080")
+    socks5 = socks5_proxy_status(app_dir)
     ws_payload = websocket_max_payload_status(app_dir)
     patch_j = patch_j_status(app_dir)
     patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
@@ -477,9 +511,17 @@ def main():
 
     print(f"App version   : {app_version or 'unknown'}")
     print(f"Signals chunk : {signals_path}  ({len(signals_txt):,} bytes)")
-    print(f"Patch G SOCKS occurrences: {len(socks5_paths)}")
-    for path in socks5_paths:
+    print(f"Patch G SOCKS occurrences: {len(socks5['literal_paths'])}")
+    for path in socks5["literal_paths"]:
         print(f"  - {path}")
+    if socks5["safe_paths"]:
+        print("Patch G upstream loopback-safe SOCKS paths:")
+        for path in socks5["safe_paths"]:
+            print(f"  - {path}")
+    if socks5["unsafe_paths"]:
+        print("Patch G unsafe SOCKS paths:")
+        for path in socks5["unsafe_paths"]:
+            print(f"  - {path}")
     print(f"Patch M WS payload marker paths: {len(ws_payload['marker_paths'])}")
     for path in ws_payload["marker_paths"]:
         print(f"  - {path}")
@@ -552,7 +594,11 @@ def main():
     checks = (
         (
             "Patch A — expanded history limit bumped to 1000",
-            lambda: "limit:1000" in signals_txt or "getHistoryLimit?.()??1000" in signals_txt,
+            lambda: (
+                "limit:1000" in signals_txt
+                or "getHistoryLimit?.()??1000" in signals_txt
+                or PATCH_A_RUNTIME_HISTORY_MARKER in signals_txt
+            ),
             True,
         ),
         ("Patch A — residual `limit:50` count == 0", lambda: signals_txt.count("limit:50") == 0, True),
@@ -560,7 +606,11 @@ def main():
         ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_txt, True),
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
         ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in signals_txt, expect_patch_d),
-        ("Patch G — SOCKS5 hardcode `socks5h://127.0.0.1:1080` ABSENT across JS", lambda: len(socks5_paths) == 0, True),
+        (
+            "Patch G — local WebSocket bypasses SOCKS (literal absent or upstream loopback guard present)",
+            lambda: len(socks5["unsafe_paths"]) == 0,
+            True,
+        ),
         ("Patch M — shared WS transport target found", lambda: len(ws_payload["target_paths"]) > 0, True),
         ("Patch M — `maxPayload` marker present", lambda: len(ws_payload["marker_paths"]) > 0, True),
         ("Patch M — no shared WS target missing `maxPayload`", lambda: len(ws_payload["unpatched_paths"]) == 0, True),

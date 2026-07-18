@@ -430,7 +430,13 @@ This means: **upstream updates flow downstream automatically; our customizations
 
 ### Patch A — Recent-window limit bump
 
-Renderer calls `listRecentThreads({limit:50})`. Patcher bumps the literal `50` to `1000`. Server clamps at 100 anyway, so Patch A on its own only gives 100 threads — but it sets up the substring `limit:1000*this.recentConversationPageCount` that Patch C v2 then finds.
+Older renderers call `listRecentThreads({limit:50})`; Patch A bumps their known
+initial/load-more or `getHistoryLimit` fallback shapes to `1000`. Codex Desktop
+26.715+ includes native cursor pagination and moves the local/remote discovery
+defaults into a runtime helper (`500/50`). Patch A preserves the helper's
+catalog-consume value of `0` and raises both live-history defaults to `1000`.
+The server still returns pages of at most 100 threads, so the native or patched
+Patch C loop performs the actual pagination.
 
 ### Patch B — Electron fuse flip
 
@@ -439,6 +445,11 @@ Classic Electron builds ship `Codex.exe` with the Electron fuse `EnableEmbeddedA
 ### Patch C v3 — Always-paginate
 
 Rewrites `refetchThreadList` to loop `listRecentThreads({limit:100, cursor})` until `nextCursor` is exhausted or 2000 threads are loaded. Unlike v2 there is no `fetchedRecentConversations` guard — every refetch re-paginates. v2's guard caused the sidebar to shrink to a single page whenever an external `codex resume -all` triggered a refresh because the renderer kept the partial result. v3 trades the tiny extra cost of pagination for a stable sidebar.
+
+On 26.608+ bundles that already contain expanded-history pagination, Patch C
+does not inject a second loop. On 26.715+ it recognizes the upstream cursor
+loop, verifies Patch A's `/*A:history-limit*/1000` marker, and records the v3
+marker only.
 
 ### Patch D — Clear conversations Map on reconnect
 
@@ -449,6 +460,12 @@ Note: upstream `26.513.x` changed renderer hydration behavior enough that Patch 
 ### Patch G — Bypass hardcoded SOCKS5 in WS transport
 
 The WS app-server transport class hardcodes `agent: new SocksProxyAgent(\`socks5h://127.0.0.1:1080\`)` for every WebSocket connection. When `CODEX_APP_SERVER_WS_URL=ws://127.0.0.1:<PORT>` points Desktop at a local sidecar, the connection dials through a SOCKS proxy that doesn't exist and fails — and the renderer maps that failure to a login UI, which is misleading because the user is on apikey/cliproxy mode and the loopback `--ws-auth` is not even required. Patcher removes the `agent` option from the WS constructor (`th()` returns `{}` anyway, so no further tweak is needed) and the loopback connection succeeds. This unlocks the shared-sidecar pattern: Desktop and the bundled `codex-exec-remote.ps1` both attach to the same `app-server`, the sidecar broadcasts `item/agentMessage/delta` and `turn/completed` to every subscribed client, and any CLI dispatch shows up in Desktop's UI in real time.
+
+Codex Desktop 26.715+ now performs this distinction upstream: it returns no
+SOCKS URL for `localhost`, `127.0.0.1`, or `[::1]`, while preserving the proxy
+for genuinely remote WebSocket hosts. Patch G recognizes that loopback guard
+as already safe and leaves the remote proxy behavior intact. CI fails only
+when the SOCKS literal remains in a layout without the loopback guard.
 
 ### Patch M -- Shared WebSocket payload cap
 
