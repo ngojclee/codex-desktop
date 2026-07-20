@@ -2,7 +2,7 @@ name: Auto repatch on upstream release
 
 on:
   schedule:
-    - cron: '17 */3 * * *'  # every 3h at :17 (offset to avoid GH cron rush)
+    - cron: '17 * * * *'  # hourly polling; unchanged releases skip before toolchain setup
   workflow_dispatch:
     inputs:
       upstream_tag:
@@ -46,20 +46,6 @@ jobs:
     steps:
       - name: Checkout this repo
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
 
       - name: Determine upstream tag
         id: upstream
@@ -182,6 +168,22 @@ jobs:
           }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup Node
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Rust
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Download upstream Windows zip
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
