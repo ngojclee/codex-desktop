@@ -28,6 +28,10 @@ on:
         type: string
         default: 'main'
 
+concurrency:
+  group: auto-repatch-release
+  cancel-in-progress: false
+
 permissions:
   contents: write   # required to create releases
 
@@ -76,39 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check if already released in this repo
-        id: ours
-        shell: pwsh
-        run: |
-          $upstream = '${{ steps.upstream.outputs.tag }}'
-          $suffix = '${{ inputs.release_suffix }}'.Trim()
-          if ($suffix) {
-            $ourTag = "$upstream-patched-$suffix"
-          } else {
-            $ourTag = "$upstream-patched"
-          }
-          $force = '${{ inputs.force }}' -eq 'true'
-          $exists = $false
-          # gh release view exits 1 when the release doesn't exist. We swallow
-          # both stdout and stderr and only check $LASTEXITCODE. We MUST then
-          # reset $LASTEXITCODE to 0, otherwise the pwsh wrapper at end-of-step
-          # would propagate gh's exit-1 and fail the step.
-          gh release view $ourTag --repo $env:GITHUB_REPOSITORY --json tagName 1>$null 2>$null
-          if ($LASTEXITCODE -eq 0) { $exists = $true }
-          $global:LASTEXITCODE = 0
-          Write-Host "Our tag '$ourTag' exists: $exists | force=$force"
-          "tag=$ourTag" >> $env:GITHUB_OUTPUT
-          if ($exists -and -not $force) {
-            "skip=true" >> $env:GITHUB_OUTPUT
-            Write-Host "::notice::Already released $ourTag — skipping. Use workflow_dispatch with force=true to re-run."
-          } else {
-            "skip=false" >> $env:GITHUB_OUTPUT
-          }
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Check upstream Windows asset
-        if: steps.ours.outputs.skip == 'false'
         id: upstream_asset
         shell: pwsh
         run: |
@@ -121,9 +93,86 @@ jobs:
             "available=false" >> $env:GITHUB_OUTPUT
             return
           }
-          Write-Host "Found upstream Windows asset: $($asset.name)"
+
+          $assetName = [string]$asset.name
+          $assetDigest = [string]$asset.digest
+          $assetUpdatedAt = [string]$asset.updatedAt
+          $assetSize = [string]$asset.size
+          Write-Host "Found upstream Windows asset: $assetName"
+          Write-Host "Digest: $assetDigest"
+          Write-Host "Updated: $assetUpdatedAt"
+          Write-Host "Size: $assetSize"
           "available=true" >> $env:GITHUB_OUTPUT
-          "name=$($asset.name)" >> $env:GITHUB_OUTPUT
+          "name=$assetName" >> $env:GITHUB_OUTPUT
+          "digest=$assetDigest" >> $env:GITHUB_OUTPUT
+          "updated_at=$assetUpdatedAt" >> $env:GITHUB_OUTPUT
+          "size=$assetSize" >> $env:GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if current upstream asset is already released
+        id: ours
+        shell: pwsh
+        run: |
+          $upstream = '${{ steps.upstream.outputs.tag }}'
+          $suffix = '${{ inputs.release_suffix }}'.Trim()
+          if ($suffix) {
+            $ourTag = "$upstream-patched-$suffix"
+          } else {
+            $ourTag = "$upstream-patched"
+          }
+          $force = '${{ inputs.force }}' -eq 'true'
+          $assetAvailable = '${{ steps.upstream_asset.outputs.available }}' -eq 'true'
+          $assetName = '${{ steps.upstream_asset.outputs.name }}'
+          $assetDigest = '${{ steps.upstream_asset.outputs.digest }}'
+          $assetUpdatedAt = '${{ steps.upstream_asset.outputs.updated_at }}'
+          $assetSize = '${{ steps.upstream_asset.outputs.size }}'
+          $exists = $false
+          $body = ''
+          # gh release view exits 1 when the release doesn't exist. We swallow
+          # both stdout and stderr and only check $LASTEXITCODE. We MUST then
+          # reset $LASTEXITCODE to 0, otherwise the pwsh wrapper at end-of-step
+          # would propagate gh's exit-1 and fail the step.
+          $existingJson = gh release view $ourTag --repo $env:GITHUB_REPOSITORY --json tagName,body 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $exists = $true
+            $existing = $existingJson | ConvertFrom-Json
+            $body = [string]$existing.body
+          }
+          $global:LASTEXITCODE = 0
+
+          $matchesCurrentAsset = $false
+          if ($exists -and $assetAvailable) {
+            if ($assetDigest) {
+              $matchesCurrentAsset = $body.Contains("upstream_windows_asset_digest=$assetDigest")
+            } else {
+              $matchesCurrentAsset =
+                $body.Contains("upstream_windows_asset_name=$assetName") -and
+                $body.Contains("upstream_windows_asset_updated_at=$assetUpdatedAt") -and
+                $body.Contains("upstream_windows_asset_size=$assetSize")
+            }
+          }
+
+          Write-Host "Our tag '$ourTag' exists: $exists | force=$force | current upstream asset: $matchesCurrentAsset"
+          "tag=$ourTag" >> $env:GITHUB_OUTPUT
+          "exists=$($exists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+          if (-not $assetAvailable) {
+            "skip=true" >> $env:GITHUB_OUTPUT
+            "replace=false" >> $env:GITHUB_OUTPUT
+          } elseif ($exists -and -not $force -and $matchesCurrentAsset) {
+            "skip=true" >> $env:GITHUB_OUTPUT
+            "replace=false" >> $env:GITHUB_OUTPUT
+            Write-Host "::notice::Already released $ourTag from the current upstream Windows asset — skipping. Use workflow_dispatch with force=true to re-run."
+          } else {
+            "skip=false" >> $env:GITHUB_OUTPUT
+            "replace=$($exists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+            if ($exists -and $force) {
+              Write-Host "::notice::Force rebuild requested; the existing $ourTag release will be replaced."
+            } elseif ($exists) {
+              Write-Host "::notice::Upstream Windows asset changed under tag $upstream; the existing $ourTag release will be replaced."
+            }
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -452,15 +501,16 @@ jobs:
           Write-Host ("Packed: $out  ({0:N0} MB)" -f $sz)
           "asset=$out" >> $env:GITHUB_OUTPUT
 
-      - name: Delete existing release if force-rebuild
-        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true' && inputs.force == true
+      - name: Delete existing release before replacement
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true' && steps.ours.outputs.replace == 'true'
         shell: pwsh
         run: |
           $tag = '${{ steps.ours.outputs.tag }}'
-          Write-Host "Force rebuild — deleting existing release $tag (if any) so we can recreate."
+          Write-Host "Deleting existing release $tag so the refreshed upstream asset can be republished."
           gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag 2>&1 | Out-Host
-          # release delete returns non-zero if it didn't exist — ignore.
-          $global:LASTEXITCODE = 0
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to delete existing release $tag (exit $LASTEXITCODE)"
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -472,8 +522,15 @@ jobs:
           $upstream = '${{ steps.upstream.outputs.tag }}'
           $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
           $asset = '${{ steps.pack.outputs.asset }}'
-          $notes = @"
-          Patched build derived from upstream rebuild [$upstreamRepo $upstream](https://github.com/$upstreamRepo/releases/tag/$upstream).
+          $notes = @'
+          Patched build derived from upstream rebuild [${{ steps.upstream.outputs.repo }} ${{ steps.upstream.outputs.tag }}](https://github.com/${{ steps.upstream.outputs.repo }}/releases/tag/${{ steps.upstream.outputs.tag }}).
+
+          <!-- codex-patched-upstream-asset
+          upstream_windows_asset_name=${{ steps.upstream_asset.outputs.name }}
+          upstream_windows_asset_digest=${{ steps.upstream_asset.outputs.digest }}
+          upstream_windows_asset_updated_at=${{ steps.upstream_asset.outputs.updated_at }}
+          upstream_windows_asset_size=${{ steps.upstream_asset.outputs.size }}
+          -->
 
           ## Patches applied
           - **Patch A** — widen recent-thread discovery to 1000, including the 26.715+ runtime history helper used by native cursor pagination
@@ -499,7 +556,7 @@ jobs:
           - Source ref ${{ steps.codexsrc.outputs.resolved_ref }} resolved to [${{ steps.codexsrc.outputs.source_sha }}](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from ${{ steps.codexsrc.outputs.source_date }}. The same metadata is bundled at tools\.sidecar-source.
 
           ## Install
-          1. Download `$asset`
+          1. Download `${{ steps.pack.outputs.asset }}`
           2. Extract to `%LOCALAPPDATA%\CodexFromGithub\`
           3. Launch via `tools\Launch-Codex.vbs` (or pin it to your desktop)
              — the launcher starts a shared app-server sidecar, sets
@@ -532,7 +589,7 @@ jobs:
           show up in Desktop UI in real time.
 
           See [HANDOFF.md](https://github.com/ngojclee/codex-desktop/blob/main/docs/HANDOFF.md) and [README.md](https://github.com/ngojclee/codex-desktop/blob/main/README.md) for runtime workflow.
-          "@
+          '@
           gh release create $tag $asset `
             --repo $env:GITHUB_REPOSITORY `
             --title "Codex Patched $tag" `
