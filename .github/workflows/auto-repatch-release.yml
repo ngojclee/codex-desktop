@@ -73,7 +73,10 @@ jobs:
           $tag = '${{ steps.upstream.outputs.tag }}'
           $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
           $release = gh release view $tag --repo $upstreamRepo --json assets | ConvertFrom-Json
-          $asset = $release.assets | Where-Object { $_.name -like 'Codex-win-x64-*.zip' } | Select-Object -First 1
+          $asset = $release.assets |
+            Where-Object { $_.name -like 'Codex-win-x64-*.zip' } |
+            Sort-Object { [DateTimeOffset]$_.updatedAt } -Descending |
+            Select-Object -First 1
           if (-not $asset) {
             Write-Host "::notice::Upstream $upstreamRepo $tag has no Codex-win-x64 asset yet; skipping Windows repatch until rebuild publishes one."
             "available=false" >> $env:GITHUB_OUTPUT
@@ -191,8 +194,9 @@ jobs:
         run: |
           $tag = '${{ steps.upstream.outputs.tag }}'
           $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
+          $assetName = '${{ steps.upstream_asset.outputs.name }}'
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          gh release download $tag --repo $upstreamRepo --pattern 'Codex-win-x64-*.zip' --dir artifacts
+          gh release download $tag --repo $upstreamRepo --pattern $assetName --dir artifacts
           Get-ChildItem artifacts | Format-Table -AutoSize
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -201,8 +205,10 @@ jobs:
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
-          $zip = Get-ChildItem artifacts -Filter 'Codex-win-x64-*.zip' | Select-Object -First 1
-          if (-not $zip) { throw "Upstream zip not found" }
+          $assetName = '${{ steps.upstream_asset.outputs.name }}'
+          $zipPath = Join-Path artifacts $assetName
+          $zip = Get-Item -LiteralPath $zipPath -ErrorAction SilentlyContinue
+          if (-not $zip) { throw "Upstream zip not found: $zipPath" }
           New-Item -ItemType Directory -Force -Path build | Out-Null
           Expand-Archive -LiteralPath $zip.FullName -DestinationPath build -Force
           Write-Host "Extracted to:"
