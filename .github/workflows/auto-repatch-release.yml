@@ -96,7 +96,14 @@ jobs:
 
           $assetName = [string]$asset.name
           $assetDigest = [string]$asset.digest
-          $assetUpdatedAt = [string]$asset.updatedAt
+          $assetUpdatedAt = if ($asset.updatedAt) {
+            ([DateTimeOffset]$asset.updatedAt).ToUniversalTime().ToString(
+              'yyyy-MM-ddTHH:mm:ssZ',
+              [Globalization.CultureInfo]::InvariantCulture
+            )
+          } else {
+            ''
+          }
           $assetSize = [string]$asset.size
           Write-Host "Found upstream Windows asset: $assetName"
           Write-Host "Digest: $assetDigest"
