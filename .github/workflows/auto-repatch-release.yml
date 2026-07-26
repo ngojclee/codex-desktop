@@ -178,6 +178,11 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Test patcher matchers
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
+        shell: pwsh
+        run: python patches/test_model_availability_filter.py
+
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         uses: actions/setup-node@v4

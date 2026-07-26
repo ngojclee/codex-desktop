@@ -296,6 +296,12 @@ Patch O changes that condition to keep non-hidden local models visible:
 if (useHiddenModels ? (availableModels.has(model.model) || !model.hidden) : !model.hidden)
 ```
 
+Starting with Desktop `26.721`, the same ternary moved into the large
+`app-initial-*.js` chunk and is wrapped by an
+`additionalAvailableModels.has(model.model)` check. The patcher therefore
+matches the inner ternary structurally instead of relying on fixed minified
+variable names, adds the `/*O*/` marker, and syntax-checks the touched chunk.
+
 The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startup
 to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
 needed, and mirror it to `~\.codex\models_cache.json`. It does not create
