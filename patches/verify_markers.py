@@ -24,6 +24,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+from patch_codex_asar_model_availability_filter import (
+    FILTER_PATTERN as PATCH_O_OLD_PATTERN,
+    PATCHED_FILTER_PATTERN as PATCH_O_SAFE_PATTERN,
+)
+
 PATCH_J_MARKER = "/*J*/"
 PATCH_J_GATES = ("1506311413", "410065390", "410262010")
 PATCH_J_CORRUPTED_PATTERN = re.compile(
@@ -51,14 +56,6 @@ PATCH_R_UPSTREAM_PATTERN = re.compile(
     r"!(?P<loading>[A-Za-z_$][A-Za-z0-9_$]*)&&"
     r"(?P<requirements>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
     r"(?P=requirements)\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1"
-)
-PATCH_O_MARKERS = (
-    "if(s?(t.has(n.model)||!n.hidden):!n.hidden)",
-    "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
-)
-PATCH_O_OLDS = (
-    "if(s?t.has(n.model):!n.hidden)",
-    "if(u?n.has(r.model):!r.hidden)",
 )
 WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
@@ -213,6 +210,8 @@ def find_patch_k_bundle(app_dir: Path):
                 "sidebarElectron.codexMobileSetupNavLink" in text
                 or "codex.profileFooter.codexMobileTooltip" in text
                 or "codex.profileFooter.codexMobileAriaLabel" in text
+                or "codex-mobile-setup-dialog-" in text
+                or "[remote-connections/gate-bridge]" in text
                 or "remote-connection-visibility-" in path
             ):
                 return path, text
@@ -221,23 +220,52 @@ def find_patch_k_bundle(app_dir: Path):
 
 def model_availability_filter_status(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
-    marker_paths = []
+    marker_entries = []
     unpatched_paths = []
     candidate_paths = []
     for path, meta in _walk(header):
         if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
             continue
         text = _extract(asar, payload_start, meta)
-        if "model-list-filter" in path or "availableModels" in text or "useHiddenModels" in text:
+        if (
+            "model-list-filter" in path
+            or ("availableModels" in text and "useHiddenModels" in text)
+            or PATCH_O_OLD_PATTERN.search(text)
+            or PATCH_O_SAFE_PATTERN.search(text)
+        ):
             candidate_paths.append(path)
-        if any(marker in text for marker in PATCH_O_MARKERS):
-            marker_paths.append(path)
-        if any(old in text for old in PATCH_O_OLDS):
+        if PATCH_O_SAFE_PATTERN.search(text):
+            marker_entries.append((path, text))
+        if PATCH_O_OLD_PATTERN.search(text):
             unpatched_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch O syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-o-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(
+                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+                    )
+
     return {
         "candidate_paths": sorted(set(candidate_paths)),
-        "marker_paths": sorted(set(marker_paths)),
+        "marker_paths": sorted(path for path, _text in marker_entries),
         "unpatched_paths": sorted(set(unpatched_paths)),
+        "syntax_errors": syntax_errors,
     }
 
 
@@ -549,6 +577,10 @@ def main():
         print("Patch O unpatched model filters:")
         for path in patch_o["unpatched_paths"]:
             print(f"  - {path}")
+    if patch_o["syntax_errors"]:
+        print("Patch O syntax errors:")
+        for error in patch_o["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Patch P Sol Max power paths: {len(patch_p['power_paths'])}")
     for path in patch_p["power_paths"]:
         print(f"  - {path}")
@@ -629,6 +661,7 @@ def main():
         ("Patch L — Computer Use @oai/sky package present", lambda: computer_use["sky_package_exists"] or not computer_use.get("node_modules_present", True), computer_use["present"]),
         ("Patch O — model availability filter marker", lambda: len(patch_o["marker_paths"]) > 0, True),
         ("Patch O — old Statsig-only model filter absent", lambda: len(patch_o["unpatched_paths"]) == 0, True),
+        ("Patch O — touched renderer chunks pass syntax check", lambda: len(patch_o["syntax_errors"]) == 0, True),
         ("Patch P — gpt-5.6-sol Max power entry present", lambda: len(patch_p["power_paths"]) > 0, True),
         ("Patch P — built-in reasoning-effort setting remains authoritative", lambda: len(patch_p["legacy_filter_paths"]) == 0, True),
         ("Patch P — touched renderer chunks pass syntax check", lambda: len(patch_p["syntax_errors"]) == 0, True),
