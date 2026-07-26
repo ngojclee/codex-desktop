@@ -13,20 +13,24 @@ models, but non-hidden models returned by the sidecar remain visible.
 import argparse
 import json
 import os
+import re
 import shutil
 import struct
 from pathlib import Path
 
 
-OLD = "if(s?t.has(n.model):!n.hidden)"
-NEW = "if(s?(t.has(n.model)||!n.hidden):!n.hidden)"
-
-REPLACEMENTS = (
-    (OLD, NEW),
-    (
-        "if(u?n.has(r.model):!r.hidden)",
-        "if(u?(n.has(r.model)||!r.hidden):!r.hidden)",
-    ),
+PATCH_MARKER = "/*O*/"
+IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
+FILTER_PATTERN = re.compile(
+    rf"(?P<flag>{IDENT})\?"
+    rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)"
+    rf":!(?P=model)\.hidden"
+)
+PATCHED_FILTER_PATTERN = re.compile(
+    rf"(?P<flag>{IDENT})\?\("
+    rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)"
+    rf"\|\|(?:{re.escape(PATCH_MARKER)})?!(?P=model)\.hidden\)"
+    rf":!(?P=model)\.hidden"
 )
 
 
@@ -87,6 +91,19 @@ def make_header(header: dict):
     return prefix + raw + (b"\0" * pad)
 
 
+def patch_filter_text(text: str):
+    def replace(match: re.Match):
+        flag = match.group("flag")
+        available = match.group("available")
+        model = match.group("model")
+        return (
+            f"{flag}?({available}.has({model}.model)||"
+            f"{PATCH_MARKER}!{model}.hidden):!{model}.hidden"
+        )
+
+    return FILTER_PATTERN.subn(replace, text)
+
+
 def repack(asar_path: Path, header: dict, payload_start: int, patched_by_path: dict[str, bytes]):
     entries = packed_entries(header)
     entry_map = {path: (meta, old_offset) for path, meta, old_offset in entries}
@@ -133,29 +150,34 @@ def find_targets(asar: Path):
         if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if "availableModels" in text and "useHiddenModels" in text and "model-list-filter" in path:
-            targets.append((path, meta, text))
-        elif OLD in text or NEW in text:
+        if (
+            "model-list-filter" in path
+            or ("availableModels" in text and "useHiddenModels" in text)
+            or FILTER_PATTERN.search(text)
+            or PATCHED_FILTER_PATTERN.search(text)
+        ):
             targets.append((path, meta, text))
     return header, payload_start, targets
 
 
 def verify(asar: Path):
     _header, _payload_start, targets = find_targets(asar)
-    patched_needles = [new for _old, new in REPLACEMENTS]
-    unpatched_needles = [old for old, _new in REPLACEMENTS]
     marker_paths = [
         path
         for path, _meta, text in targets
-        if any(needle in text for needle in patched_needles)
+        if PATCHED_FILTER_PATTERN.search(text)
     ]
     unpatched = [
         path
         for path, _meta, text in targets
-        if any(needle in text for needle in unpatched_needles)
+        if FILTER_PATTERN.search(text)
     ]
     if not marker_paths:
-        raise SystemExit("Verification failed: Patch O marker not found")
+        candidates = sorted(path for path, _meta, _text in targets)
+        raise SystemExit(
+            "Verification failed: Patch O safe model filter not found; "
+            f"candidate chunks: {candidates}"
+        )
     if unpatched:
         raise SystemExit(f"Verification failed: unpatched model filters remain: {unpatched}")
     return sorted(set(marker_paths))
@@ -174,19 +196,17 @@ def main():
 
     header, payload_start, targets = find_targets(asar)
     patched_by_path = {}
+    replacement_counts = {}
     scanned = []
     for path, meta, text in targets:
         scanned.append(path)
-        if any(new in text for _old, new in REPLACEMENTS):
+        if PATCHED_FILTER_PATTERN.search(text):
             continue
-        patched_text = text
-        for old, new in REPLACEMENTS:
-            if old in patched_text:
-                patched_text = patched_text.replace(old, new, 1)
-                break
-        if patched_text == text:
+        patched_text, replacement_count = patch_filter_text(text)
+        if replacement_count == 0:
             continue
         patched_by_path[path] = patched_text.encode("utf-8")
+        replacement_counts[path] = replacement_count
 
     if not targets:
         raise SystemExit("Could not find renderer model-list filter target in app.asar")
@@ -206,6 +226,7 @@ def main():
                 "asar": str(asar),
                 "scanned": sorted(set(scanned)),
                 "patched": sorted(patched_by_path),
+                "replacement_counts": replacement_counts,
                 "marker_paths": marker_paths,
             },
             indent=2,
