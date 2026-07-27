@@ -181,7 +181,9 @@ jobs:
       - name: Test patcher matchers
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
-        run: python patches/test_model_availability_filter.py
+        run: |
+          python patches/test_model_availability_filter.py
+          python patches/test_custom_provider_ultra.py
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -570,6 +572,7 @@ jobs:
           - **Patch P** — add catalog-supported `gpt-5.6-sol:max` to the compact Work power slider while leaving the built-in Available reasoning efforts setting in control of whether Max is visible
           - **Patch Q** — normalize leading `GPT-` model labels to `GPT ` instead of stripping the prefix, so entries such as `GPT-5.5`, `GPT-5.4-Mini`, and `gpt-5.2` remain visibly identified as GPT models
           - **Patch R** — expose the catalog-declared Standard/Fast service-tier selector for custom API providers without changing the default tier or granting OpenAI Fast credits
+          - **Patch S** — retain catalog-declared Ultra reasoning for API-key providers while preserving the upstream ChatGPT Statsig gate; Codex maps Ultra to provider-compatible Max at the Responses API boundary
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
