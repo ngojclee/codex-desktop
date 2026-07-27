@@ -57,6 +57,13 @@ PATCH_R_UPSTREAM_PATTERN = re.compile(
     r"(?P<requirements>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
     r"(?P=requirements)\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1"
 )
+PATCH_S_MARKER = "/*S:apikey-ultra*/"
+PATCH_S_UPSTREAM_PATTERN = re.compile(
+    r"(?P<result>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"(?P<include>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"(?P<getter>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"\(Fh,`1186680773`\)"
+)
 WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
@@ -487,6 +494,53 @@ def custom_provider_fast_mode_status(app_dir: Path):
     }
 
 
+def custom_provider_ultra_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_entries = []
+    unpatched_paths = []
+
+    for path, meta in _walk(header):
+        if not (
+            path.startswith("webview/assets/")
+            and path.endswith(".js")
+            and "offset" in meta
+        ):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if PATCH_S_MARKER in text:
+            marker_entries.append((path, text))
+        if PATCH_S_UPSTREAM_PATTERN.search(text):
+            unpatched_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch S syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-s-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(
+                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+                    )
+
+    return {
+        "marker_paths": sorted(path for path, _text in marker_entries),
+        "unpatched_paths": sorted(set(unpatched_paths)),
+        "syntax_errors": syntax_errors,
+    }
+
+
 def computer_use_plugin_status(app_dir: Path):
     plugin = (
         app_dir
@@ -535,6 +589,7 @@ def main():
     patch_p = sol_max_effort_status(app_dir)
     patch_q = gpt_model_label_status(app_dir)
     patch_r = custom_provider_fast_mode_status(app_dir)
+    patch_s = custom_provider_ultra_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -614,6 +669,17 @@ def main():
         print("Patch R syntax errors:")
         for error in patch_r["syntax_errors"]:
             print(f"  - {error}")
+    print(f"Patch S API-key Ultra marker paths: {len(patch_s['marker_paths'])}")
+    for path in patch_s["marker_paths"]:
+        print(f"  - {path}")
+    if patch_s["unpatched_paths"]:
+        print("Patch S upstream Ultra gates still present:")
+        for path in patch_s["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_s["syntax_errors"]:
+        print("Patch S syntax errors:")
+        for error in patch_s["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -671,6 +737,9 @@ def main():
         ("Patch R — custom-provider Fast selector marker", lambda: len(patch_r["marker_paths"]) > 0, True),
         ("Patch R — upstream Fast auth gate absent", lambda: len(patch_r["unpatched_paths"]) == 0, True),
         ("Patch R — touched renderer chunks pass syntax check", lambda: len(patch_r["syntax_errors"]) == 0, True),
+        ("Patch S — API-key Ultra marker", lambda: len(patch_s["marker_paths"]) > 0, True),
+        ("Patch S — upstream model-list Ultra gate absent", lambda: len(patch_s["unpatched_paths"]) == 0, True),
+        ("Patch S — touched renderer chunks pass syntax check", lambda: len(patch_s["syntax_errors"]) == 0, True),
     )
 
     failed = []
