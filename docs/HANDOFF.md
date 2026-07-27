@@ -322,3 +322,16 @@ For a custom provider, declare the tier in the catalog and leave
 `service_tier` absent from `config.toml` to keep Standard as the default. The
 user can then choose Fast from the model picker; Codex sends that selected
 service tier to the configured Responses-compatible provider.
+
+## Patch S / custom provider Ultra effort
+
+Desktop already parses and persists `ultra`, but its model-list selector drops
+that effort unless ChatGPT Statsig gate `1186680773` is enabled. Patch S keeps
+the gate unchanged for ChatGPT and other auth methods, while allowing
+`authMethod="apikey"` to retain Ultra entries supplied by the local model
+catalog and enabled by **Available reasoning efforts**.
+
+Ultra is an app-level Codex mode. The sidecar lowers its provider request to
+`max` reasoning, so a custom Responses-compatible provider must accept `max`
+but does not need to accept the literal `ultra` value. Only add Ultra to model
+catalog entries whose provider path has passed a real Max request.

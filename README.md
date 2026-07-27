@@ -396,7 +396,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_model_availability_filter.py Patch O — preserve local model visibility
 │   ├── patch_codex_asar_sol_max_effort.py Patch P — add Sol Max to the compact Power slider
 │   ├── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
-│   └── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
+│   ├── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
+│   └── patch_codex_asar_custom_provider_ultra.py Patch S — expose catalog-declared Ultra for API providers
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -586,6 +587,21 @@ model menu. It does not write `service_tier = "fast"` to `config.toml`, so the
 default remains Standard until the user selects Fast in the model picker. It
 does not grant OpenAI Fast credits; it only includes the selected tier in the
 request sent to the configured provider.
+
+### Patch S -- Custom provider Ultra effort
+
+Current Codex Desktop builds understand `ultra`, but the renderer removes it
+from model metadata unless a ChatGPT Statsig gate is enabled. Patch S preserves
+that upstream gate for ChatGPT and only lets `apikey` hosts retain Ultra when
+both the model catalog and **Available reasoning efforts** setting advertise
+it. Codex implements Ultra as an app-level orchestration mode and sends
+provider-compatible `max` reasoning at the Responses API boundary, so a custom
+provider must accept `max`; it does not need to accept a literal `ultra`
+payload.
+
+The patch does not add Ultra to every model and does not alter the compact
+Power presets. Add `{"effort":"ultra", ...}` only to catalog models whose
+provider path has been verified with `max`.
 
 ### Runtime Google Drive MCP bootstrap
 

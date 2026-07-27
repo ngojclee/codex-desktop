@@ -37,6 +37,7 @@ param(
     [switch]$SkipP,
     [switch]$SkipQ,
     [switch]$SkipR,
+    [switch]$SkipS,
 
     [string]$UpstreamTag
 )
@@ -125,6 +126,10 @@ if (-not $SkipQ) {
 
 if (-not $SkipR) {
     Run-Patch 'patch_codex_asar_custom_provider_fast_mode.py' @('--app-dir', $AppDir) 'Patch R — expose catalog-declared Fast selector for custom providers'
+}
+
+if (-not $SkipS) {
+    Run-Patch 'patch_codex_asar_custom_provider_ultra.py' @('--app-dir', $AppDir) 'Patch S — expose catalog-declared Ultra for API-key providers'
 }
 
 Write-Host ""
