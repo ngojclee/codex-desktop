@@ -204,8 +204,32 @@ jobs:
           $tag = '${{ steps.upstream.outputs.tag }}'
           $upstreamRepo = '${{ steps.upstream.outputs.repo }}'
           $assetName = '${{ steps.upstream_asset.outputs.name }}'
+          $expectedSize = [int64]'${{ steps.upstream_asset.outputs.size }}'
+          $assetPath = Join-Path artifacts $assetName
+          $maxAttempts = 3
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          gh release download $tag --repo $upstreamRepo --pattern $assetName --dir artifacts
+
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            Remove-Item -LiteralPath $assetPath -Force -ErrorAction SilentlyContinue
+            Write-Host "Downloading $assetName (attempt $attempt of $maxAttempts)..."
+            gh release download $tag --repo $upstreamRepo --pattern $assetName --dir artifacts --clobber
+            $downloadExitCode = $LASTEXITCODE
+            $downloaded = Get-Item -LiteralPath $assetPath -ErrorAction SilentlyContinue
+            $downloadedSize = if ($downloaded) { $downloaded.Length } else { 0 }
+
+            if ($downloadExitCode -eq 0 -and $downloaded -and $downloadedSize -eq $expectedSize) {
+              Write-Host "Downloaded complete upstream asset: $downloadedSize bytes."
+              break
+            }
+
+            Write-Warning "Incomplete upstream download (exit=$downloadExitCode, expected=$expectedSize, actual=$downloadedSize)."
+            Remove-Item -LiteralPath $assetPath -Force -ErrorAction SilentlyContinue
+            if ($attempt -eq $maxAttempts) {
+              throw "Failed to download complete upstream asset after $maxAttempts attempts."
+            }
+            Start-Sleep -Seconds (5 * $attempt)
+          }
+
           Get-ChildItem artifacts | Format-Table -AutoSize
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
