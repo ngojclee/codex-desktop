@@ -108,6 +108,59 @@ function Save-GitHubReleaseAsset {
     }
 }
 
+function Get-CodexAssetState {
+    param(
+        [Parameter(Mandatory=$true)][string]$Tag,
+        [Parameter(Mandatory=$true)]$Asset
+    )
+
+    $updatedAt = ''
+    if ($Asset.updated_at) {
+        try {
+            $updatedAt = ([DateTimeOffset]$Asset.updated_at).ToUniversalTime().ToString(
+                'yyyy-MM-ddTHH:mm:ssZ',
+                [Globalization.CultureInfo]::InvariantCulture
+            )
+        } catch {
+            $updatedAt = [string]$Asset.updated_at
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        schemaVersion = 1
+        tag = $Tag
+        assetName = [string]$Asset.name
+        assetDigest = [string]$Asset.digest
+        assetUpdatedAt = $updatedAt
+        assetSize = [int64]$Asset.size
+    }
+}
+
+function Test-CodexReleaseStateMatch {
+    param(
+        $State,
+        [Parameter(Mandatory=$true)][string]$Tag,
+        [Parameter(Mandatory=$true)]$Asset
+    )
+
+    if (-not $State) { return $false }
+    $expected = Get-CodexAssetState -Tag $Tag -Asset $Asset
+    if ([string]$State.tag -ne $expected.tag) { return $false }
+    if ([string]$State.assetName -ne $expected.assetName) { return $false }
+
+    if ($expected.assetDigest) {
+        return (
+            [string]$State.assetDigest -and
+            [string]$State.assetDigest -eq $expected.assetDigest
+        )
+    }
+
+    return (
+        [string]$State.assetUpdatedAt -eq $expected.assetUpdatedAt -and
+        [int64]$State.assetSize -eq $expected.assetSize
+    )
+}
+
 function Update-CodexShortcut {
     param([string]$InstallDir)
 
@@ -260,9 +313,38 @@ function Ensure-GoogleMcpConfig {
     }
 }
 
-# Resolve current installed version from tools/.version-tag if present
+function Sync-ModelCatalog {
+    param([string]$InstallDir)
+
+    $syncScript = Join-Path $InstallDir 'tools\Sync-Codex-ModelCatalog.ps1'
+    if (-not (Test-Path -LiteralPath $syncScript)) { return }
+
+    try {
+        & $syncScript -Quiet
+    } catch {
+        Log "WARN: model catalog sync failed: $_"
+    }
+}
+
+# Resolve current installed release state. Asset fingerprinting matters because
+# workflow_dispatch can republish a corrected zip under the same release tag.
 $versionFile = Join-Path $InstallDir 'tools\.version-tag'
-$currentTag = if (Test-Path -LiteralPath $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { '(unknown)' }
+$releaseStateFile = Join-Path $InstallDir 'tools\.release-state.json'
+$currentReleaseState = $null
+if (Test-Path -LiteralPath $releaseStateFile) {
+    try {
+        $currentReleaseState = Get-Content -Raw -LiteralPath $releaseStateFile | ConvertFrom-Json
+    } catch {
+        Log "WARN: installed release state is unreadable; the current asset will be refreshed: $_"
+    }
+}
+$currentTag = if (Test-Path -LiteralPath $versionFile) {
+    (Get-Content $versionFile -Raw).Trim()
+} elseif ($currentReleaseState -and $currentReleaseState.tag) {
+    [string]$currentReleaseState.tag
+} else {
+    '(unknown)'
+}
 Log "Current installed tag: $currentTag"
 
 # Check release on the remote. Default = latest; -Tag installs an explicit lane.
@@ -277,9 +359,20 @@ $latest = [PSCustomObject]@{ tag = $release.tag_name; asset = $assetMatch }
 Log "Remote tag       : $($latest.tag)"
 Log "Latest asset      : $($latest.asset.name)"
 
-if (-not $Force -and $currentTag -eq $latest.tag) {
-    Log "Already on the latest tag. Pass -Force to reinstall."
+$assetMatches = Test-CodexReleaseStateMatch `
+    -State $currentReleaseState `
+    -Tag $latest.tag `
+    -Asset $latest.asset
+if (-not $Force -and $currentTag -eq $latest.tag -and $assetMatches) {
+    Log "Already on the latest tag and release asset."
     return
+}
+if (-not $Force -and $currentTag -eq $latest.tag) {
+    if ($currentReleaseState) {
+        Log "Release asset changed under the same tag; refreshing the install."
+    } else {
+        Log "Release asset fingerprint is missing; refreshing this tag once."
+    }
 }
 
 # Close any running desktop/sidecar processes from the install dir.
@@ -330,10 +423,21 @@ try {
     Log "Moving extracted build into place"
     Move-Item -LiteralPath $extractDir -Destination $InstallDir
 
-    # Record version tag for next update check
+    # Record tag and release-asset fingerprint for future same-tag refreshes.
     $newVersionFile = Join-Path $InstallDir 'tools\.version-tag'
+    $newReleaseStateFile = Join-Path $InstallDir 'tools\.release-state.json'
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $newVersionFile) | Out-Null
     $latest.tag | Set-Content -LiteralPath $newVersionFile -NoNewline
+    $newReleaseState = Get-CodexAssetState -Tag $latest.tag -Asset $latest.asset
+    $newReleaseState | Add-Member -NotePropertyName installedAtUtc -NotePropertyValue (
+        [DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    )
+    $releaseStateJson = $newReleaseState | ConvertTo-Json -Depth 8
+    [IO.File]::WriteAllText(
+        $newReleaseStateFile,
+        $releaseStateJson + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+    )
 
     # Cleanup backup
     if (Test-Path -LiteralPath $backup) {
@@ -344,6 +448,7 @@ try {
     Log "Update complete: $currentTag -> $($latest.tag)"
 
     Update-CodexShortcut -InstallDir $InstallDir
+    Sync-ModelCatalog -InstallDir $InstallDir
     Ensure-GoogleMcpConfig -InstallDir $InstallDir
 
     if (-not $NoLaunch) {
