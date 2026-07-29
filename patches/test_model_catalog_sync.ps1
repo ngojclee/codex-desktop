@@ -14,6 +14,7 @@ function Assert-True {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $syncScript = Join-Path $repoRoot 'runtime\Sync-Codex-ModelCatalog.ps1'
 $tempRoot = Join-Path $env:TEMP ("codex-model-sync-test-{0}" -f [guid]::NewGuid().ToString('N'))
+$unicodeDescription = "User$([char]0x2019)s model"
 
 try {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
@@ -39,6 +40,7 @@ try {
             },
             [ordered]@{
                 slug = 'gpt-5.5'
+                description = $unicodeDescription
                 supported_reasoning_levels = @(
                     [ordered]@{ effort = 'xhigh'; description = 'Extra high' }
                 )
@@ -66,6 +68,7 @@ try {
 
     $other = @($updated.models | Where-Object { $_.slug -eq 'gpt-5.5' })[0]
     $otherEfforts = @($other.supported_reasoning_levels | ForEach-Object { $_.effort })
+    Assert-True ($other.description -eq $unicodeDescription) 'UTF-8 catalog text was corrupted.'
     Assert-True ($otherEfforts -notcontains 'max') 'Unverified models must not receive Max.'
     Assert-True ($otherEfforts -notcontains 'ultra') 'Unverified models must not receive Ultra.'
 

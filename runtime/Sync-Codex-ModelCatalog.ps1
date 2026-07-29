@@ -42,13 +42,22 @@ function Write-Utf8NoBom([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, $utf8NoBom)
 }
 
+function Read-Utf8Text([string]$Path) {
+    $utf8Strict = [Text.UTF8Encoding]::new($false, $true)
+    $text = [IO.File]::ReadAllText($Path, $utf8Strict)
+    if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {
+        return $text.Substring(1)
+    }
+    return $text
+}
+
 function Read-Catalog([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Model catalog not found: $Path"
     }
 
     try {
-        $catalog = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+        $catalog = Read-Utf8Text -Path $Path | ConvertFrom-Json
     } catch {
         throw "Failed to parse model catalog $Path as JSON: $($_.Exception.Message)"
     }
@@ -154,7 +163,7 @@ function Ensure-KnownModelFeatures($Catalog) {
 }
 
 function Write-CatalogIfChanged([string]$Path, $Catalog) {
-    $before = if (Test-Path -LiteralPath $Path) { Get-Content -Raw -LiteralPath $Path } else { '' }
+    $before = if (Test-Path -LiteralPath $Path) { Read-Utf8Text -Path $Path } else { '' }
     $after = ConvertTo-PrettyJson $Catalog
     $changed = ($before.Trim() -ne $after.Trim()) -or (Test-HasUtf8Bom $Path)
 
