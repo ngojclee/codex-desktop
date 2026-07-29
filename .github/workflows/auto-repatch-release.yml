@@ -184,6 +184,8 @@ jobs:
         run: |
           python patches/test_model_availability_filter.py
           python patches/test_custom_provider_ultra.py
+          & ./patches/test_model_catalog_sync.ps1
+          & ./patches/test_update_release_state.ps1
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -486,9 +488,9 @@ jobs:
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
             'Launch-Codex.ps1' = 'Ensure-Codex-GoogleMcp.ps1'
-            'Sync-Codex-ModelCatalog.ps1' = 'does not read tray_config.json'
+            'Sync-Codex-ModelCatalog.ps1' = 'Existing gpt-5.6 Sol/Terra/Luna entries'
             'Ensure-Codex-GoogleMcp.ps1' = 'CODEX_GOOGLE_MCP_DISABLE'
-            'Update-Codex.ps1' = 'Preserving tools/ from previous install'
+            'Update-Codex.ps1' = 'Test-CodexReleaseStateMatch'
           }
           foreach ($entry in $markerChecks.GetEnumerator()) {
             $path = Join-Path $tools $entry.Key
@@ -573,6 +575,8 @@ jobs:
           - **Patch Q** — normalize leading `GPT-` model labels to `GPT ` instead of stripping the prefix, so entries such as `GPT-5.5`, `GPT-5.4-Mini`, and `gpt-5.2` remain visibly identified as GPT models
           - **Patch R** — expose the catalog-declared Standard/Fast service-tier selector for custom API providers without changing the default tier or granting OpenAI Fast credits
           - **Patch S** — retain catalog-declared Ultra reasoning for API-key providers while preserving the upstream ChatGPT Statsig gate; Codex maps Ultra to provider-compatible Max at the Responses API boundary
+          - **Model features sync** — add verified Max/Ultra metadata to existing GPT 5.6 Sol, Terra, and Luna catalog entries, then mirror the result to `models_cache.json`, without writing `model_catalog_json` into `config.toml`
+          - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 
           ## Bundled Codex CLI sidecar
           - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
