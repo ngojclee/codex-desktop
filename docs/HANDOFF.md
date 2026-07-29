@@ -335,3 +335,18 @@ Ultra is an app-level Codex mode. The sidecar lowers its provider request to
 `max` reasoning, so a custom Responses-compatible provider must accept `max`
 but does not need to accept the literal `ultra` value. Only add Ultra to model
 catalog entries whose provider path has passed a real Max request.
+
+`tools\Sync-Codex-ModelCatalog.ps1` now normalizes the verified metadata on
+every launch and after an update. If `gpt-5.6-sol`, `gpt-5.6-terra`, or
+`gpt-5.6-luna` already exists in the manually curated catalog, the tool adds
+missing Max/Ultra effort entries and mirrors the catalog to
+`models_cache.json`. It does not create models and never inserts
+`model_catalog_json` into `config.toml`, so removing the manual catalog opt-in
+still prevents Desktop from loading it. Use
+`CODEX_MODEL_FEATURE_SYNC_DISABLE=1` to disable this normalization.
+
+`tools\Update-Codex.ps1` also records `tools\.release-state.json` and compares
+the release asset fingerprint, not only `.version-tag`. This is required
+because CI can replace a corrected ZIP under the same patched tag. Existing
+installs without the state file refresh once, then future unchanged checks
+skip normally; `-Force` is reserved for an intentional reinstall.

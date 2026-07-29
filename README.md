@@ -14,6 +14,8 @@ A patched build of OpenAI Codex Desktop that fixes:
 10. **Persistent log churn guard** — source-built `resources\codex.exe` applies/verifies OpenAI fixes for excessive `~\.codex\logs_2.sqlite` churn so older sidecar refs do not keep writing noisy TRACE diagnostics.
 11. **Local/custom model visibility guard** — keeps local non-hidden catalog models visible when Desktop receives a Statsig model allowlist, so pinned proxy models and `GPT-5.3 Codex Spark` do not disappear from the picker.
 12. **Google Drive MCP bootstrap** — launch/update tools ensure Google Drive, Sheets, Docs, Slides, and Drive Comments MCP entries stay pointed at the shared connector endpoint after fresh installs or updates.
+13. **Model features consistency** — existing GPT 5.6 Sol, Terra, and Luna catalog entries receive the verified Max/Ultra metadata on every launch and update, without forcing catalog opt-in.
+14. **Same-tag release refresh** — the updater fingerprints the installed ZIP so corrected assets republished under an existing tag are not mistaken for an already-current install.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -63,6 +65,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     $versionFile = Join-Path $installDir "tools\.version-tag"
     if (Test-Path -LiteralPath (Split-Path -Parent $versionFile)) {
       $release.tag_name | Set-Content -LiteralPath $versionFile -NoNewline
+      $releaseState = [ordered]@{
+        schemaVersion = 1
+        tag = $release.tag_name
+        assetName = $asset.name
+        assetDigest = [string]$asset.digest
+        assetUpdatedAt = ([DateTimeOffset]$asset.updated_at).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        assetSize = [int64]$asset.size
+        installedAtUtc = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+      }
+      $releaseStateFile = Join-Path $installDir "tools\.release-state.json"
+      [IO.File]::WriteAllText(
+        $releaseStateFile,
+        ($releaseState | ConvertTo-Json -Depth 8) + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+      )
     }
   }
   finally {
@@ -144,14 +161,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
-    gh release download --repo $repo --pattern "CodexDesktop-Patched-win-x64-*.zip" --dir $downloadDir --clobber
+    $release = gh release view --repo $repo --json tagName,assets | ConvertFrom-Json
+    $asset = $release.assets |
+      Where-Object { $_.name -like "CodexDesktop-Patched-win-x64-*.zip" } |
+      Select-Object -First 1
+    if (-not $asset) {
+      throw "No Windows patched zip found in release $($release.tagName)"
+    }
+
+    gh release download $release.tagName --repo $repo --pattern $asset.name --dir $downloadDir --clobber
     if ($LASTEXITCODE -ne 0) {
       throw "gh release download failed"
     }
 
-    $zip = Get-ChildItem -LiteralPath $downloadDir -Filter "CodexDesktop-Patched-win-x64-*.zip" | Select-Object -First 1
+    $zip = Get-ChildItem -LiteralPath $downloadDir -Filter $asset.name | Select-Object -First 1
     if (-not $zip) {
       throw "No downloaded Windows patched zip found"
+    }
+    if ($zip.Length -ne [int64]$asset.size) {
+      throw "Download incomplete: got $($zip.Length) bytes, expected $($asset.size)"
     }
 
     tar -xf $zip.FullName -C $installDir
@@ -161,7 +189,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
 
     $versionFile = Join-Path $installDir "tools\.version-tag"
     if (Test-Path -LiteralPath (Split-Path -Parent $versionFile)) {
-      (gh release view --repo $repo --json tagName --jq ".tagName") | Set-Content -LiteralPath $versionFile -NoNewline
+      $release.tagName | Set-Content -LiteralPath $versionFile -NoNewline
+      $releaseState = [ordered]@{
+        schemaVersion = 1
+        tag = $release.tagName
+        assetName = $asset.name
+        assetDigest = [string]$asset.digest
+        assetUpdatedAt = ([DateTimeOffset]$asset.updatedAt).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        assetSize = [int64]$asset.size
+        installedAtUtc = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+      }
+      $releaseStateFile = Join-Path $installDir "tools\.release-state.json"
+      [IO.File]::WriteAllText(
+        $releaseStateFile,
+        ($releaseState | ConvertTo-Json -Depth 8) + [Environment]::NewLine,
+        [Text.UTF8Encoding]::new($false)
+      )
     }
   }
   finally {
@@ -227,10 +270,15 @@ authenticated `gh` automatically. After a successful update it checks the
 standard desktop shortcuts and creates any missing ones without overwriting
 existing shortcuts:
 `Codex (GitHub Patched)`, `Update-Codex`, and `Codex Dev (GitHub Patched)`.
+It also compares the installed release-asset fingerprint, so a corrected ZIP
+republished under the same tag is downloaded automatically.
 
 ```powershell
-& "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1" -Force
+& "$env:LOCALAPPDATA\CodexFromGithub\tools\Update-Codex.ps1"
 ```
+
+Use `-Force` only when you deliberately want to reinstall an asset whose
+fingerprint already matches.
 
 ### Create desktop shortcuts
 
@@ -376,7 +424,7 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
-The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release. The updater creates or refreshes the three standard desktop shortcuts, updates their icon from `ChatGPT.exe` on current bundles, and refreshes an existing optional Logs shortcut without creating it automatically.
+The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. It compares `tools\.release-state.json` with the current GitHub asset, so same-tag republished builds are refreshed automatically. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release. The updater creates or refreshes the three standard desktop shortcuts, updates their icon from `ChatGPT.exe` on current bundles, and refreshes an existing optional Logs shortcut without creating it automatically.
 
 ## Architecture
 
@@ -600,8 +648,14 @@ provider must accept `max`; it does not need to accept a literal `ultra`
 payload.
 
 The patch does not add Ultra to every model and does not alter the compact
-Power presets. Add `{"effort":"ultra", ...}` only to catalog models whose
-provider path has been verified with `max`.
+Power presets. At startup, `tools\Sync-Codex-ModelCatalog.ps1` adds missing
+Max/Ultra metadata only to existing `gpt-5.6-sol`, `gpt-5.6-terra`, and
+`gpt-5.6-luna` entries, whose provider path has been verified with `max`, then
+mirrors the result to `models_cache.json`. This makes **Model features**
+available consistently on machines using the same custom catalog. It does not
+add models or write `model_catalog_json` into `config.toml`; deleting that
+manual opt-in remains respected. Set `CODEX_MODEL_FEATURE_SYNC_DISABLE=1` to
+leave existing catalog metadata untouched.
 
 ### Runtime Google Drive MCP bootstrap
 
@@ -635,7 +689,7 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 - **Refresh shared skills** — `tools\Refresh-Codex-SharedSkills.ps1` is run by the launcher. It creates missing local symlinks for skills that already exist on the shared skills directory, skips `.system`, and leaves local-only skills untouched.
 - **Publish local skill** — `tools\Publish-Codex-Skill.ps1 -SkillName <name>` copies one local skill to the shared skills directory and replaces the local copy with a symlink. This is intentionally explicit; local skills are not auto-published.
 - **Ensure Google MCP** — `tools\Ensure-Codex-GoogleMcp.ps1` keeps the Google Drive connector MCP entries in `~\.codex\config.toml`. It defaults to `http://10.21.4.101:3110/mcp`, honors `CODEX_GOOGLE_MCP_URL`, and can be disabled with `CODEX_GOOGLE_MCP_DISABLE=1`.
-- **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. Missing standard desktop shortcuts are created after update.
+- **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. The saved asset fingerprint detects corrected same-tag releases, and missing standard desktop shortcuts are created after update.
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
 State file: `~/.codex/desktop-shared-app-server.json` holds the live `ws_url`, `port`, `sidecar_pid`, and `log` path while Codex is running.
