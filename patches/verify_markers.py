@@ -26,7 +26,9 @@ from pathlib import Path
 
 from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN as PATCH_O_OLD_PATTERN,
+    FILTER_PATTERN_V2 as PATCH_O_OLD_PATTERN_V2,
     PATCHED_FILTER_PATTERN as PATCH_O_SAFE_PATTERN,
+    PATCHED_FILTER_PATTERN_V2 as PATCH_O_SAFE_PATTERN_V2,
 )
 
 PATCH_J_MARKER = "/*J*/"
@@ -239,11 +241,13 @@ def model_availability_filter_status(app_dir: Path):
             or ("availableModels" in text and "useHiddenModels" in text)
             or PATCH_O_OLD_PATTERN.search(text)
             or PATCH_O_SAFE_PATTERN.search(text)
+            or PATCH_O_OLD_PATTERN_V2.search(text)
+            or PATCH_O_SAFE_PATTERN_V2.search(text)
         ):
             candidate_paths.append(path)
-        if PATCH_O_SAFE_PATTERN.search(text):
+        if PATCH_O_SAFE_PATTERN.search(text) or PATCH_O_SAFE_PATTERN_V2.search(text):
             marker_entries.append((path, text))
-        if PATCH_O_OLD_PATTERN.search(text):
+        if PATCH_O_OLD_PATTERN.search(text) or PATCH_O_OLD_PATTERN_V2.search(text):
             unpatched_paths.append(path)
 
     syntax_errors = []
