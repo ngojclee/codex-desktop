@@ -49,6 +49,7 @@ JS_IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 
 UNPATCHED_RE = re.compile(
     "markAllConversationsNeedResumeAfterReconnect\\(\\)\\{"
+    r"(?P<thread_store>this\.threadStore\.resetAfterReconnect\(\);)?"
     rf"let\{{previousStreamingCount:(?P<stream>{JS_IDENT}),previousRoleCount:(?P<role>{JS_IDENT})\}}=this\.streamState\.resetAfterReconnect\(\),(?P<count>{JS_IDENT})=0;"
     rf"for\(let\[(?P<id>{JS_IDENT}),(?P<conv>{JS_IDENT})\]of this\.conversations\)"
     r"(?P=conv)\.resumeState!==`needs_resume`&&\((?P=count)\+=1,this\.updateConversationState\((?P=id),"
@@ -62,6 +63,7 @@ MARKER = "__pdIds"  # unique token in patched output
 
 
 def make_patched_replace(match: re.Match) -> str:
+    thread_store = match.group("thread_store") or ""
     stream = match.group("stream")
     role = match.group("role")
     count = match.group("count")
@@ -71,6 +73,7 @@ def make_patched_replace(match: re.Match) -> str:
     logger = match.group("logger")
     return (
         "markAllConversationsNeedResumeAfterReconnect(){"
+        f"{thread_store}"
         f"let{{previousStreamingCount:{stream},previousRoleCount:{role}}}=this.streamState.resetAfterReconnect(),{count}=0;"
         f"for(let[{ident},{conv}]of this.conversations)"
         f"{conv}.resumeState!==`needs_resume`&&({count}+=1,this.updateConversationState({ident},{cb}=>{{{cb}.resumeState=`needs_resume`}}));"
