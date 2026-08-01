@@ -32,6 +32,17 @@ PATCHED_FILTER_PATTERN = re.compile(
     rf"\|\|(?:{re.escape(PATCH_MARKER)})?!(?P=model)\.hidden\)"
     rf":!(?P=model)\.hidden"
 )
+FILTER_PATTERN_V2 = re.compile(
+    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|\("
+    rf"(?P<flag>{IDENT})&&(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"(?P<available>{IDENT})\.has\((?P=model)\.model\):!(?P=model)\.hidden\)"
+)
+PATCHED_FILTER_PATTERN_V2 = re.compile(
+    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|\("
+    rf"(?P<flag>{IDENT})&&(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"\((?P<available>{IDENT})\.has\((?P=model)\.model\)\|\|(?:{re.escape(PATCH_MARKER)})?!"
+    rf"(?P=model)\.hidden\):!(?P=model)\.hidden\)"
+)
 
 
 def read_header(asar_path: Path):
@@ -101,7 +112,22 @@ def patch_filter_text(text: str):
             f"{PATCH_MARKER}!{model}.hidden):!{model}.hidden"
         )
 
-    return FILTER_PATTERN.subn(replace, text)
+    text, v1_count = FILTER_PATTERN.subn(replace, text)
+
+    def replace_v2(match: re.Match):
+        extra = match.group("extra")
+        model = match.group("model")
+        flag = match.group("flag")
+        auth = match.group("auth")
+        available = match.group("available")
+        return (
+            f"{extra}?.has({model}.model)===!0||("
+            f"{flag}&&{auth}!==`amazonBedrock`?"
+            f"({available}.has({model}.model)||{PATCH_MARKER}!{model}.hidden):!{model}.hidden)"
+        )
+
+    text, v2_count = FILTER_PATTERN_V2.subn(replace_v2, text)
+    return text, v1_count + v2_count
 
 
 def repack(asar_path: Path, header: dict, payload_start: int, patched_by_path: dict[str, bytes]):
@@ -155,6 +181,8 @@ def find_targets(asar: Path):
             or ("availableModels" in text and "useHiddenModels" in text)
             or FILTER_PATTERN.search(text)
             or PATCHED_FILTER_PATTERN.search(text)
+            or FILTER_PATTERN_V2.search(text)
+            or PATCHED_FILTER_PATTERN_V2.search(text)
         ):
             targets.append((path, meta, text))
     return header, payload_start, targets
@@ -165,12 +193,12 @@ def verify(asar: Path):
     marker_paths = [
         path
         for path, _meta, text in targets
-        if PATCHED_FILTER_PATTERN.search(text)
+        if PATCHED_FILTER_PATTERN.search(text) or PATCHED_FILTER_PATTERN_V2.search(text)
     ]
     unpatched = [
         path
         for path, _meta, text in targets
-        if FILTER_PATTERN.search(text)
+        if FILTER_PATTERN.search(text) or FILTER_PATTERN_V2.search(text)
     ]
     if not marker_paths:
         candidates = sorted(path for path, _meta, _text in targets)
