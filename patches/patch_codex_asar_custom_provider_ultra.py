@@ -33,7 +33,7 @@ UPSTREAM_PATTERN = re.compile(
     r"(?P<result>[A-Za-z_$][A-Za-z0-9_$]*)="
     r"(?P<include>[A-Za-z_$][A-Za-z0-9_$]*)&&"
     r"(?P<getter>[A-Za-z_$][A-Za-z0-9_$]*)"
-    rf"\(Fh,`{ULTRA_GATE_ID}`\)"
+    rf"\((?P<gate_scope>[A-Za-z_$][A-Za-z0-9_$]*),`{ULTRA_GATE_ID}`\)"
 )
 AUTH_METHOD_PATTERN = re.compile(
     r"authMethod:(?P<auth>[A-Za-z_$][A-Za-z0-9_$]*)"
@@ -80,9 +80,10 @@ def patch_text(text: str):
     result = match.group("result")
     include = match.group("include")
     getter = match.group("getter")
+    gate_scope = match.group("gate_scope")
     replacement = (
         f"{result}={include}&&({auth}===`apikey`||"
-        f"{getter}(Fh,`{ULTRA_GATE_ID}`)){PATCH_MARKER}"
+        f"{getter}({gate_scope},`{ULTRA_GATE_ID}`)){PATCH_MARKER}"
     )
     return text[: match.start()] + replacement + text[match.end() :], True
 
