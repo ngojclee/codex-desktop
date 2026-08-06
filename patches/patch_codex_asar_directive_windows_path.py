@@ -104,6 +104,22 @@ SPLIT_DIRECTIVE_PARSER_RE = re.compile(
     r"sensitive:\{\}\}\),(?P=out)\}"
 )
 
+# Newer bundles keep the same parser prelude but pass an optional third
+# argument to the collector (for example `includeListItems`). Match only the
+# stable prelude through the parser input so the sanitizer can be inserted
+# without depending on the collector's changing argument list or logger name.
+SPLIT_DIRECTIVE_PARSER_PREFIX_RE = re.compile(
+    r"function\s+(?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)\("
+    r"(?P<input>[A-Za-z_$][A-Za-z0-9_$]*),(?P<opts>[A-Za-z_$][A-Za-z0-9_$]*)\)"
+    r"\{let\s+(?P<src>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"(?P=opts)\?\.lineStartNames==null\?(?P=input):"
+    r"(?P<line_filter>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=input),(?P=opts)\.lineStartNames\);"
+    r"if\((?P=src)==null\)return\[\];"
+    r"let\s+(?P<out>[A-Za-z_$][A-Za-z0-9_$]*)=\[\];"
+    r"return\s+(?P<collector>[A-Za-z_$][A-Za-z0-9_$]*)\("
+    r"(?P<parser>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=src),void 0\),(?P=out)"
+)
+
 DIRECTIVE_SANITIZER_EXPR = (
     r"(globalThis.__PATCH_H_DIRECTIVE_WINDOWS_PATH__=!0,"
     r"{src}.replace(/^(::(?:git-[a-z-]+|code-comment|archive)\\{{[^\\n]*\\}})$/gm,"
@@ -141,7 +157,10 @@ def find_target(header, asar_path, payload_start):
             or (
                 "[parseDirectives] directives found" in text
                 and "lineStartNames" in text
-                and SPLIT_DIRECTIVE_PARSER_RE.search(text)
+                and (
+                    SPLIT_DIRECTIVE_PARSER_RE.search(text)
+                    or SPLIT_DIRECTIVE_PARSER_PREFIX_RE.search(text)
+                )
             )
             or all(needle in text for needle in UPSTREAM_DIRECTIVE_SANITIZER_NEEDLES)
         ):
@@ -179,6 +198,21 @@ def patch_js(text: str):
         patched_function = match.group(0).replace(insertion_point, replacement, 1)
         return text[: match.start()] + patched_function + text[match.end() :], {
             "status": "patched_generic_split_directive_parser",
+            "function": match.group("fn"),
+        }
+    match = SPLIT_DIRECTIVE_PARSER_PREFIX_RE.search(text)
+    if match:
+        src = match.group("src")
+        insertion_point = f"if({src}==null)return[];"
+        replacement = (
+            f"{insertion_point}"
+            f"{src}={DIRECTIVE_SANITIZER_EXPR.format(src=src)};"
+        )
+        if insertion_point not in match.group(0):
+            raise RuntimeError("Split directive prefix matched but insertion point was not found")
+        patched_prefix = match.group(0).replace(insertion_point, replacement, 1)
+        return text[: match.start()] + patched_prefix + text[match.end() :], {
+            "status": "patched_generic_split_directive_prefix",
             "function": match.group("fn"),
         }
     raise RuntimeError("Markdown sanitizer insertion point not found")
