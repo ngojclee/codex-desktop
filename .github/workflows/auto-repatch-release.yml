@@ -182,6 +182,7 @@ jobs:
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
+          python patches/test_directive_windows_path.py
           python patches/test_model_availability_filter.py
           python patches/test_custom_provider_ultra.py
           & ./patches/test_model_catalog_sync.ps1
