@@ -445,7 +445,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_sol_max_effort.py Patch P — add Sol Max to the compact Power slider
 │   ├── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
 │   ├── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
-│   └── patch_codex_asar_custom_provider_ultra.py Patch S — expose catalog-declared Ultra for API providers
+│   ├── patch_codex_asar_custom_provider_ultra.py Patch S — expose catalog-declared Ultra for API providers
+│   └── patch_codex_asar_voice_paste_shortcut.py Patch T — remove the Ctrl+Shift+V Voice Mode shortcut collision
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -656,6 +657,17 @@ available consistently on machines using the same custom catalog. It does not
 add models or write `model_catalog_json` into `config.toml`; deleting that
 manual opt-in remains respected. Set `CODEX_MODEL_FEATURE_SYNC_DISABLE=1` to
 leave existing catalog metadata untouched.
+
+### Patch T -- Voice Mode paste-shortcut collision
+
+Windows and Chromium use `Ctrl+Shift+V` for paste as plain text, while current
+Desktop bundles also assign that exact key to `composer.startVoiceMode`.
+Triggering both paths from one key gesture can duplicate pasted composer text.
+
+Patch T removes only the default Voice Mode keybinding. Voice Mode remains
+available through the UI and can still use a user-assigned shortcut. The patch
+does not alter ordinary `Ctrl+V` handling; any intermittent duplication on that
+separate path should be reproduced and diagnosed independently.
 
 ### Runtime Google Drive MCP bootstrap
 

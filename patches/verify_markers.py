@@ -66,6 +66,15 @@ PATCH_S_UPSTREAM_PATTERN = re.compile(
     r"(?P<getter>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(Fh,`1186680773`\)"
 )
+PATCH_T_MARKER = "/*T:no-voice-paste-binding*/"
+PATCH_T_UPSTREAM_PATTERN = re.compile(
+    r"(?P<prefix>\{(?:\"id\"|id):(?P<quote>[`'\"])"
+    r"composer\.startVoiceMode(?P=quote),"
+    r"[^{}]{0,1600}?(?:\"electron\"|electron):\{)"
+    r"(?:\"defaultKeybindings\"|defaultKeybindings):"
+    r"\[\{(?:\"key\"|key):(?P=quote)Ctrl\+Shift\+V(?P=quote)\}\]"
+    r"(?P<suffix>\}\})"
+)
 WS_CONSTRUCTOR_PATTERN = re.compile(
     r"new\s+(?P<ctor>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\(this\.options\.websocketUrl,\{(?P<body>[^{}]*?perMessageDeflate:!1[^{}]*?)\}\)"
@@ -545,6 +554,53 @@ def custom_provider_ultra_status(app_dir: Path):
     }
 
 
+def voice_paste_shortcut_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_entries = []
+    unpatched_paths = []
+
+    for path, meta in _walk(header):
+        if not (
+            path.startswith("webview/assets/")
+            and path.endswith(".js")
+            and "offset" in meta
+        ):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if PATCH_T_MARKER in text:
+            marker_entries.append((path, text))
+        if PATCH_T_UPSTREAM_PATTERN.search(text):
+            unpatched_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch T syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-t-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout).strip().splitlines()
+                    syntax_errors.append(
+                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+                    )
+
+    return {
+        "marker_paths": sorted(path for path, _text in marker_entries),
+        "unpatched_paths": sorted(set(unpatched_paths)),
+        "syntax_errors": syntax_errors,
+    }
+
+
 def computer_use_plugin_status(app_dir: Path):
     plugin = (
         app_dir
@@ -594,6 +650,7 @@ def main():
     patch_q = gpt_model_label_status(app_dir)
     patch_r = custom_provider_fast_mode_status(app_dir)
     patch_s = custom_provider_ultra_status(app_dir)
+    patch_t = voice_paste_shortcut_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -684,6 +741,17 @@ def main():
         print("Patch S syntax errors:")
         for error in patch_s["syntax_errors"]:
             print(f"  - {error}")
+    print(f"Patch T Voice Mode paste-key marker paths: {len(patch_t['marker_paths'])}")
+    for path in patch_t["marker_paths"]:
+        print(f"  - {path}")
+    if patch_t["unpatched_paths"]:
+        print("Patch T conflicting Ctrl+Shift+V bindings still present:")
+        for path in patch_t["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_t["syntax_errors"]:
+        print("Patch T syntax errors:")
+        for error in patch_t["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -744,6 +812,9 @@ def main():
         ("Patch S — API-key Ultra marker", lambda: len(patch_s["marker_paths"]) > 0, True),
         ("Patch S — upstream model-list Ultra gate absent", lambda: len(patch_s["unpatched_paths"]) == 0, True),
         ("Patch S — touched renderer chunks pass syntax check", lambda: len(patch_s["syntax_errors"]) == 0, True),
+        ("Patch T — Voice Mode paste-key marker", lambda: len(patch_t["marker_paths"]) > 0, True),
+        ("Patch T — conflicting Ctrl+Shift+V binding absent", lambda: len(patch_t["unpatched_paths"]) == 0, True),
+        ("Patch T — touched renderer chunks pass syntax check", lambda: len(patch_t["syntax_errors"]) == 0, True),
     )
 
     failed = []

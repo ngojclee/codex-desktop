@@ -38,6 +38,7 @@ param(
     [switch]$SkipQ,
     [switch]$SkipR,
     [switch]$SkipS,
+    [switch]$SkipT,
 
     [string]$UpstreamTag
 )
@@ -130,6 +131,10 @@ if (-not $SkipR) {
 
 if (-not $SkipS) {
     Run-Patch 'patch_codex_asar_custom_provider_ultra.py' @('--app-dir', $AppDir) 'Patch S — expose catalog-declared Ultra for API-key providers'
+}
+
+if (-not $SkipT) {
+    Run-Patch 'patch_codex_asar_voice_paste_shortcut.py' @('--app-dir', $AppDir) 'Patch T — remove Ctrl+Shift+V Voice Mode shortcut collision'
 }
 
 Write-Host ""

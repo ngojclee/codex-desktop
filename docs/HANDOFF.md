@@ -345,6 +345,20 @@ missing Max/Ultra effort entries and mirrors the catalog to
 still prevents Desktop from loading it. Use
 `CODEX_MODEL_FEATURE_SYNC_DISABLE=1` to disable this normalization.
 
+## Patch T / Voice Mode paste-shortcut collision
+
+Current Windows renderer bundles register `Ctrl+Shift+V` as the default
+keybinding for `composer.startVoiceMode`, even though the same gesture is the
+platform/Chromium paste-as-plain-text shortcut. Field reproduction on two
+machines showed deterministic duplicate composer text with this shortcut.
+
+Patch T rewrites only that command's `defaultKeybindings` array to empty and
+adds `/*T:no-voice-paste-binding*/`. Voice Mode remains available from the UI
+and through a custom shortcut. CI verifies that the marker exists, the upstream
+binding is absent, and the touched renderer chunk passes `node --check`.
+Ordinary `Ctrl+V` is intentionally outside this patch because its reported
+duplication is intermittent and has not yet been isolated to one event path.
+
 `tools\Update-Codex.ps1` also records `tools\.release-state.json` and compares
 the release asset fingerprint, not only `.version-tag`. This is required
 because CI can replace a corrected ZIP under the same patched tag. Existing
