@@ -27,9 +27,12 @@ from pathlib import Path
 from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN as PATCH_O_OLD_PATTERN,
     FILTER_PATTERN_V2 as PATCH_O_OLD_PATTERN_V2,
+    FILTER_PATTERN_V3 as PATCH_O_OLD_PATTERN_V3,
     PATCHED_FILTER_PATTERN as PATCH_O_SAFE_PATTERN,
     PATCHED_FILTER_PATTERN_V2 as PATCH_O_SAFE_PATTERN_V2,
+    PATCHED_FILTER_PATTERN_V3 as PATCH_O_SAFE_PATTERN_V3,
 )
+from patch_codex_asar_composer_input_safety import status as patch_u_status
 
 PATCH_J_MARKER = "/*J*/"
 PATCH_J_GATES = ("1506311413", "410065390", "410262010")
@@ -252,11 +255,21 @@ def model_availability_filter_status(app_dir: Path):
             or PATCH_O_SAFE_PATTERN.search(text)
             or PATCH_O_OLD_PATTERN_V2.search(text)
             or PATCH_O_SAFE_PATTERN_V2.search(text)
+            or PATCH_O_OLD_PATTERN_V3.search(text)
+            or PATCH_O_SAFE_PATTERN_V3.search(text)
         ):
             candidate_paths.append(path)
-        if PATCH_O_SAFE_PATTERN.search(text) or PATCH_O_SAFE_PATTERN_V2.search(text):
+        if (
+            PATCH_O_SAFE_PATTERN.search(text)
+            or PATCH_O_SAFE_PATTERN_V2.search(text)
+            or PATCH_O_SAFE_PATTERN_V3.search(text)
+        ):
             marker_entries.append((path, text))
-        if PATCH_O_OLD_PATTERN.search(text) or PATCH_O_OLD_PATTERN_V2.search(text):
+        if (
+            PATCH_O_OLD_PATTERN.search(text)
+            or PATCH_O_OLD_PATTERN_V2.search(text)
+            or PATCH_O_OLD_PATTERN_V3.search(text)
+        ):
             unpatched_paths.append(path)
 
     syntax_errors = []
@@ -651,6 +664,7 @@ def main():
     patch_r = custom_provider_fast_mode_status(app_dir)
     patch_s = custom_provider_ultra_status(app_dir)
     patch_t = voice_paste_shortcut_status(app_dir)
+    patch_u = patch_u_status(app_dir / "resources" / "app.asar")
     computer_use = computer_use_plugin_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
@@ -752,6 +766,17 @@ def main():
         print("Patch T syntax errors:")
         for error in patch_t["syntax_errors"]:
             print(f"  - {error}")
+    print(f"Patch U composer safety marker paths: {len(patch_u['marker_paths'])}")
+    for path in patch_u["marker_paths"]:
+        print(f"  - {path}")
+    if patch_u["unpatched_paths"]:
+        print("Patch U unpatched composer layouts:")
+        for path in patch_u["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_u["syntax_errors"]:
+        print("Patch U syntax errors:")
+        for error in patch_u["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -815,6 +840,9 @@ def main():
         ("Patch T — Voice Mode paste-key marker", lambda: len(patch_t["marker_paths"]) > 0, True),
         ("Patch T — conflicting Ctrl+Shift+V binding absent", lambda: len(patch_t["unpatched_paths"]) == 0, True),
         ("Patch T — touched renderer chunks pass syntax check", lambda: len(patch_t["syntax_errors"]) == 0, True),
+        ("Patch U — composer safety markers present", lambda: len(patch_u["marker_paths"]) > 0, True),
+        ("Patch U — inline Markdown/paste layouts replaced", lambda: len(patch_u["unpatched_paths"]) == 0, True),
+        ("Patch U — touched renderer chunks pass syntax check", lambda: len(patch_u["syntax_errors"]) == 0, True),
     )
 
     failed = []
