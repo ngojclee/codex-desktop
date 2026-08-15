@@ -415,15 +415,19 @@ jobs:
             Set-Content -LiteralPath $logDbSource -Value $logDbText -NoNewline
           }
 
+          $legacyPersistentFilter = 'Targets::new\(\)\.with_default\(Level::TRACE\)'
           foreach ($logLayerSource in @($appServerSource, $tuiSource)) {
             $layerText = Get-Content -Raw -LiteralPath $logLayerSource
-            $layerPatched = $layerText -replace 'Targets::new\(\)\.with_default\(Level::TRACE\)', 'log_db::default_filter()'
+            $layerPatched = $layerText -replace $legacyPersistentFilter, 'log_db::default_filter()'
             if ($layerPatched -ne $layerText) {
               Set-Content -LiteralPath $logLayerSource -Value $layerPatched -NoNewline
             }
-            if ((Get-Content -Raw -LiteralPath $logLayerSource) -notmatch 'log_db::default_filter\(\)') {
-              throw "Patch N verification failed: persistent log filter marker missing in $logLayerSource"
-            }
+          }
+          if ((Get-Content -Raw -LiteralPath $appServerSource) -notmatch 'log_db::default_filter\(\)') {
+            throw "Patch N verification failed: persistent log filter marker missing in $appServerSource"
+          }
+          if ((Get-Content -Raw -LiteralPath $tuiSource) -match $legacyPersistentFilter) {
+            throw "Patch N verification failed: legacy persistent log filter remains in $tuiSource"
           }
           if ((Get-Content -Raw -LiteralPath $logDbSource) -notmatch 'with_target\("codex_otel\.trace_safe", LevelFilter::OFF\)') {
             throw 'Patch N verification failed: noisy persistent log target filter marker missing'
