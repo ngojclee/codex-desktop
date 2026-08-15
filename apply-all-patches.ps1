@@ -39,6 +39,7 @@ param(
     [switch]$SkipR,
     [switch]$SkipS,
     [switch]$SkipT,
+    [switch]$SkipU,
 
     [string]$UpstreamTag
 )
@@ -135,6 +136,10 @@ if (-not $SkipS) {
 
 if (-not $SkipT) {
     Run-Patch 'patch_codex_asar_voice_paste_shortcut.py' @('--app-dir', $AppDir) 'Patch T — remove Ctrl+Shift+V Voice Mode shortcut collision'
+}
+
+if (-not $SkipU) {
+    Run-Patch 'patch_codex_asar_composer_input_safety.py' @('--app-dir', $AppDir) 'Patch U — literal Markdown paste and duplicate-paste guard'
 }
 
 Write-Host ""
