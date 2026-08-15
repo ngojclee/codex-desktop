@@ -356,8 +356,34 @@ Patch T rewrites only that command's `defaultKeybindings` array to empty and
 adds `/*T:no-voice-paste-binding*/`. Voice Mode remains available from the UI
 and through a custom shortcut. CI verifies that the marker exists, the upstream
 binding is absent, and the touched renderer chunk passes `node --check`.
-Ordinary `Ctrl+V` is intentionally outside this patch because its reported
-duplication is intermittent and has not yet been isolated to one event path.
+
+## Patch U / composer literal input and duplicate-paste guard
+
+Patch U covers the separate normal-paste path. It supports two known composer
+layouts:
+
+- Legacy builds use six ProseMirror input rules to auto-create strong/em marks
+  from `*`, `**`, `***`, `_`, `__`, and `___`. Patch U removes those rules,
+  then keeps pasted Markdown/HTML literal.
+- Current `26.810+` builds no longer contain those strong/em input rules.
+  Patch U recognizes the native layout, prevents the rich HTML/Markdown paste
+  conversion, and preserves existing plain-text typing behavior.
+
+In both layouts it adds a per-composer 250 ms exact-payload guard before the
+editor mutates. This targets the reported duplicate paste where a single
+`Ctrl+Z` removes only one duplicate. It does not remove normal `Ctrl+V`,
+image/file paste, explicit `Ctrl+B` / `Ctrl+I`, code-block handling, or Codex
+link/mention parsing. Markers are:
+
+```text
+/*U:no-auto-inline-markdown*/
+/*U:paste-dedupe*/
+/*U:plain-html-paste*/
+/*U:literal-markdown-paste*/
+```
+
+CI runs `patches/test_composer_input_safety.py`, syntax-checks each touched
+chunk, and requires all four markers through `patches/verify_markers.py`.
 
 `tools\Update-Codex.ps1` also records `tools\.release-state.json` and compares
 the release asset fingerprint, not only `.version-tag`. This is required

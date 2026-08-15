@@ -446,7 +446,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_gpt_model_labels.py Patch Q — preserve GPT model prefixes
 │   ├── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
 │   ├── patch_codex_asar_custom_provider_ultra.py Patch S — expose catalog-declared Ultra for API providers
-│   └── patch_codex_asar_voice_paste_shortcut.py Patch T — remove the Ctrl+Shift+V Voice Mode shortcut collision
+│   ├── patch_codex_asar_voice_paste_shortcut.py Patch T — remove the Ctrl+Shift+V Voice Mode shortcut collision
+│   └── patch_codex_asar_composer_input_safety.py Patch U — keep composer input literal and deduplicate paste events
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
@@ -666,8 +667,27 @@ Triggering both paths from one key gesture can duplicate pasted composer text.
 
 Patch T removes only the default Voice Mode keybinding. Voice Mode remains
 available through the UI and can still use a user-assigned shortcut. The patch
-does not alter ordinary `Ctrl+V` handling; any intermittent duplication on that
-separate path should be reproduced and diagnosed independently.
+does not alter ordinary `Ctrl+V` handling.
+
+### Patch U -- Composer literal input and duplicate-paste guard
+
+Patch U keeps technical prompt text literal in the rich composer. It addresses
+two separate causes of accidental formatting/duplication:
+
+- On older renderer layouts, it removes the six inline Markdown input rules
+  for `*`, `**`, `***`, `_`, `__`, and `___`, so identifiers such as
+  `18d1d87f_a6c083_2a4d0c` remain ordinary text.
+- On current `26.810+` composer layouts, upstream has already removed those
+  inline strong/em rules. Patch U recognizes that layout and instead prevents
+  pasted HTML/Markdown from importing bold, italic, or list formatting.
+- For both layouts, it records the last text payload on the composer DOM node
+  and ignores the same payload delivered again within 250 ms. This targets the
+  observed single-gesture duplicate where one `Ctrl+Z` removes only the second
+  copy.
+
+The patch keeps normal `Ctrl+V`, images/files, code-block paste handling,
+recognized Codex links/mentions, and explicit `Ctrl+B` / `Ctrl+I` shortcuts.
+The renderer chunk is syntax-checked and marker-verified in CI before release.
 
 ### Runtime Google Drive MCP bootstrap
 

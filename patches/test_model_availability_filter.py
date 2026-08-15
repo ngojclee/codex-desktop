@@ -3,7 +3,9 @@ import unittest
 
 from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN,
+    FILTER_PATTERN_V3,
     PATCHED_FILTER_PATTERN,
+    PATCHED_FILTER_PATTERN_V3,
     PATCH_MARKER,
     patch_filter_text,
 )
@@ -42,6 +44,23 @@ class ModelAvailabilityFilterTests(unittest.TestCase):
         self.assertEqual(count, 0)
         self.assertEqual(patched, source)
         self.assertIsNotNone(PATCHED_FILTER_PATTERN.search(source))
+
+    def test_26_810_custom_provider_layout(self):
+        source = (
+            "function vti({additionalAvailableModels:e,authMethod:t,"
+            "availableModels:n,isCustomModelProvider:r,model:i,useHiddenModels:a}){"
+            "return e?.has(i.model)===!0||i.model!==`codex-auto-review`&&"
+            "(a&&!r&&t!==`amazonBedrock`?n.has(i.model):!i.hidden)}"
+        )
+        patched, count = patch_filter_text(source)
+        self.assertEqual(count, 1)
+        self.assertIn(
+            "a&&!r&&t!==`amazonBedrock`?"
+            "(n.has(i.model)||/*O*/!i.hidden):!i.hidden",
+            patched,
+        )
+        self.assertIsNone(FILTER_PATTERN_V3.search(patched))
+        self.assertIsNotNone(PATCHED_FILTER_PATTERN_V3.search(patched))
 
     def test_unrelated_set_filter_is_ignored(self):
         source = "if(flag?allowed.has(item.id):!item.hidden){items.push(item)}"
