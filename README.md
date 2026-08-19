@@ -504,7 +504,7 @@ marker only.
 
 ### Patch D — Clear conversations Map on reconnect
 
-When the renderer's `markAllConversationsNeedResumeAfterReconnect` runs (called when the sidecar reconnects), the existing logic only flipped a `resumeState` flag — the cached `conversations` Map was preserved with stale data. Patcher injects a clear: for every cached id, call `applyConversationState(id, null)`, and reset `fetchedRecentConversations=false`. Combined with the soft-refresh workflow (kill sidecar -> Electron respawns -> renderer reconnects -> Patch D fires -> UI re-fetches), the stuck thread gets a fresh snapshot from disk.
+When the renderer's `markAllConversationsNeedResumeAfterReconnect` runs (called when the sidecar reconnects), the existing logic only flipped a `resumeState` flag — the cached `conversations` Map was preserved with stale data. Patcher injects a clear: for every cached id, call `applyConversationState(id, null)`, and reset `fetchedRecentConversations=false`. Combined with the soft-refresh workflow (kill sidecar -> Electron respawns -> renderer reconnects -> Patch D fires -> UI re-fetches), the stuck thread gets a fresh snapshot from disk. The matcher supports both the older minified logger form and the current `this.logger.info(...)` form.
 
 Note: upstream `26.513.x` changed renderer hydration behavior enough that Patch D now appears to trigger thread-open regressions for some sessions. `apply-all-patches.ps1` therefore auto-skips Patch D on `26.513.x` until a safer reconnect fix is found.
 
@@ -677,9 +677,13 @@ two separate causes of accidental formatting/duplication:
 - On older renderer layouts, it removes the six inline Markdown input rules
   for `*`, `**`, `***`, `_`, `__`, and `___`, so identifiers such as
   `18d1d87f_a6c083_2a4d0c` remain ordinary text.
-- On current `26.810+` composer layouts, upstream has already removed those
-  inline strong/em rules. Patch U recognizes that layout and instead prevents
-  pasted HTML/Markdown from importing bold, italic, or list formatting.
+- On `26.810` composer layouts, upstream has already removed those inline
+  strong/em rules. Patch U recognizes that layout and instead prevents pasted
+  HTML/Markdown from importing bold, italic, or list formatting.
+- On `26.814+` composer layouts, upstream moved the composer to the `lza`
+  editor path. Patch U removes its strong/em input rules, keeps HTML and
+  Markdown paste literal, and preserves the native file/image, diff, code
+  block, link, and mention paths.
 - For both layouts, it records the last text payload on the composer DOM node
   and ignores the same payload delivered again within 250 ms. This targets the
   observed single-gesture duplicate where one `Ctrl+Z` removes only the second
