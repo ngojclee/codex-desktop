@@ -115,6 +115,27 @@ PATCHED_PASTE_PARSE_V2 = (
     "n=+!w;"
 )
 
+V3_INPUT_RULES = "...y?[PLa,FLa]:[],"
+V3_PASTE_ENTRY = (
+    "let h=b||c==null||c.length===0?null:RRa({enableHtmlLists:i,html:c,"
+    "schema:e.state.schema,text:s}),"
+)
+V3_MARKDOWN_EDITOR = "if(l!=null){let t=l.parse(s),"
+V3_MARKDOWN_PARSE = (
+    "let E=Xpr(s)||d&&Zpr(s),D=i&&_za(s);"
+    "if(!_&&(E||D)){"
+)
+V3_PLAIN_PASTE_PREFIX = (
+    "if(s==null)return!1;if(b&&s.length===0)return!0;"
+)
+PATCHED_V3_PLAIN_PASTE_PREFIX = (
+    "if(s==null)return!1;"
+    "let A=Date.now(),B=e.dom.__codexLiteralPaste;"
+    "if(B!=null&&B.text===s&&A-B.at<250)return t.preventDefault(),!0;"
+    f"e.dom.__codexLiteralPaste={{at:A,text:s}};{PATCH_MARKER_DEDUPE}"
+    "if(b&&s.length===0)return!0;"
+)
+
 
 def _inline_rules_match(text: str):
     matches = []
@@ -153,6 +174,10 @@ def find_targets(asar: Path):
             or PATCHED_PASTE_ENTRY_V2 in text
             or PASTE_PARSE_V2 in text
             or PATCHED_PASTE_PARSE_V2 in text
+            or V3_INPUT_RULES in text
+            or V3_PASTE_ENTRY in text
+            or V3_MARKDOWN_EDITOR in text
+            or V3_MARKDOWN_PARSE in text
             or _inline_rules_match(text)
         ):
             targets.append((path, meta, text))
@@ -173,8 +198,16 @@ def patch_text(text: str):
         PASTE_ENTRY_V2 in text
         or PASTE_PARSE_V2 in text
     )
+    has_v3 = (
+        V3_INPUT_RULES in text
+        or V3_PASTE_ENTRY in text
+        or V3_MARKDOWN_EDITOR in text
+        or V3_MARKDOWN_PARSE in text
+    )
     if has_v1 and has_v2:
         raise RuntimeError("Found both legacy and current composer layouts")
+    if has_v3 and (has_v1 or has_v2):
+        raise RuntimeError("Found multiple composer layouts")
 
     if has_v1:
         if len(matches) != 1:
@@ -217,6 +250,83 @@ def patch_text(text: str):
 
         patched = text.replace(PASTE_ENTRY_V2, PATCHED_PASTE_ENTRY_V2, 1)
         patched = patched.replace(PASTE_PARSE_V2, PATCHED_PASTE_PARSE_V2, 1)
+        return patched, True
+
+    if has_v3:
+        required = (
+            V3_INPUT_RULES,
+            V3_PASTE_ENTRY,
+            V3_MARKDOWN_EDITOR,
+            V3_MARKDOWN_PARSE,
+        )
+        missing = [fragment for fragment in required if fragment not in text]
+        if missing:
+            raise RuntimeError(
+                "Incomplete 26.814 composer layout; missing "
+                + ", ".join(repr(fragment[:40]) for fragment in missing)
+            )
+        if text.count(V3_INPUT_RULES) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.814 inline Markdown input-rule list, "
+                f"found {text.count(V3_INPUT_RULES)}"
+            )
+        if text.count(V3_PASTE_ENTRY) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.814 composer paste-entry layout, "
+                f"found {text.count(V3_PASTE_ENTRY)}"
+            )
+        if text.count(V3_MARKDOWN_EDITOR) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.814 Markdown-editor paste layout, "
+                f"found {text.count(V3_MARKDOWN_EDITOR)}"
+            )
+        if text.count(V3_MARKDOWN_PARSE) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.814 Markdown parse layout, "
+                f"found {text.count(V3_MARKDOWN_PARSE)}"
+            )
+
+        patched = text.replace(
+            V3_INPUT_RULES,
+            f"...y?[]:[]{PATCH_MARKER_INPUT_RULES},",
+            1,
+        )
+        patched = patched.replace(
+            V3_PLAIN_PASTE_PREFIX,
+            PATCHED_V3_PLAIN_PASTE_PREFIX,
+            1,
+        )
+        patched = patched.replace(
+            V3_PASTE_ENTRY,
+            f"let h=null{PATCH_MARKER_HTML},",
+            1,
+        )
+        patched = patched.replace(
+            V3_MARKDOWN_EDITOR,
+            f"if(!1&&l!=null){{{PATCH_MARKER_MARKDOWN};let t=l.parse(s),",
+            1,
+        )
+        patched = patched.replace(
+            V3_MARKDOWN_PARSE,
+            "let E=Xpr(s)||d&&Zpr(s),D=!1"
+            f"{PATCH_MARKER_MARKDOWN};if(!_&&(E||D)){{",
+            1,
+        )
+        old_rich = (
+            "let t=E?rmr({schema:e.state.schema,text:s,enableCodeBlocks:x,"
+            "enableRichText:i,restoreMarkdownLinksAsTextLinks:d,"
+            "restorePathLinksAsFileMentions:f}):$pr({schema:e.state.schema,"
+            "text:s,enableCodeBlocks:x,enableRichText:i}),n=+!D;"
+        )
+        new_rich = (
+            "let t=E?rmr({schema:e.state.schema,text:s,enableCodeBlocks:x,"
+            "enableRichText:!1,restoreMarkdownLinksAsTextLinks:d,"
+            "restorePathLinksAsFileMentions:f}):$pr({schema:e.state.schema,"
+            "text:s,enableCodeBlocks:x,enableRichText:!1}),n=+!D;"
+        )
+        if old_rich not in patched:
+            raise RuntimeError("26.814 rich-text Markdown parse call not found")
+        patched = patched.replace(old_rich, new_rich, 1)
         return patched, True
 
     raise RuntimeError("Could not recognize a supported composer input layout")
@@ -263,6 +373,10 @@ def status(asar: Path):
             or PASTE_PARSE in text
             or PASTE_ENTRY_V2 in text
             or PASTE_PARSE_V2 in text
+            or V3_INPUT_RULES in text
+            or V3_PASTE_ENTRY in text
+            or V3_MARKDOWN_EDITOR in text
+            or V3_MARKDOWN_PARSE in text
         )
     ]
     return {

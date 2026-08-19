@@ -187,6 +187,7 @@ jobs:
           python patches/test_custom_provider_ultra.py
           python patches/test_voice_paste_shortcut.py
           python patches/test_composer_input_safety.py
+          python patches/test_reconnect_clear.py
           & ./patches/test_model_catalog_sync.ps1
           & ./patches/test_update_release_state.ps1
 

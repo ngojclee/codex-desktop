@@ -54,7 +54,7 @@ UNPATCHED_RE = re.compile(
     rf"for\(let\[(?P<id>{JS_IDENT}),(?P<conv>{JS_IDENT})\]of this\.conversations\)"
     r"(?P=conv)\.resumeState!==`needs_resume`&&\((?P=count)\+=1,this\.updateConversationState\((?P=id),"
     rf"(?P<cb>{JS_IDENT})=>\{{(?P=cb)\.resumeState=`needs_resume`\}}\)\);"
-    rf"(?P<logger>{JS_IDENT})\.info\(`websocket_reconnect_marked_threads_needing_resume`,"
+    rf"(?P<logger>(?:this\.)?{JS_IDENT})\.info\(`websocket_reconnect_marked_threads_needing_resume`,"
     r"\{safe:\{conversationCount:this\.conversations\.size,markedCount:(?P=count),previousStreamingCount:(?P=stream),previousRoleCount:(?P=role)\},sensitive:\{\}\}\)"
     r"\}"
 )

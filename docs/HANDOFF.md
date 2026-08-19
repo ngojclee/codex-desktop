@@ -82,7 +82,11 @@ Then it applies the current patch set to the copied app only:
   re-fetches from the now-fresh sidecar. Without Patch D, the renderer keeps
   its stale Map across reconnect and `markAllConversationsNeedResume
   AfterReconnect` only flipped a flag — the UI never refreshed without a
-  full app close+reopen. On upstream `26.513.x`, this reconnect clear now appears to regress thread-open hydration for some sessions, so the current release lane skips Patch D there until a safer variant is found.
+  full app close+reopen. The matcher supports both the older minified logger
+  form and current `this.logger.info(...)` form. On upstream `26.513.x`, this
+  reconnect clear now appears to regress thread-open hydration for some
+  sessions, so the current release lane skips Patch D there until a safer
+  variant is found.
 
 - `patch_codex_asar_ws_socks_bypass.py` *(Patch G)*
   Removes the hardcoded SOCKS5 agent from local WebSocket app-server transport
@@ -365,9 +369,12 @@ layouts:
 - Legacy builds use six ProseMirror input rules to auto-create strong/em marks
   from `*`, `**`, `***`, `_`, `__`, and `___`. Patch U removes those rules,
   then keeps pasted Markdown/HTML literal.
-- Current `26.810+` builds no longer contain those strong/em input rules.
-  Patch U recognizes the native layout, prevents the rich HTML/Markdown paste
-  conversion, and preserves existing plain-text typing behavior.
+- `26.810` builds no longer contain those strong/em input rules. Patch U
+  recognizes that layout, prevents the rich HTML/Markdown paste conversion,
+  and preserves existing plain-text typing behavior.
+- `26.814+` moved the composer to the `lza` editor path. Patch U removes that
+  path's strong/em input rules, bypasses rich HTML/Markdown import, and keeps
+  file/image, diff/code-block, link, and mention paths intact.
 
 In both layouts it adds a per-composer 250 ms exact-payload guard before the
 editor mutates. This targets the reported duplicate paste where a single
