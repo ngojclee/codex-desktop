@@ -684,7 +684,14 @@ two separate causes of accidental formatting/duplication:
   editor path. Patch U removes its strong/em input rules, keeps HTML and
   Markdown paste literal, and preserves the native file/image, diff, code
   block, link, and mention paths.
-- For both layouts, it records the last text payload on the composer DOM node
+- On `26.818+` composer layouts, upstream rebuilt the composer on top of the
+  PMU extension stack: the input rules now arrive as a plugin (`inputRules`)
+  in the editor plugins array, and the Markdown branch already parses with
+  `enableRichText:!1` by default. Patch U drops the PMU input-rules plugin
+  from the composer's plugin array, pins `enableRichText:!1` on the Markdown
+  parse call, keeps HTML paste literal, and preserves the native file/image,
+  diff, code block, link, and mention paths.
+- For all of these layouts, it records the last text payload on the composer DOM node
   and ignores the same payload delivered again within 250 ms. This targets the
   observed single-gesture duplicate where one `Ctrl+Z` removes only the second
   copy.

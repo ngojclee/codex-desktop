@@ -11,6 +11,10 @@ from patch_codex_asar_composer_input_safety import (
     V3_PASTE_ENTRY,
     V3_MARKDOWN_EDITOR,
     V3_MARKDOWN_PARSE,
+    V4_PLUGINS,
+    V4_PASTE_PREFIX,
+    V4_HTML,
+    V4_MARKDOWN,
     patch_text,
 )
 
@@ -58,6 +62,28 @@ SOURCE_V3 = (
     "return h==null?(jRa(e,s),!0):!0}}"
 )
 
+SOURCE_V4 = (
+    "function pGa(e=null,opts={}){let n,C=!0,_,v,w,f=!0,p=!1,SGa=1e5;"
+    "let g=mxn.create({schema:y,doc:k,"
+    "plugins:[mEn(),sGa(),"
+    "...v==null?[]:[v.plainTextPaste,v.listInput,v.codeBlockFenceExit,"
+    + V4_PLUGINS
+    + "],...KHa({triggers:h})});"
+    "g.setProps({"
+    "handlePaste(e,t){if(t.defaultPrevented)return!0;"
+    "let n=t.clipboardData,o=n?.getData(`text/plain`),"
+    "s=n?.getData(`text/html`),c=o?.trim();"
+    + V4_PASTE_PREFIX
+    + V4_HTML
+    + ","
+    "let h=d!=null?g.state.schema.nodes.doc.create(null,d.content):null;"
+    "if(_!=null)return!1;"
+    + V4_MARKDOWN
+    + ";return e.dispatch(e.state.tr.replaceSelection(new tC(t.content,1,1))),!0}"
+    "return h==null?(Iwa(e,o),!0):!0"
+    "}});return g}"
+)
+
 
 def assert_patched(name: str, source: str, upstream_fragments: tuple[str, ...]):
     patched, changed = patch_text(source)
@@ -102,5 +128,19 @@ if "let h=null/*U:plain-html-paste*/," not in v3_patched:
     raise AssertionError("26.814 composer: HTML paste is still rich")
 if "enableRichText:!1" not in v3_patched:
     raise AssertionError("26.814 composer: Markdown paste is still rich")
+
+v4_patched = assert_patched(
+    "26.818 composer",
+    SOURCE_V4,
+    (V4_PLUGINS, V4_PASTE_PREFIX, V4_HTML, V4_MARKDOWN),
+)
+if "v.inputRules,v.inputRulesHistoryIsolation" in v4_patched:
+    raise AssertionError("26.818 composer: PMU input rules remain in plugins")
+if "let d=null/*U:plain-html-paste*/," not in v4_patched:
+    raise AssertionError("26.818 composer: HTML paste is still rich")
+if "enableRichText:!1/*U:literal-markdown-paste*/" not in v4_patched:
+    raise AssertionError("26.818 composer: Markdown paste is still rich")
+if "if(C&&o.length===0)return!0;" not in v4_patched:
+    raise AssertionError("26.818 composer: paste-entry prefix mangled")
 
 print("Patch U composer input safety matcher tests passed.")
