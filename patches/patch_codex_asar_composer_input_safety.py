@@ -136,6 +136,40 @@ PATCHED_V3_PLAIN_PASTE_PREFIX = (
     "if(b&&s.length===0)return!0;"
 )
 
+# 26.818 (bundle app-initial-BhpTek7p.js) rebuilt the composer on top of the
+# PMU extension stack. Plain text is `o`, HTML is `s`, plain mode is `C`,
+# and the Markdown branch already parses with `enableRichText:!1` by default;
+# the input rules now arrive as a PMU plugin (`v.inputRules`) in the editor
+# plugins array.
+V4_PLUGINS = "v.inputRules,v.inputRulesHistoryIsolation"
+PATCHED_V4_PLUGINS = (
+    f"[]{PATCH_MARKER_INPUT_RULES},v.inputRulesHistoryIsolation"
+)
+V4_PASTE_PREFIX = (
+    "if(o==null)return!1;if(C&&o.length===0)return!0;"
+)
+PATCHED_V4_PASTE_PREFIX = (
+    "if(o==null)return!1;"
+    "let A=Date.now(),B=e.dom.__codexLiteralPaste;"
+    "if(B!=null&&B.text===o&&A-B.at<250)return t.preventDefault(),!0;"
+    f"e.dom.__codexLiteralPaste={{at:A,text:o}};{PATCH_MARKER_DEDUPE}"
+    "if(C&&o.length===0)return!0;"
+)
+V4_HTML = (
+    "let d=!C&&s!=null&&s.length>0&&s.length<=SGa&&(_==null||o.length>=5e3)"
+    "&&/<(?:a|ol|ul)\\b/i.test(s)?rNn(e,s):null"
+)
+PATCHED_V4_HTML = f"let d=null{PATCH_MARKER_HTML}"
+V4_MARKDOWN = (
+    "if(n$r(o)||f&&r$r(o)){let t=l$r({schema:e.state.schema,text:o,"
+    "restoreMarkdownLinksAsTextLinks:f,restorePathLinksAsFileMentions:p})"
+)
+PATCHED_V4_MARKDOWN = (
+    "if(n$r(o)||f&&r$r(o)){let t=l$r({schema:e.state.schema,text:o,"
+    f"enableRichText:!1{PATCH_MARKER_MARKDOWN},restoreMarkdownLinksAsTextLinks:f,"
+    "restorePathLinksAsFileMentions:p})"
+)
+
 
 def _inline_rules_match(text: str):
     matches = []
@@ -178,6 +212,10 @@ def find_targets(asar: Path):
             or V3_PASTE_ENTRY in text
             or V3_MARKDOWN_EDITOR in text
             or V3_MARKDOWN_PARSE in text
+            or V4_PLUGINS in text
+            or V4_PASTE_PREFIX in text
+            or V4_HTML in text
+            or V4_MARKDOWN in text
             or _inline_rules_match(text)
         ):
             targets.append((path, meta, text))
@@ -204,10 +242,37 @@ def patch_text(text: str):
         or V3_MARKDOWN_EDITOR in text
         or V3_MARKDOWN_PARSE in text
     )
+    has_v4 = (
+        V4_PLUGINS in text
+        or V4_PASTE_PREFIX in text
+        or V4_HTML in text
+        or V4_MARKDOWN in text
+    )
+    if has_v4 and (has_v1 or has_v2 or has_v3):
+        raise RuntimeError("Found multiple composer layouts")
     if has_v1 and has_v2:
         raise RuntimeError("Found both legacy and current composer layouts")
     if has_v3 and (has_v1 or has_v2):
         raise RuntimeError("Found multiple composer layouts")
+
+    if has_v4:
+        for fragment, label in (
+            (V4_PLUGINS, "input-rules plugin list"),
+            (V4_PASTE_PREFIX, "paste-entry prefix"),
+            (V4_HTML, "rich HTML parse"),
+            (V4_MARKDOWN, "Markdown parse call"),
+        ):
+            if text.count(fragment) != 1:
+                raise RuntimeError(
+                    f"Expected exactly one 26.818 {label}, "
+                    f"found {text.count(fragment)}"
+                )
+
+        patched = text.replace(V4_PLUGINS, PATCHED_V4_PLUGINS, 1)
+        patched = patched.replace(V4_PASTE_PREFIX, PATCHED_V4_PASTE_PREFIX, 1)
+        patched = patched.replace(V4_HTML, PATCHED_V4_HTML, 1)
+        patched = patched.replace(V4_MARKDOWN, PATCHED_V4_MARKDOWN, 1)
+        return patched, True
 
     if has_v1:
         if len(matches) != 1:
@@ -377,6 +442,10 @@ def status(asar: Path):
             or V3_PASTE_ENTRY in text
             or V3_MARKDOWN_EDITOR in text
             or V3_MARKDOWN_PARSE in text
+            or V4_PLUGINS in text
+            or V4_PASTE_PREFIX in text
+            or V4_HTML in text
+            or V4_MARKDOWN in text
         )
     ]
     return {
