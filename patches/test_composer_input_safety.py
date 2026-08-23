@@ -136,6 +136,10 @@ v4_patched = assert_patched(
 )
 if "v.inputRules,v.inputRulesHistoryIsolation" in v4_patched:
     raise AssertionError("26.818 composer: PMU input rules remain in plugins")
+if "v.codeBlockFenceExit,/*U:no-auto-inline-markdown*/v.inputRulesHistoryIsolation" not in v4_patched:
+    raise AssertionError("26.818 composer: PMU input rules were not cleanly dropped")
+if ",[]/*U:no-auto-inline-markdown*/" in v4_patched:
+    raise AssertionError("26.818 composer: empty array left in plugins list")
 if "let d=null/*U:plain-html-paste*/," not in v4_patched:
     raise AssertionError("26.818 composer: HTML paste is still rich")
 if "enableRichText:!1/*U:literal-markdown-paste*/" not in v4_patched:
