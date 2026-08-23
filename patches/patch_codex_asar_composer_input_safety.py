@@ -143,7 +143,7 @@ PATCHED_V3_PLAIN_PASTE_PREFIX = (
 # plugins array.
 V4_PLUGINS = "v.inputRules,v.inputRulesHistoryIsolation"
 PATCHED_V4_PLUGINS = (
-    f"[]{PATCH_MARKER_INPUT_RULES},v.inputRulesHistoryIsolation"
+    f"{PATCH_MARKER_INPUT_RULES}v.inputRulesHistoryIsolation"
 )
 V4_PASTE_PREFIX = (
     "if(o==null)return!1;if(C&&o.length===0)return!0;"
