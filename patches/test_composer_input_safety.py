@@ -13,9 +13,19 @@ from patch_codex_asar_composer_input_safety import (
     V3_MARKDOWN_PARSE,
     V4_PLUGINS,
     V4_PASTE_PREFIX,
-    V4_HTML,
+    V4_HTML_RE,
     V4_MARKDOWN,
     patch_text,
+)
+
+
+V4_HTML_OLD = (
+    "let d=!C&&s!=null&&s.length>0&&s.length<=SGa&&(_==null||o.length>=5e3)"
+    "&&/<(?:a|ol|ul)\\b/i.test(s)?rNn(e,s):null"
+)
+V4_HTML_NEW = (
+    "let d=!C&&s!=null&&s.length>0&&s.length<=wGa&&(_==null||o.length>=5e3)"
+    "&&/<(?:a|ol|ul)\\b/i.test(s)?lNn(e,s):null"
 )
 
 
@@ -74,13 +84,37 @@ SOURCE_V4 = (
     "let n=t.clipboardData,o=n?.getData(`text/plain`),"
     "s=n?.getData(`text/html`),c=o?.trim();"
     + V4_PASTE_PREFIX
-    + V4_HTML
+    + V4_HTML_OLD
     + ","
     "let h=d!=null?g.state.schema.nodes.doc.create(null,d.content):null;"
     "if(_!=null)return!1;"
+    "if(n$r(o)||f&&r$r(o)){let t=l$r({schema:e.state.schema,"
     + V4_MARKDOWN
-    + ";return e.dispatch(e.state.tr.replaceSelection(new tC(t.content,1,1))),!0}"
+    + "});return e.dispatch(e.state.tr.replaceSelection(new tC(t.content,1,1))),!0}"
     "return h==null?(Iwa(e,o),!0):!0"
+    "}});return g}"
+)
+
+SOURCE_V4B = (
+    "function pGa(e=null,opts={}){let n,C=!0,_,v,w,f=!0,p=!1,wGa=1e5;"
+    "let g=mxn.create({schema:y,doc:k,"
+    "plugins:[mEn(),sGa(),"
+    "...v==null?[]:[v.plainTextPaste,v.listInput,v.codeBlockFenceExit,"
+    + V4_PLUGINS
+    + "],...KHa({triggers:h})});"
+    "g.setProps({"
+    "handlePaste(e,t){if(t.defaultPrevented)return!0;"
+    "let n=t.clipboardData,o=n?.getData(`text/plain`),"
+    "s=n?.getData(`text/html`),c=o?.trim();"
+    + V4_PASTE_PREFIX
+    + V4_HTML_NEW
+    + ","
+    "let h=d!=null?g.state.schema.nodes.doc.create(null,d.content):null;"
+    "if(_!=null)return!1;"
+    "if(m$r(o)||f&&h$r(o)){let t=x$r({schema:e.state.schema,"
+    + V4_MARKDOWN
+    + "});return e.dispatch(e.state.tr.replaceSelection(new eC(t.content,1,1))),!0}"
+    "return h==null?(Uwa(e,o),!0):!0"
     "}});return g}"
 )
 
@@ -132,7 +166,7 @@ if "enableRichText:!1" not in v3_patched:
 v4_patched = assert_patched(
     "26.818 composer",
     SOURCE_V4,
-    (V4_PLUGINS, V4_PASTE_PREFIX, V4_HTML, V4_MARKDOWN),
+    (V4_PLUGINS, V4_PASTE_PREFIX, V4_HTML_OLD, V4_MARKDOWN),
 )
 if "v.inputRules,v.inputRulesHistoryIsolation" in v4_patched:
     raise AssertionError("26.818 composer: PMU input rules remain in plugins")
@@ -146,5 +180,17 @@ if "enableRichText:!1/*U:literal-markdown-paste*/" not in v4_patched:
     raise AssertionError("26.818 composer: Markdown paste is still rich")
 if "if(C&&o.length===0)return!0;" not in v4_patched:
     raise AssertionError("26.818 composer: paste-entry prefix mangled")
+
+v4b_patched = assert_patched(
+    "26.818 re-minified composer",
+    SOURCE_V4B,
+    (V4_PLUGINS, V4_PASTE_PREFIX, V4_HTML_NEW, V4_MARKDOWN),
+)
+if "let d=null/*U:plain-html-paste*/," not in v4b_patched:
+    raise AssertionError("26.818 re-minified composer: HTML paste is still rich")
+if "enableRichText:!1/*U:literal-markdown-paste*/" not in v4b_patched:
+    raise AssertionError("26.818 re-minified composer: Markdown paste is still rich")
+if ",[]/*U:no-auto-inline-markdown*/" in v4b_patched:
+    raise AssertionError("26.818 re-minified composer: empty array left in plugins list")
 
 print("Patch U composer input safety matcher tests passed.")
