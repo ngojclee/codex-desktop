@@ -155,19 +155,23 @@ PATCHED_V4_PASTE_PREFIX = (
     f"e.dom.__codexLiteralPaste={{at:A,text:o}};{PATCH_MARKER_DEDUPE}"
     "if(C&&o.length===0)return!0;"
 )
-V4_HTML = (
-    "let d=!C&&s!=null&&s.length>0&&s.length<=SGa&&(_==null||o.length>=5e3)"
-    "&&/<(?:a|ol|ul)\\b/i.test(s)?rNn(e,s):null"
+# The 26.818 composer gets re-minified on successive upstream rebuilds, which
+# shuffles the short helper names (SGa/rNn became wGa/lNn between 41705 and
+# 61809). Match the HTML parse structurally instead of by those unstable names.
+V4_HTML_RE = re.compile(
+    r"let d=!C&&s!=null&&s\.length>0&&s\.length<=[A-Za-z_$][A-Za-z0-9_$]*"
+    r"&&\(_==null\|\|o\.length>=5e3\)&&/<\(\?:a\|ol\|ul\)\\b/i\.test\(s\)"
+    r"\?[A-Za-z_$][A-Za-z0-9_$]*\(e,s\):null"
 )
 PATCHED_V4_HTML = f"let d=null{PATCH_MARKER_HTML}"
 V4_MARKDOWN = (
-    "if(n$r(o)||f&&r$r(o)){let t=l$r({schema:e.state.schema,text:o,"
-    "restoreMarkdownLinksAsTextLinks:f,restorePathLinksAsFileMentions:p})"
+    "text:o,restoreMarkdownLinksAsTextLinks:f,"
+    "restorePathLinksAsFileMentions:p"
 )
 PATCHED_V4_MARKDOWN = (
-    "if(n$r(o)||f&&r$r(o)){let t=l$r({schema:e.state.schema,text:o,"
-    f"enableRichText:!1{PATCH_MARKER_MARKDOWN},restoreMarkdownLinksAsTextLinks:f,"
-    "restorePathLinksAsFileMentions:p})"
+    f"text:o,enableRichText:!1{PATCH_MARKER_MARKDOWN},"
+    "restoreMarkdownLinksAsTextLinks:f,"
+    "restorePathLinksAsFileMentions:p"
 )
 
 
@@ -214,7 +218,7 @@ def find_targets(asar: Path):
             or V3_MARKDOWN_PARSE in text
             or V4_PLUGINS in text
             or V4_PASTE_PREFIX in text
-            or V4_HTML in text
+            or V4_HTML_RE.search(text) is not None
             or V4_MARKDOWN in text
             or _inline_rules_match(text)
         ):
@@ -245,7 +249,7 @@ def patch_text(text: str):
     has_v4 = (
         V4_PLUGINS in text
         or V4_PASTE_PREFIX in text
-        or V4_HTML in text
+        or V4_HTML_RE.search(text) is not None
         or V4_MARKDOWN in text
     )
     if has_v4 and (has_v1 or has_v2 or has_v3):
@@ -256,21 +260,31 @@ def patch_text(text: str):
         raise RuntimeError("Found multiple composer layouts")
 
     if has_v4:
-        for fragment, label in (
-            (V4_PLUGINS, "input-rules plugin list"),
-            (V4_PASTE_PREFIX, "paste-entry prefix"),
-            (V4_HTML, "rich HTML parse"),
-            (V4_MARKDOWN, "Markdown parse call"),
-        ):
-            if text.count(fragment) != 1:
-                raise RuntimeError(
-                    f"Expected exactly one 26.818 {label}, "
-                    f"found {text.count(fragment)}"
-                )
+        if text.count(V4_PLUGINS) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.818 input-rules plugin list, "
+                f"found {text.count(V4_PLUGINS)}"
+            )
+        if text.count(V4_PASTE_PREFIX) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.818 paste-entry prefix, "
+                f"found {text.count(V4_PASTE_PREFIX)}"
+            )
+        html_count = len(V4_HTML_RE.findall(text))
+        if html_count != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.818 rich HTML parse, "
+                f"found {html_count}"
+            )
+        if text.count(V4_MARKDOWN) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.818 Markdown parse call, "
+                f"found {text.count(V4_MARKDOWN)}"
+            )
 
         patched = text.replace(V4_PLUGINS, PATCHED_V4_PLUGINS, 1)
         patched = patched.replace(V4_PASTE_PREFIX, PATCHED_V4_PASTE_PREFIX, 1)
-        patched = patched.replace(V4_HTML, PATCHED_V4_HTML, 1)
+        patched = V4_HTML_RE.sub(lambda _: PATCHED_V4_HTML, patched, count=1)
         patched = patched.replace(V4_MARKDOWN, PATCHED_V4_MARKDOWN, 1)
         return patched, True
 
@@ -444,7 +458,7 @@ def status(asar: Path):
             or V3_MARKDOWN_PARSE in text
             or V4_PLUGINS in text
             or V4_PASTE_PREFIX in text
-            or V4_HTML in text
+            or V4_HTML_RE.search(text) is not None
             or V4_MARKDOWN in text
         )
     ]
