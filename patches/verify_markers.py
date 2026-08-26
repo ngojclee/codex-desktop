@@ -40,6 +40,16 @@ PATCH_J_CORRUPTED_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_$])[A-Za-z_$][A-Za-z0-9_$]{0,2}!0 {2,}"
 )
 PATCH_A_RUNTIME_HISTORY_MARKER = "/*A:history-limit*/1000"
+SIGNALS_FILENAME_HINTS = (
+    "app-server-manager-signals-",
+    "codex-micro-slot-signals-",
+)
+RECENT_STATE_CONTENT_MARKERS = (
+    "__capV3=2000",
+    "__pdIds",
+    "getHistoryLimit",
+    "markAllConversationsNeedResumeAfterReconnect",
+)
 SOCKS_LITERAL = "socks5h://127.0.0.1:1080"
 SAFE_SOCKS_LOOPBACK_PATTERN = re.compile(
     r"function\s+[A-Za-z_$][A-Za-z0-9_$]*"
@@ -122,28 +132,28 @@ def _extract(asar: Path, payload_start: int, meta: dict) -> str:
 
 def find_signals(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
-    candidates = []
+    # Upstream renamed the signals chunk between releases (and 26.820 gutted
+    # the old one entirely), so rank chunks by recent-state content instead of
+    # trusting the filename alone.
+    best = None
     for path, meta in _walk(header):
-        if (
+        if not (
             path.startswith("webview/assets/")
-            and "app-server-manager-signals-" in path
             and path.endswith(".js")
+            and "offset" in meta
         ):
-            return path, _extract(asar, payload_start, meta)
-        if path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta:
-            text = _extract(asar, payload_start, meta)
-            if (
-                "__capV3=2000" in text
-                and "__pdIds" in text
-                and "getHistoryLimit" in text
-                and "markAllConversationsNeedResumeAfterReconnect" in text
-            ):
-                candidates.append((path, text))
-    if len(candidates) == 1:
-        return candidates[0]
-    if len(candidates) > 1:
-        raise SystemExit(f"Multiple recent state chunks found: {[p for p, _ in candidates]}")
-    raise SystemExit("Could not find recent state renderer chunk in app.asar")
+            continue
+        text = _extract(asar, payload_start, meta)
+        hits = sum(1 for marker in RECENT_STATE_CONTENT_MARKERS if marker in text)
+        named = any(hint in path for hint in SIGNALS_FILENAME_HINTS)
+        if hits == 0 and not named:
+            continue
+        score = hits * 2 + (1 if named else 0)
+        if best is None or score > best[0]:
+            best = (score, path, text)
+    if best is None:
+        raise SystemExit("Could not find recent state renderer chunk in app.asar")
+    return best[1], best[2]
 
 
 def find_js_occurrences(app_dir: Path, needle: str):

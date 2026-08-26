@@ -49,6 +49,10 @@ PATCH_PATTERNS = (
     ),
 )
 
+RECENT_WINDOW_FILENAME_HINTS = (
+    "app-server-manager-signals-",
+    "codex-micro-slot-signals-",
+)
 RUNTIME_HISTORY_MARKER = "/*A:history-limit*/"
 RUNTIME_HISTORY_PATTERN = re.compile(
     r"function (?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)"
@@ -81,31 +85,36 @@ def iter_files(node, parts=()):
 
 
 def find_target(header, asar_path: Path | None = None, payload_start: int | None = None):
-    candidates = []
+    # Upstream keeps reshuffling the recent-state chunk name, so rank by
+    # content evidence first; the historical filename only breaks ties.
+    can_read = asar_path is not None and payload_start is not None
+    best = None
     for path, meta in iter_files(header):
-        if (
+        if not (
             path.startswith("webview/assets/")
             and path.endswith(".js")
-            and "app-server-manager-signals-" in path
             and "offset" in meta
         ):
-            candidates.append((path, meta))
-    if not candidates and asar_path is not None and payload_start is not None:
-        for path, meta in iter_files(header):
-            if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
-                continue
-            text = extract_file(asar_path, payload_start, meta).decode("utf-8", "replace")
-            if (
-                "listRecentThreads" in text
-                and "getHistoryLimit" in text
-                and "recentConversationSortKey" in text
-            ):
-                candidates.append((path, meta))
-    if not candidates:
+            continue
+        named = any(hint in path for hint in RECENT_WINDOW_FILENAME_HINTS)
+        if not can_read:
+            if named:
+                return path, meta
+            continue
+        text = extract_file(asar_path, payload_start, meta).decode("utf-8", "replace")
+        hits = sum(
+            1
+            for needle in ("listRecentThreads", "getHistoryLimit", "recentConversationSortKey")
+            if needle in text
+        )
+        if hits == 0 and not named:
+            continue
+        score = hits * 2 + (1 if named else 0)
+        if best is None or score > best[0]:
+            best = (score, (path, meta))
+    if best is None:
         raise RuntimeError("Could not find recent-conversation renderer chunk in app.asar")
-    if len(candidates) > 1:
-        raise RuntimeError(f"Expected one target chunk, found {len(candidates)}: {[p for p, _ in candidates]}")
-    return candidates[0]
+    return best[1]
 
 
 def extract_file(asar_path: Path, payload_start: int, meta: dict) -> bytes:

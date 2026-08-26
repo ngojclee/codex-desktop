@@ -145,35 +145,38 @@ def iter_files(node, parts=()):
 
 
 def find_target(header, asar_path: Path | None = None, payload_start: int | None = None):
+    can_read = asar_path is not None and payload_start is not None
+    best = None
     for path, meta in iter_files(header):
-        if (
+        if not (
             path.startswith("webview/assets/")
             and path.endswith(".js")
-            and "app-server-manager-signals-" in path
             and "offset" in meta
         ):
-            return path, meta
-    if asar_path is not None and payload_start is not None:
-        candidates = []
-        for path, meta in iter_files(header):
-            if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
-                continue
+            continue
+        named = (
+            "app-server-manager-signals-" in path
+            or "codex-micro-slot-signals-" in path
+        )
+        state_score = 0
+        if can_read:
             text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
-            if (
-                V3_MARKER in text
-                or UNPATCHED_SEARCH in text
-                or (any(pattern in text for pattern in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text)
-                or (
-                    NATIVE_HISTORY_26_715_MARKER in text
-                    and _native_history_evidence_matched(text)
-                )
-            ):
-                candidates.append((path, meta))
-        if len(candidates) == 1:
-            return candidates[0]
-        if len(candidates) > 1:
-            raise RuntimeError(f"Multiple recent-conversation chunks found: {[p for p, _ in candidates]}")
-    raise RuntimeError("Could not find recent-conversation renderer chunk")
+            if V3_MARKER in text or UNPATCHED_SEARCH in text:
+                state_score = 4
+            elif any(p in text for p in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text:
+                state_score = 4
+            elif NATIVE_HISTORY_26_715_MARKER in text and _native_history_evidence_matched(text):
+                state_score = 4
+            elif V1_SEARCH in text or (V2_GUARD in text and "__cap=2000" in text):
+                state_score = 3
+        if state_score == 0 and not named:
+            continue
+        score = state_score * 2 + (1 if named else 0)
+        if best is None or score > best[0]:
+            best = (score, (path, meta))
+    if best is None:
+        raise RuntimeError("Could not find recent-conversation renderer chunk")
+    return best[1]
 
 
 def extract(asar_path: Path, payload_start: int, meta: dict) -> bytes:
