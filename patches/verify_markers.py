@@ -796,7 +796,14 @@ def main():
             ),
             True,
         ),
-        ("Patch A — residual `limit:50` count == 0", lambda: signals_txt.count("limit:50") == 0, True),
+        (
+            "Patch A — legacy capped recent-window shapes absent",
+            lambda: (
+                "limit:50*this.recentConversationPageCount" not in signals_txt
+                and "limit:50,cursor:this.nextRecentConversationCursor" not in signals_txt
+            ),
+            True,
+        ),
         ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in signals_txt, True),
         ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_txt, True),
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
