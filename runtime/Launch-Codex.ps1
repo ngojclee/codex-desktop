@@ -109,6 +109,17 @@ function Ensure-GoogleMcpConfig {
     }
 }
 
+function Ensure-StreamResilience {
+    $ensureScript = Join-Path $PSScriptRoot 'Ensure-Codex-StreamResilience.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Write-Host "WARN: stream resilience ensure failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -353,6 +364,7 @@ Refresh-SharedSkills
 Sync-ModelCatalog
 Import-CodexMcpSecretEnvironment
 Ensure-GoogleMcpConfig
+Ensure-StreamResilience
 
 # --- Computer Use unlock (Patch J) ---
 # The bundled plugin reconciliation for computer-use on Windows requires:
@@ -409,6 +421,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
     Refresh-SharedSkills
     Sync-ModelCatalog
     Ensure-GoogleMcpConfig
+    Ensure-StreamResilience
 }
 
 # Cleanup any stale state file pointing at a dead sidecar.
