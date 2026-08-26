@@ -76,7 +76,31 @@ NATIVE_HISTORY_26_715_EVIDENCE = (
     "loadedThreadCount:s.data.length",
     "useStateDbOnly:!0",
 )
+ # 26.820 dropped `loadedThreadCount` and moved the recent-conversation state
+ # out of the renamed signals chunk into the main bundle, so accept either
+ # evidence set when locating the native expanded-history path.
+NATIVE_HISTORY_26_820_EVIDENCE = (
+    "Math.min(a,100)",
+    "for(;e.length<a&&n!=null&&!t.has(n);)",
+    "e.push(...r.data.slice(0,a-e.length))",
+    "useStateDbOnly:!0",
+)
 NATIVE_HISTORY_MARKER_ANCHOR = "this.params.onHistoryLoaded?.("
+NATIVE_HISTORY_MARKER_ANCHOR_26_820 = "limit:i?Math.min(a,100):a"
+
+
+def _native_history_evidence_matched(text: str) -> bool:
+    return (
+        all(evidence in text for evidence in NATIVE_HISTORY_26_715_EVIDENCE)
+        or all(evidence in text for evidence in NATIVE_HISTORY_26_820_EVIDENCE)
+    )
+
+
+def _native_history_marker_anchor(text: str):
+    for anchor in (NATIVE_HISTORY_MARKER_ANCHOR, NATIVE_HISTORY_MARKER_ANCHOR_26_820):
+        if anchor in text:
+            return anchor
+    return None
 
 UNPATCHED_SEARCH = (
     "let t=await this.listRecentThreads({limit:1000*this.recentConversationPageCount,cursor:null});"
@@ -141,7 +165,7 @@ def find_target(header, asar_path: Path | None = None, payload_start: int | None
                 or (any(pattern in text for pattern in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text)
                 or (
                     NATIVE_HISTORY_26_715_MARKER in text
-                    and all(evidence in text for evidence in NATIVE_HISTORY_26_715_EVIDENCE)
+                    and _native_history_evidence_matched(text)
                 )
             ):
                 candidates.append((path, meta))
@@ -171,7 +195,7 @@ def detect_state(text: str) -> str:
         return "native_expanded_history"
     if (
         NATIVE_HISTORY_26_715_MARKER in text
-        and all(evidence in text for evidence in NATIVE_HISTORY_26_715_EVIDENCE)
+        and _native_history_evidence_matched(text)
     ):
         return "native_expanded_history"
     return "unknown"
@@ -270,7 +294,8 @@ def apply_v3(app_dir: Path) -> dict:
 
     if state != "unpatched":
         if state == "native_expanded_history":
-            if NATIVE_HISTORY_MARKER_ANCHOR not in original:
+            marker_anchor = _native_history_marker_anchor(original)
+            if marker_anchor is None:
                 return {"status": "error", "reason": "native marker anchor missing", "asar": str(asar_path)}
 
             pre_v3_bak = asar_path.with_name("app.asar.bak-before-v3")
@@ -278,8 +303,8 @@ def apply_v3(app_dir: Path) -> dict:
                 shutil.copy2(asar_path, pre_v3_bak)
 
             patched_text = original.replace(
-                NATIVE_HISTORY_MARKER_ANCHOR,
-                f"/*{V3_MARKER}*/{NATIVE_HISTORY_MARKER_ANCHOR}",
+                marker_anchor,
+                f"/*{V3_MARKER}*/{marker_anchor}",
                 1,
             )
             repack(asar_path, header, payload_start, target_path, patched_text.encode("utf-8"))
