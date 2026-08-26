@@ -737,6 +737,27 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
 State file: `~/.codex/desktop-shared-app-server.json` holds the live `ws_url`, `port`, `sidecar_pid`, and `log` path while Codex is running.
 
+## Release email notifications
+
+The `Auto repatch on upstream release` workflow emails the run result (patch
+success or failure, upstream tag, release tag, asset name, and a link to the
+run log) after every scheduled or manual attempt. To enable it, add these
+repository secrets (`Settings -> Secrets and variables -> Actions`):
+
+- `MAIL_TO` — recipient address.
+- `MAIL_SMTP_HOST` — SMTP server, for example `smtp.gmail.com`.
+- `MAIL_SMTP_PORT` — optional, defaults to `587`.
+- `MAIL_SMTP_USER` / `MAIL_SMTP_PASSWORD` — SMTP login; for Gmail create an
+  app password at https://myaccount.google.com/apppasswords.
+- `MAIL_FROM` — optional custom From header; falls back to
+  `MAIL_SMTP_USER`.
+
+While any of `MAIL_TO`, `MAIL_SMTP_HOST`, or `MAIL_SMTP_USER` is missing the
+mail steps skip themselves and the rest of the workflow is unaffected. GitHub
+also sends its own built-in failure emails for workflows you trigger when repo
+watching includes Actions notifications; this step additionally covers success
+runs and works even with watching disabled.
+
 ## Credits & License
 
 - Upstream binary: [ngojclee/codex-desktop-rebuild](https://github.com/ngojclee/codex-desktop-rebuild) — our unpatched rebuild lane, forked from [Haleclipse/CodexDesktop-Rebuild](https://github.com/Haleclipse/CodexDesktop-Rebuild).
