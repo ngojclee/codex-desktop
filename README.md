@@ -669,6 +669,12 @@ Patch T removes only the default Voice Mode keybinding. Voice Mode remains
 available through the UI and can still use a user-assigned shortcut. The patch
 does not alter ordinary `Ctrl+V` handling.
 
+On `26.825+` upstream moved this command to per-platform defaults with an empty
+non-macOS bucket (`platformDefaultKeybindings:{macOS:[{key:Ctrl+Shift+V}],
+default:[]}`), which is already the outcome Patch T produces on Windows. There
+the patcher reports `upstream_safe` and leaves the bundle untouched; older
+layouts are still rewritten as before.
+
 ### Patch U -- Composer literal input and duplicate-paste guard
 
 Patch U keeps technical prompt text literal in the rich composer. It addresses

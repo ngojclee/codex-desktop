@@ -61,6 +61,29 @@ PATCHED_FILTER_PATTERN_V3 = re.compile(
     rf"!(?P=model)\.hidden\)"
 )
 
+# 26.825 added a native `hasConfiguredModelCatalog && !hidden` clause before
+# the Statsig allowlist ternary. Keep widening the allowlist branch so models
+# stay visible even when no catalog is configured.
+FILTER_PATTERN_V4 = re.compile(
+    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
+    rf"(?P=model)\.model!==`codex-auto-review`&&\("
+    rf"(?P<catalog>{IDENT})&&!(?P=model)\.hidden\|\|\("
+    rf"(?P<flag>{IDENT})&&!(?P<custom>{IDENT})&&"
+    rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"(?P<available>{IDENT})\.has\((?P=model)\.model\):"
+    rf"!(?P=model)\.hidden\)\)"
+)
+PATCHED_FILTER_PATTERN_V4 = re.compile(
+    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
+    rf"(?P=model)\.model!==`codex-auto-review`&&\("
+    rf"(?P<catalog>{IDENT})&&!(?P=model)\.hidden\|\|\("
+    rf"(?P<flag>{IDENT})&&!(?P<custom>{IDENT})&&"
+    rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"\((?P<available>{IDENT})\.has\((?P=model)\.model\)\|"
+    rf"\|(?:{re.escape(PATCH_MARKER)})?!(?P=model)\.hidden\):"
+    rf"!(?P=model)\.hidden\)\)"
+)
+
 
 def read_header(asar_path: Path):
     with asar_path.open("rb") as f:
@@ -161,7 +184,26 @@ def patch_filter_text(text: str):
         )
 
     text, v3_count = FILTER_PATTERN_V3.subn(replace_v3, text)
-    return text, v1_count + v2_count + v3_count
+
+    def replace_v4(match: re.Match):
+        extra = match.group("extra")
+        model = match.group("model")
+        catalog = match.group("catalog")
+        flag = match.group("flag")
+        custom = match.group("custom")
+        auth = match.group("auth")
+        available = match.group("available")
+        return (
+            f"{extra}?.has({model}.model)===!0||"
+            f"{model}.model!==`codex-auto-review`&&("
+            f"{catalog}&&!{model}.hidden||("
+            f"{flag}&&!{custom}&&{auth}!==`amazonBedrock`?"
+            f"({available}.has({model}.model)||{PATCH_MARKER}!{model}.hidden):"
+            f"!{model}.hidden))"
+        )
+
+    text, v4_count = FILTER_PATTERN_V4.subn(replace_v4, text)
+    return text, v1_count + v2_count + v3_count + v4_count
 
 
 def repack(asar_path: Path, header: dict, payload_start: int, patched_by_path: dict[str, bytes]):
@@ -219,6 +261,8 @@ def find_targets(asar: Path):
             or PATCHED_FILTER_PATTERN_V2.search(text)
             or FILTER_PATTERN_V3.search(text)
             or PATCHED_FILTER_PATTERN_V3.search(text)
+            or FILTER_PATTERN_V4.search(text)
+            or PATCHED_FILTER_PATTERN_V4.search(text)
         ):
             targets.append((path, meta, text))
     return header, payload_start, targets
@@ -233,6 +277,7 @@ def verify(asar: Path):
             PATCHED_FILTER_PATTERN.search(text)
             or PATCHED_FILTER_PATTERN_V2.search(text)
             or PATCHED_FILTER_PATTERN_V3.search(text)
+            or PATCHED_FILTER_PATTERN_V4.search(text)
         )
     ]
     unpatched = [
@@ -242,6 +287,7 @@ def verify(asar: Path):
             FILTER_PATTERN.search(text)
             or FILTER_PATTERN_V2.search(text)
             or FILTER_PATTERN_V3.search(text)
+            or FILTER_PATTERN_V4.search(text)
         )
     ]
     if not marker_paths:

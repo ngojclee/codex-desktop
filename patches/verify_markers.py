@@ -28,11 +28,16 @@ from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN as PATCH_O_OLD_PATTERN,
     FILTER_PATTERN_V2 as PATCH_O_OLD_PATTERN_V2,
     FILTER_PATTERN_V3 as PATCH_O_OLD_PATTERN_V3,
+    FILTER_PATTERN_V4 as PATCH_O_OLD_PATTERN_V4,
     PATCHED_FILTER_PATTERN as PATCH_O_SAFE_PATTERN,
     PATCHED_FILTER_PATTERN_V2 as PATCH_O_SAFE_PATTERN_V2,
     PATCHED_FILTER_PATTERN_V3 as PATCH_O_SAFE_PATTERN_V3,
+    PATCHED_FILTER_PATTERN_V4 as PATCH_O_SAFE_PATTERN_V4,
 )
 from patch_codex_asar_composer_input_safety import status as patch_u_status
+from patch_codex_asar_voice_paste_shortcut import (
+    UPSTREAM_SAFE_PATTERN as PATCH_T_UPSTREAM_SAFE_PATTERN,
+)
 
 PATCH_J_MARKER = "/*J*/"
 PATCH_J_GATES = ("1506311413", "410065390", "410262010")
@@ -267,18 +272,22 @@ def model_availability_filter_status(app_dir: Path):
             or PATCH_O_SAFE_PATTERN_V2.search(text)
             or PATCH_O_OLD_PATTERN_V3.search(text)
             or PATCH_O_SAFE_PATTERN_V3.search(text)
+            or PATCH_O_OLD_PATTERN_V4.search(text)
+            or PATCH_O_SAFE_PATTERN_V4.search(text)
         ):
             candidate_paths.append(path)
         if (
             PATCH_O_SAFE_PATTERN.search(text)
             or PATCH_O_SAFE_PATTERN_V2.search(text)
             or PATCH_O_SAFE_PATTERN_V3.search(text)
+            or PATCH_O_SAFE_PATTERN_V4.search(text)
         ):
             marker_entries.append((path, text))
         if (
             PATCH_O_OLD_PATTERN.search(text)
             or PATCH_O_OLD_PATTERN_V2.search(text)
             or PATCH_O_OLD_PATTERN_V3.search(text)
+            or PATCH_O_OLD_PATTERN_V4.search(text)
         ):
             unpatched_paths.append(path)
 
@@ -580,6 +589,7 @@ def custom_provider_ultra_status(app_dir: Path):
 def voice_paste_shortcut_status(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
     marker_entries = []
+    safe_entries = []
     unpatched_paths = []
 
     for path, meta in _walk(header):
@@ -592,16 +602,19 @@ def voice_paste_shortcut_status(app_dir: Path):
         text = _extract(asar, payload_start, meta)
         if PATCH_T_MARKER in text:
             marker_entries.append((path, text))
+        elif PATCH_T_UPSTREAM_SAFE_PATTERN.search(text):
+            safe_entries.append((path, text))
         if PATCH_T_UPSTREAM_PATTERN.search(text):
             unpatched_paths.append(path)
 
     syntax_errors = []
     node = shutil.which("node")
-    if marker_entries and node is None:
+    syntax_targets = marker_entries + safe_entries
+    if syntax_targets and node is None:
         syntax_errors.append("node executable not found for Patch T syntax verification")
-    elif marker_entries:
+    elif syntax_targets:
         with tempfile.TemporaryDirectory(prefix="codex-patch-t-syntax-") as temp_dir:
-            for index, (path, text) in enumerate(marker_entries):
+            for index, (path, text) in enumerate(syntax_targets):
                 check_path = Path(temp_dir) / f"chunk-{index}.mjs"
                 check_path.write_text(text, encoding="utf-8")
                 result = subprocess.run(
@@ -619,6 +632,7 @@ def voice_paste_shortcut_status(app_dir: Path):
 
     return {
         "marker_paths": sorted(path for path, _text in marker_entries),
+        "upstream_safe_paths": sorted(path for path, _text in safe_entries),
         "unpatched_paths": sorted(set(unpatched_paths)),
         "syntax_errors": syntax_errors,
     }
@@ -768,6 +782,10 @@ def main():
     print(f"Patch T Voice Mode paste-key marker paths: {len(patch_t['marker_paths'])}")
     for path in patch_t["marker_paths"]:
         print(f"  - {path}")
+    if patch_t["upstream_safe_paths"]:
+        print("Patch T upstream platform-scoped (Windows already unbound):")
+        for path in patch_t["upstream_safe_paths"]:
+            print(f"  - {path}")
     if patch_t["unpatched_paths"]:
         print("Patch T conflicting Ctrl+Shift+V bindings still present:")
         for path in patch_t["unpatched_paths"]:
@@ -854,7 +872,14 @@ def main():
         ("Patch S — API-key Ultra marker", lambda: len(patch_s["marker_paths"]) > 0, True),
         ("Patch S — upstream model-list Ultra gate absent", lambda: len(patch_s["unpatched_paths"]) == 0, True),
         ("Patch S — touched renderer chunks pass syntax check", lambda: len(patch_s["syntax_errors"]) == 0, True),
-        ("Patch T — Voice Mode paste-key marker", lambda: len(patch_t["marker_paths"]) > 0, True),
+        (
+            "Patch T — Voice Mode paste-key marker or upstream platform-scoped",
+            lambda: (
+                len(patch_t["marker_paths"]) > 0
+                or len(patch_t["upstream_safe_paths"]) > 0
+            ),
+            True,
+        ),
         ("Patch T — conflicting Ctrl+Shift+V binding absent", lambda: len(patch_t["unpatched_paths"]) == 0, True),
         ("Patch T — touched renderer chunks pass syntax check", lambda: len(patch_t["syntax_errors"]) == 0, True),
         ("Patch U — composer safety markers present", lambda: len(patch_u["marker_paths"]) > 0, True),

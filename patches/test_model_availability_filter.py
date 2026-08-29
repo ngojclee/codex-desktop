@@ -4,8 +4,10 @@ import unittest
 from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN,
     FILTER_PATTERN_V3,
+    FILTER_PATTERN_V4,
     PATCHED_FILTER_PATTERN,
     PATCHED_FILTER_PATTERN_V3,
+    PATCHED_FILTER_PATTERN_V4,
     PATCH_MARKER,
     patch_filter_text,
 )
@@ -67,6 +69,23 @@ class ModelAvailabilityFilterTests(unittest.TestCase):
         patched, count = patch_filter_text(source)
         self.assertEqual(count, 0)
         self.assertEqual(patched, source)
+
+    def test_26_825_configured_catalog_layout(self):
+        source = (
+            "function x({availableModels:n,hasConfiguredModelCatalog:r,"
+            "isCustomModelProvider:i,model:a,useHiddenModels:o}){"
+            "return e?.has(a.model)===!0||a.model!==`codex-auto-review`&&"
+            "(r&&!a.hidden||(o&&!i&&t!==`amazonBedrock`?n.has(a.model):!a.hidden))}"
+        )
+        patched, count = patch_filter_text(source)
+        self.assertEqual(count, 1)
+        self.assertIn(
+            "r&&!a.hidden||(o&&!i&&t!==`amazonBedrock`?"
+            "(n.has(a.model)||/*O*/!a.hidden):!a.hidden)",
+            patched,
+        )
+        self.assertIsNone(FILTER_PATTERN_V4.search(patched))
+        self.assertIsNotNone(PATCHED_FILTER_PATTERN_V4.search(patched))
 
 
 if __name__ == "__main__":
