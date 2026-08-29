@@ -36,6 +36,18 @@ UPSTREAM_PATTERN = re.compile(
     r"(?P<suffix>\}\})"
 )
 
+# 26.825 moved Voice Mode to per-platform defaults and left the non-macOS
+# bucket empty (`platformDefaultKeybindings:{macOS:[{key:`Ctrl+Shift+V`}],
+# default:[]}`), which is exactly the outcome Patch T was created to produce
+# on Windows. Treat that layout as already safe instead of failing.
+UPSTREAM_SAFE_PATTERN = re.compile(
+    r"(?:\"id\"|id):(?P<quote>[`'\"])composer\.startVoiceMode(?P=quote),"
+    r"[^{}]{0,1600}?(?:\"electron\"|electron):\{"
+    r"(?:\"platformDefaultKeybindings\"|platformDefaultKeybindings):\{"
+    r"(?:[^{}]|\[[^][]*\{[^{}]*\}[^][]*\])*?"
+    r"(?:\"default\"|default):\s*\[\]"
+)
+
 
 def find_targets(asar: Path):
     header, payload_start = read_header(asar)
@@ -48,7 +60,11 @@ def find_targets(asar: Path):
         ):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if PATCH_MARKER in text or UPSTREAM_PATTERN.search(text):
+        if (
+            PATCH_MARKER in text
+            or UPSTREAM_PATTERN.search(text)
+            or UPSTREAM_SAFE_PATTERN.search(text)
+        ):
             targets.append((path, meta, text))
     return header, payload_start, targets
 
@@ -102,18 +118,26 @@ def verify(asar: Path):
     marker_entries = [
         (path, text) for path, _meta, text in targets if PATCH_MARKER in text
     ]
+    safe_entries = [
+        (path, text)
+        for path, _meta, text in targets
+        if UPSTREAM_SAFE_PATTERN.search(text)
+    ]
     unpatched_paths = [
         path for path, _meta, text in targets if UPSTREAM_PATTERN.search(text)
     ]
-    if not marker_entries:
-        raise SystemExit("Verification failed: Patch T marker not found")
+    if not marker_entries and not safe_entries:
+        raise SystemExit(
+            "Verification failed: Patch T marker not found and upstream does "
+            "not scope the Voice Mode Ctrl+Shift+V binding away from Windows"
+        )
     if unpatched_paths:
         raise SystemExit(
             "Verification failed: Ctrl+Shift+V Voice Mode binding remains in "
             f"{sorted(set(unpatched_paths))}"
         )
 
-    errors = syntax_errors(marker_entries)
+    errors = syntax_errors(marker_entries + safe_entries)
     if errors:
         raise SystemExit(
             "Verification failed: Patch T syntax errors:\n"
@@ -121,6 +145,7 @@ def verify(asar: Path):
         )
     return {
         "marker_paths": sorted(path for path, _text in marker_entries),
+        "upstream_safe_paths": sorted(path for path, _text in safe_entries),
         "unpatched_paths": sorted(set(unpatched_paths)),
         "syntax_errors": errors,
     }
@@ -149,6 +174,9 @@ def main():
     scanned = []
     for path, _meta, text in targets:
         scanned.append(path)
+        if PATCH_MARKER not in text and UPSTREAM_SAFE_PATTERN.search(text):
+            # Upstream already keeps Ctrl+Shift+V off Windows; nothing to do.
+            continue
         try:
             patched_text, changed = patch_text(text)
         except RuntimeError as exc:
@@ -164,10 +192,16 @@ def main():
         repack(asar, header, payload_start, patched_by_path)
 
     result = verify(asar)
+    if patched_by_path:
+        status = "patched"
+    elif result["marker_paths"]:
+        status = "already_patched"
+    else:
+        status = "upstream_safe"
     print(
         json.dumps(
             {
-                "status": "patched" if patched_by_path else "already_patched",
+                "status": status,
                 "asar": str(asar),
                 "scanned": sorted(set(scanned)),
                 "patched": sorted(patched_by_path),
