@@ -247,12 +247,28 @@ jobs:
           python patches/test_reconnect_clear.py
           & ./patches/test_model_catalog_sync.ps1
           & ./patches/test_update_release_state.ps1
+          & ./patches/test_repair_project_config.ps1
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+
+      - name: Validate Codex Desktop Relay plugin
+        if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -LiteralPath 'plugins\codex-desktop-relay\.codex-plugin\plugin.json' -Raw | ConvertFrom-Json
+          if ($manifest.name -ne 'codex-desktop-relay' -or -not $manifest.mcpServers) {
+            throw 'Codex Desktop Relay plugin manifest is invalid'
+          }
+          $marketplace = Get-Content -LiteralPath '.agents\plugins\marketplace.json' -Raw | ConvertFrom-Json
+          if (-not (@($marketplace.plugins | ForEach-Object name) -contains 'codex-desktop-relay')) {
+            throw 'Codex Desktop Relay plugin is missing from the Git marketplace'
+          }
+          node --check 'plugins\codex-desktop-relay\mcp\server.mjs'
+          node 'plugins\codex-desktop-relay\mcp\test-server.mjs'
 
       - name: Setup Rust
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -576,15 +592,42 @@ jobs:
 
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
-            'Launch-Codex.ps1' = 'Ensure-Codex-GoogleMcp.ps1'
+            'Launch-Codex.ps1' = 'Ensure-Codex-AppToolsMcp.ps1'
             'Sync-Codex-ModelCatalog.ps1' = 'Existing gpt-5.6 Sol/Terra/Luna entries'
             'Ensure-Codex-GoogleMcp.ps1' = 'CODEX_GOOGLE_MCP_DISABLE'
+            'Ensure-Codex-AppToolsMcp.ps1' = 'resources\plugins'
             'Update-Codex.ps1' = 'Test-CodexReleaseStateMatch'
           }
           foreach ($entry in $markerChecks.GetEnumerator()) {
             $path = Join-Path $tools $entry.Key
             if (-not (Select-String -LiteralPath $path -Pattern $entry.Value -SimpleMatch -Quiet)) {
               throw "Bundled tools verification failed: $($entry.Key) missing marker '$($entry.Value)'"
+            }
+          }
+
+          # Desktop 26.825+ stores the codex-app-tools transport only in
+          # desktop-mcp.json. Materialize the companion .mcp.json in the
+          # release itself so the sidecar sees codex_app before the first
+          # launch, then the runtime helper keeps future plugin caches healed.
+          $appDir = (Resolve-Path build).Path
+          $appToolsMirror = Join-Path $tools 'Ensure-Codex-AppToolsMcp.ps1'
+          & $appToolsMirror -InstallDir $appDir -Quiet
+          if (-not $?) {
+            throw "Bundled tools verification failed: Ensure-Codex-AppToolsMcp.ps1 failed"
+          }
+
+          $desktopMcpFiles = @(
+            Get-ChildItem -LiteralPath (Join-Path $appDir 'resources\plugins') -Recurse -File -Filter 'desktop-mcp.json' -ErrorAction SilentlyContinue
+          )
+          foreach ($desktopMcp in $desktopMcpFiles) {
+            $mirror = Join-Path $desktopMcp.DirectoryName '.mcp.json'
+            if (-not (Test-Path -LiteralPath $mirror)) {
+              throw "Bundled tools verification failed: desktop MCP mirror missing next to $($desktopMcp.FullName)"
+            }
+            $mirrorJson = Get-Content -LiteralPath $mirror -Raw | ConvertFrom-Json
+            $codexApp = $mirrorJson.mcpServers.codex_app
+            if ($null -eq $codexApp -or (-not $codexApp.command -and -not $codexApp.url)) {
+              throw "Bundled tools verification failed: $mirror does not define a codex_app transport"
             }
           }
           Write-Host "Verified $copied runtime file(s) bundled into tools/ from repo commit $env:GITHUB_SHA."
