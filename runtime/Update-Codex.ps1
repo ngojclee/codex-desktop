@@ -326,6 +326,19 @@ function Ensure-StreamResilience {
     }
 }
 
+function Ensure-AppToolsMcp {
+    param([string]$InstallDir)
+
+    $ensureScript = Join-Path $InstallDir 'tools\Ensure-Codex-AppToolsMcp.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Log "WARN: codex_app MCP mirror ensure failed: $_"
+    }
+}
+
 function Sync-ModelCatalog {
     param([string]$InstallDir)
 
@@ -464,6 +477,7 @@ try {
     Sync-ModelCatalog -InstallDir $InstallDir
     Ensure-GoogleMcpConfig -InstallDir $InstallDir
     Ensure-StreamResilience -InstallDir $InstallDir
+    Ensure-AppToolsMcp -InstallDir $InstallDir
 
     if (-not $NoLaunch) {
         $launcher = Join-Path $InstallDir 'tools\Launch-Codex.vbs'

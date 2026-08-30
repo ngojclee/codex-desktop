@@ -120,6 +120,17 @@ function Ensure-StreamResilience {
     }
 }
 
+function Ensure-AppToolsMcp {
+    $ensureScript = Join-Path $PSScriptRoot 'Ensure-Codex-AppToolsMcp.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Write-Host "WARN: codex_app MCP mirror ensure failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -365,6 +376,7 @@ Sync-ModelCatalog
 Import-CodexMcpSecretEnvironment
 Ensure-GoogleMcpConfig
 Ensure-StreamResilience
+Ensure-AppToolsMcp
 
 # --- Computer Use unlock (Patch J) ---
 # The bundled plugin reconciliation for computer-use on Windows requires:
@@ -422,6 +434,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
     Sync-ModelCatalog
     Ensure-GoogleMcpConfig
     Ensure-StreamResilience
+    Ensure-AppToolsMcp
 }
 
 # Cleanup any stale state file pointing at a dead sidecar.
