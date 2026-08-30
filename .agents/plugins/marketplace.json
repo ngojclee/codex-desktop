@@ -1,0 +1,20 @@
+{
+  "name": "ngojclee-codex-desktop",
+  "interface": {
+    "displayName": "Personal"
+  },
+  "plugins": [
+    {
+      "name": "codex-desktop-relay",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-desktop-relay"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
