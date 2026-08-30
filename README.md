@@ -11,11 +11,12 @@ A patched build of OpenAI Codex Desktop that fixes:
 7. **`send_input` empty-items fix** — the default release now ships a source-patched `resources/codex.exe` that treats `items: []` as absent before validating mutually-exclusive `message` vs `items`.
 8. **Computer Use unlock (Any App + Google Chrome)** — bypasses Statsig feature gates and build-flavor restrictions that block Computer Use on non-internal builds and restricted regions. Google Chrome CUA works immediately; Any App requires upstream 26.527+ which ships the Windows CUA binary.
 9. **Shared-sidecar large payload guard** — raises the renderer WebSocket payload cap so heavy thread hydration does not disconnect the UI with `Max payload size exceeded`.
-10. **Persistent log churn guard** — source-built `resources\codex.exe` applies/verifies OpenAI fixes for excessive `~\.codex\logs_2.sqlite` churn so older sidecar refs do not keep writing noisy TRACE diagnostics.
-11. **Local/custom model visibility guard** — keeps local non-hidden catalog models visible when Desktop receives a Statsig model allowlist, so pinned proxy models and `GPT-5.3 Codex Spark` do not disappear from the picker.
-12. **Google Drive MCP bootstrap** — launch/update tools ensure Google Drive, Sheets, Docs, Slides, and Drive Comments MCP entries stay pointed at the shared connector endpoint after fresh installs or updates.
-13. **Model features consistency** — existing GPT 5.6 Sol, Terra, and Luna catalog entries receive the verified Max/Ultra metadata on every launch and update, without forcing catalog opt-in.
-14. **Same-tag release refresh** — the updater fingerprints the installed ZIP so corrected assets republished under an existing tag are not mistaken for an already-current install.
+10. **Codex Desktop Relay plugin** — Git-marketplace plugin that connects a machine to Business MCP as an outbound receiver, queues prompts for another device/thread, and dispatches local work through the shared sidecar.
+11. **Persistent log churn guard** — source-built `resources\codex.exe` applies/verifies OpenAI fixes for excessive `~\.codex\logs_2.sqlite` churn so older sidecar refs do not keep writing noisy TRACE diagnostics.
+12. **Local/custom model visibility guard** — keeps local non-hidden catalog models visible when Desktop receives a Statsig model allowlist, so pinned proxy models and `GPT-5.3 Codex Spark` do not disappear from the picker.
+13. **Google Drive MCP bootstrap** — launch/update tools ensure Google Drive, Sheets, Docs, Slides, and Drive Comments MCP entries stay pointed at the shared connector endpoint after fresh installs or updates.
+14. **Model features consistency** — existing GPT 5.6 Sol, Terra, and Luna catalog entries receive the verified Max/Ultra metadata on every launch and update, without forcing catalog opt-in.
+15. **Same-tag release refresh** — the updater fingerprints the installed ZIP so corrected assets republished under an existing tag are not mistaken for an already-current install.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -127,6 +128,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   $googleMcp = Join-Path $installDir "tools\Ensure-Codex-GoogleMcp.ps1"
   if (Test-Path -LiteralPath $googleMcp) {
     & $googleMcp -Quiet
+  }
+
+  $appToolsMcp = Join-Path $installDir "tools\Ensure-Codex-AppToolsMcp.ps1"
+  if (Test-Path -LiteralPath $appToolsMcp) {
+    & $appToolsMcp -InstallDir $installDir -Quiet
   }
 
   Write-Host "Installed $($release.tag_name) to: $installDir"
@@ -254,6 +260,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
     & $googleMcp -Quiet
   }
 
+  $appToolsMcp = Join-Path $installDir "tools\Ensure-Codex-AppToolsMcp.ps1"
+  if (Test-Path -LiteralPath $appToolsMcp) {
+    & $appToolsMcp -InstallDir $installDir -Quiet
+  }
+
   Write-Host "Installed latest patched release to: $installDir"
   Write-Host "Standard shortcuts ensured on: $desktop"
 }'
@@ -354,9 +365,10 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    The launcher:
    - Picks a free port in `24567..24600`
    - Starts a shared `codex.exe app-server --listen ws://127.0.0.1:<PORT>` in the background
-   - Sets `CODEX_APP_SERVER_WS_URL` and launches `Codex.exe`
+   - Sets `CODEX_APP_SERVER_WS_URL` and launches `ChatGPT.exe` on current bundles (`Codex.exe` on older bundles)
    - Refreshes shared user skills into `~\.codex\skills` while keeping `.system` local
    - Ensures Google Drive MCP entries in `~\.codex\config.toml` point at the shared connector endpoint
+   - Repairs the bundled `codex-app-tools` sidecar MCP descriptor before the app-server starts
    - Cleans up the sidecar when the last `Codex.exe` process exits
    - Writes live state to `~/.codex/desktop-shared-app-server.json`
 4. From any terminal, the bundled wrapper dispatches into the same sidecar so Desktop sees real-time updates:
@@ -425,6 +437,51 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
 The `Update-Codex.cmd` shortcut pulls the latest release and overlays it on the install dir, preserving `tools/`. It compares `tools\.release-state.json` with the current GitHub asset, so same-tag republished builds are refreshed automatically. Use `tools\Update-Codex.ps1 -Tag <release-tag>` only when you want to pin to a specific release. The updater creates or refreshes the three standard desktop shortcuts, updates their icon from `ChatGPT.exe` on current bundles, and refreshes an existing optional Logs shortcut without creating it automatically.
+
+## Codex Desktop Relay
+
+The relay is intentionally installed from this Git marketplace rather than
+copied into the Desktop ZIP. That keeps a machine's control-plane policy and
+credential local, while `main` remains the normal update source:
+
+```powershell
+codex plugin marketplace add ngojclee/codex-desktop --ref main
+codex plugin add codex-desktop-relay@ngojclee-codex-desktop
+```
+
+Create `%USERPROFILE%\.codex\codex-relay.json` locally with the device's
+non-secret routing policy. The `business_token_env_var` points at an existing
+per-device environment variable; the token itself never belongs in the file,
+plugin, repository, or release ZIP.
+
+```json
+{
+  "device_id": "DESKTOP-EXAMPLE",
+  "business_mcp_url": "https://business-mcp.example/mcp",
+  "business_token_env_var": "BUSINESS_MCP_CLIENT_TOKEN",
+  "auto_poll": true,
+  "poll_interval_sec": 5,
+  "allow_dispatch": false,
+  "allow_all_threads": false,
+  "allowed_thread_ids": [],
+  "dispatch_timeout_sec": 900
+}
+```
+
+After a repository update, refresh the marketplace snapshot and reinstall the
+plugin:
+
+```powershell
+codex plugin marketplace upgrade ngojclee-codex-desktop
+codex plugin add codex-desktop-relay@ngojclee-codex-desktop
+```
+
+Business MCP must provide the four durable `codex_relay_*` queue tools
+documented in [`docs/codex-relay-api-contract.md`](docs/codex-relay-api-contract.md).
+The receiver uses standard stateful Streamable HTTP MCP initialization, then
+polls outbound. It never opens a sidecar port or a shell listener to the
+network. The local receipt journal prevents a message from being dispatched
+again after a receiver crash while acknowledging the result.
 
 ## Architecture
 
@@ -735,11 +792,14 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
 - **Repair system skills** — if sidecar logs show `failed to install system skills` or `failed to read skills dir ...\.codex\skills\.system`, run `tools\Repair-Codex-SystemSkills.ps1` once. This is for setups where `~\.codex\skills` points at a network/share path; generated `.system` skills should stay local on each Windows machine.
+- **Repair stale project state** — newer Codex builds validate every `[projects."..."]` table in `~\.codex\config.toml`. If a machine kept paths for unavailable drives or deleted workspaces, config loading can fail with `Access is denied. (os error 5)` before any chat opens. Preview first, then apply the targeted cleanup; it backs up `config.toml` and preserves MCP/model/plugin settings:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Repair-Codex-ProjectConfig.ps1" -Apply`.
+  Use `-RemoveAll` only if the targeted repair does not clear the error; it resets project-specific trust/history entries but keeps the rest of `config.toml`.
 - **Refresh shared skills** — `tools\Refresh-Codex-SharedSkills.ps1` is run by the launcher. It creates missing local symlinks for skills that already exist on the shared skills directory, skips `.system`, and leaves local-only skills untouched.
 - **Publish local skill** — `tools\Publish-Codex-Skill.ps1 -SkillName <name>` copies one local skill to the shared skills directory and replaces the local copy with a symlink. This is intentionally explicit; local skills are not auto-published.
 - **Ensure Google MCP** — `tools\Ensure-Codex-GoogleMcp.ps1` keeps the Google Drive connector MCP entries in `~\.codex\config.toml`. It defaults to `http://10.21.4.101:3110/mcp`, honors `CODEX_GOOGLE_MCP_URL`, and can be disabled with `CODEX_GOOGLE_MCP_DISABLE=1`.
 - **Stream resilience** — long turns through proxies occasionally drop mid-stream and Codex reports `stream disconnected ... error decoding response body` (upstream issues [#29087](https://github.com/openai/codex/issues/29087), [#3478](https://github.com/openai/codex/issues/3478)). `tools\Ensure-Codex-StreamResilience.ps1` keeps higher reconnect budgets durable inside the `[model_providers.cliproxy]` block: `request_max_retries = 8` (default 4), `stream_max_retries = 20` (default 5), and `stream_idle_timeout_ms = 600000` (default 300000). These are per-provider fields in openai/codex's `ModelProviderInfo`, so they only work inside the provider block; the launcher and updater re-run the ensure step, and rerunning it is idempotent.
-- **Codex app tools MCP mirror** — Codex Desktop 26.825 renamed the bundled `codex-app-tools` MCP definition from `.mcp.json` to `desktop-mcp.json`, which only the Electron app reads. The app-server then never learns the `codex_app` transport while the app still writes `mcp_servers.codex_app.enabled_tools`, so config loading fails with "invalid transport in mcp_servers.codex_app" and every new chat shows "Error creating chat". `tools\Ensure-Codex-AppToolsMcp.ps1` writes a sidecar-readable `.mcp.json` mirror with `enabled = false` (same shape as plugin 0.1.0, so no duplicate server starts) wherever a `desktop-mcp.json` has no sibling. The launcher and updater run it automatically; it is idempotent and does nothing on older builds.
+- **Codex app tools MCP mirror** — Codex Desktop 26.825 renamed the bundled `codex-app-tools` MCP definition from `.mcp.json` to `desktop-mcp.json`, which only the Electron app reads. The app-server then never learns the `codex_app` transport while the app still writes `mcp_servers.codex_app.enabled_tools`, so config loading fails with "invalid transport in mcp_servers.codex_app" and every new chat shows "Error creating chat". The release build now materializes a sidecar-readable `.mcp.json` mirror inside `resources\plugins`, and `tools\Ensure-Codex-AppToolsMcp.ps1` repairs the installed bundle plus plugin caches on launch/update. The mirror has `enabled = false`, so it supplies a transport definition without starting a duplicate server.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. The saved asset fingerprint detects corrected same-tag releases, and missing standard desktop shortcuts are created after update.
 - **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 

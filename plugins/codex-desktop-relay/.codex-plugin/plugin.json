@@ -1,0 +1,34 @@
+{
+  "name": "codex-desktop-relay",
+  "version": "0.2.0",
+  "description": "Receive and dispatch Codex thread messages across machines through the shared Business MCP control plane.",
+  "author": {
+    "name": "Ngoc Lee"
+  },
+  "repository": "https://github.com/ngojclee/codex-desktop",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "mcp",
+    "relay",
+    "automation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Desktop Relay",
+    "shortDescription": "Send and receive Codex thread messages between machines.",
+    "longDescription": "Codex Desktop Relay connects each Codex Desktop machine to a Business MCP queue, dispatches queued prompts into the machine's shared sidecar, and reports completion without opening the local app-server to the network.",
+    "developerName": "Ngoc Lee",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Show Codex relay status on this machine.",
+      "Dispatch a prompt to a local Codex thread.",
+      "Send a message to another Codex machine."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

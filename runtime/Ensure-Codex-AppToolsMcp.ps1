@@ -21,21 +21,24 @@
 [CmdletBinding()]
 param(
     [switch]$Quiet,
-    [string]$CodexHome
+    [string]$CodexHome,
+    [string]$InstallDir
 )
 
 $ErrorActionPreference = 'Stop'
 
 if (-not $CodexHome) { $CodexHome = Join-Path $env:USERPROFILE '.codex' }
+if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'CodexFromGithub' }
 
 $searchRoots = @(
     (Join-Path $CodexHome 'plugins\cache'),
-    (Join-Path $CodexHome '.tmp\bundled-marketplaces')
+    (Join-Path $CodexHome '.tmp\bundled-marketplaces'),
+    (Join-Path $InstallDir 'resources\plugins')
 )
 
 $results = @()
 try {
-    foreach ($root in $searchRoots) {
+    foreach ($root in ($searchRoots | Select-Object -Unique)) {
         if (-not (Test-Path -LiteralPath $root)) { continue }
         $definitions = @(
             Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue |

@@ -42,3 +42,9 @@ desktop.ini
 # Per-feature scratch space (extracted asar chunks, schema dumps, POC scripts).
 # Never committed — see CLAUDE.md "Temp scripts go in temp_scripts/ folder".
 temp_scripts/
+
+# Local incident scratch. These can contain extracted upstream binaries,
+# temporary remote probes, or a cloned internal service repository.
+.tmp/
+.tmp-*/
+.tmp-*.ps1

@@ -333,7 +333,7 @@ function Ensure-AppToolsMcp {
     if (-not (Test-Path -LiteralPath $ensureScript)) { return }
 
     try {
-        & $ensureScript -Quiet
+        & $ensureScript -Quiet -InstallDir $InstallDir
     } catch {
         Log "WARN: codex_app MCP mirror ensure failed: $_"
     }

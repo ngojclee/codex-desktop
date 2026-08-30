@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "codex-desktop-relay": {
+      "command": "node",
+      "args": [
+        "./mcp/server.mjs"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "BUSINESS_MCP_CLIENT_TOKEN",
+        "CODEX_RELAY_CONFIG"
+      ],
+      "tool_timeout_sec": 900
+    }
+  }
+}
