@@ -83,7 +83,7 @@ try {
         clientInfo = [ordered]@{
             name    = 'codex-desktop-relay'
             title   = 'Codex Desktop Relay'
-            version = '0.2.0'
+            version = '0.2.1'
         }
         capabilities = [ordered]@{ experimentalApi = $true }
     }) 1
