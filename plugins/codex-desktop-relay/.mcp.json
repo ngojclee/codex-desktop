@@ -8,6 +8,7 @@
       "cwd": ".",
       "env_vars": [
         "BUSINESS_MCP_CLIENT_TOKEN",
+        "BUSINESS_MCP_TOKEN",
         "CODEX_RELAY_CONFIG"
       ],
       "tool_timeout_sec": 900
