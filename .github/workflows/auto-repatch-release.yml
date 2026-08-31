@@ -596,6 +596,7 @@ jobs:
             'Sync-Codex-ModelCatalog.ps1' = 'Existing gpt-5.6 Sol/Terra/Luna entries'
             'Ensure-Codex-GoogleMcp.ps1' = 'CODEX_GOOGLE_MCP_DISABLE'
             'Ensure-Codex-AppToolsMcp.ps1' = 'resources\plugins'
+            'Ensure-Codex-WslNative.ps1' = 'runCodexInWindowsSubsystemForLinux = false'
             'Update-Codex.ps1' = 'Test-CodexReleaseStateMatch'
           }
           foreach ($entry in $markerChecks.GetEnumerator()) {
