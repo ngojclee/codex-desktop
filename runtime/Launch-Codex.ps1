@@ -131,6 +131,17 @@ function Ensure-AppToolsMcp {
     }
 }
 
+function Ensure-WslNative {
+    $ensureScript = Join-Path $PSScriptRoot 'Ensure-Codex-WslNative.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Write-Host "WARN: WSL-native config ensure failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -376,6 +387,7 @@ Sync-ModelCatalog
 Import-CodexMcpSecretEnvironment
 Ensure-GoogleMcpConfig
 Ensure-StreamResilience
+Ensure-WslNative
 Ensure-AppToolsMcp
 
 # --- Computer Use unlock (Patch J) ---
@@ -434,6 +446,7 @@ if ((Get-DesktopProcessCount) -gt 0) {
     Sync-ModelCatalog
     Ensure-GoogleMcpConfig
     Ensure-StreamResilience
+    Ensure-WslNative
     Ensure-AppToolsMcp
 }
 

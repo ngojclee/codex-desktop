@@ -339,6 +339,19 @@ function Ensure-AppToolsMcp {
     }
 }
 
+function Ensure-WslNative {
+    param([string]$InstallDir)
+
+    $ensureScript = Join-Path $InstallDir 'tools\Ensure-Codex-WslNative.ps1'
+    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
+
+    try {
+        & $ensureScript -Quiet
+    } catch {
+        Log "WARN: WSL-native config ensure failed: $_"
+    }
+}
+
 function Sync-ModelCatalog {
     param([string]$InstallDir)
 
@@ -477,6 +490,7 @@ try {
     Sync-ModelCatalog -InstallDir $InstallDir
     Ensure-GoogleMcpConfig -InstallDir $InstallDir
     Ensure-StreamResilience -InstallDir $InstallDir
+    Ensure-WslNative -InstallDir $InstallDir
     Ensure-AppToolsMcp -InstallDir $InstallDir
 
     if (-not $NoLaunch) {
