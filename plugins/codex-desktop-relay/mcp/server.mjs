@@ -13,6 +13,7 @@ const dispatchScript = path.join(here, "..", "scripts", "dispatch-thread.ps1");
 const businessProtocolVersion = "2025-06-18";
 const receiptRetentionMs = 7 * 24 * 60 * 60 * 1000;
 const maxReceiptCount = 500;
+const codexHome = path.join(homedir(), ".codex");
 
 function write(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -30,24 +31,123 @@ function toolDefinition(name, description, inputSchema) {
   return { name, description, inputSchema };
 }
 
-async function readConfig() {
-  const configPath = process.env.CODEX_RELAY_CONFIG
-    || path.join(homedir(), ".codex", "codex-relay.json");
-  try {
-    return JSON.parse(await readFile(configPath, "utf8"));
-  } catch (caught) {
-    throw new Error(`Cannot read relay config at ${configPath}: ${caught.message}`);
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
   }
+  return null;
+}
+
+async function readJsonFile(file) {
+  try {
+    return JSON.parse(await readFile(file, "utf8"));
+  } catch (caught) {
+    if (caught.code === "ENOENT") return null;
+    throw caught;
+  }
+}
+
+async function readCodexBusinessMcpConfig() {
+  let text;
+  try {
+    text = await readFile(path.join(codexHome, "config.toml"), "utf8");
+  } catch (caught) {
+    if (caught.code === "ENOENT") return null;
+    throw caught;
+  }
+
+  const lines = text.split(/\r?\n/);
+  let section = null;
+  let block = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const header = line.match(/^\[mcp_servers\.(.+)\]$/);
+    if (header) {
+      section = header[1].trim().replace(/^['"]|['"]$/g, "");
+      block = null;
+      continue;
+    }
+    if (!section || !/^mcp_servers\./i.test(section) || !line || line.startsWith("#")) {
+      continue;
+    }
+    const entry = line.match(/^\s*([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*$/);
+    if (!entry) continue;
+    const [, key, rawValue] = entry;
+    const value = rawValue.trim().replace(/^['"]|['"]$/g, "");
+    block ??= {};
+    block[key] = value;
+  }
+
+  if (!section || !block) return null;
+  const name = section.replace(/^mcp_servers\./i, "");
+  if (!/business/i.test(name)) return null;
+  if (block.enabled && block.enabled.toLowerCase() === "false") return null;
+
+  const url = firstString(block.url);
+  const tokenEnv = firstString(
+    block.bearer_token_env_var,
+    block.bearer_token_env,
+    "BUSINESS_MCP_TOKEN"
+  );
+  if (!url || !tokenEnv) return null;
+
+  return { url, tokenEnv, serverName: name };
+}
+
+async function readConfig() {
+  const relayConfigPath = process.env.CODEX_RELAY_CONFIG
+    || path.join(codexHome, "codex-relay.json");
+  const relayConfig = await readJsonFile(relayConfigPath) ?? {};
+  const codexMcp = await readCodexBusinessMcpConfig() ?? {};
+
+  const url = firstString(
+    relayConfig.business_mcp_url,
+    codexMcp.url,
+    process.env.BUSINESS_MCP_URL
+  );
+  if (!url) {
+    throw new Error(
+      "No relay business_mcp_url and no enabled [mcp_servers.business] in Codex config"
+    );
+  }
+
+  const tokenEnv = firstString(
+    relayConfig.business_token_env_var,
+    relayConfig.business_token_env,
+    codexMcp.tokenEnv,
+    process.env.BUSINESS_MCP_TOKEN ? "BUSINESS_MCP_TOKEN" : null,
+    process.env.BUSINESS_MCP_CLIENT_TOKEN ? "BUSINESS_MCP_CLIENT_TOKEN" : null
+  );
+  if (!tokenEnv) {
+    throw new Error(
+      "No relay business_token_env_var and no enabled [mcp_servers.business] in Codex config"
+    );
+  }
+
+  return {
+    device_id: firstString(relayConfig.device_id, hostname()),
+    display_name: firstString(relayConfig.display_name),
+    business_mcp_url: url,
+    business_token_env_var: tokenEnv,
+    auto_poll: relayConfig.auto_poll === true,
+    poll_interval_sec: relayConfig.poll_interval_sec,
+    allow_dispatch: relayConfig.allow_dispatch === true,
+    allow_all_threads: relayConfig.allow_all_threads === true,
+    allowed_thread_ids: relayConfig.allowed_thread_ids ?? [],
+    dispatch_timeout_sec: relayConfig.dispatch_timeout_sec,
+    business_request_timeout_sec: relayConfig.business_request_timeout_sec,
+    config_path: relayConfigPath
+  };
 }
 
 function businessToken(config) {
   const envName = config.business_token_env_var || config.business_token_env;
-  if (!envName) {
-    throw new Error("Relay config must define business_token_env_var");
-  }
-  const token = process.env[envName];
+  const token = envName ? process.env[envName] : null;
   if (!token) {
-    throw new Error(`Missing Business MCP token in environment variable ${envName}`);
+    throw new Error(
+      `Missing Business MCP token in environment variable ${envName || "(unconfigured)"}`
+    );
   }
   return token;
 }
@@ -168,7 +268,7 @@ async function createBusinessSession(config) {
       capabilities: {},
       clientInfo: {
         name: "codex-desktop-relay",
-        version: "0.2.0"
+        version: "0.2.1"
       }
     }
   });
@@ -702,7 +802,7 @@ lineReader.on("line", async (line) => {
         capabilities: { tools: {} },
         serverInfo: {
           name: "codex-desktop-relay",
-          version: "0.2.0"
+          version: "0.2.1"
         }
       });
       return;

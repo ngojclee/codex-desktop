@@ -30,7 +30,7 @@ Read machine policy from `%USERPROFILE%\.codex\codex-relay.json`:
 Rules:
 
 - Never put the Business MCP bearer token in this file. Set it as an environment variable and reference its name with `business_token_env_var`.
-- The bundled MCP manifest passes `BUSINESS_MCP_CLIENT_TOKEN` and `CODEX_RELAY_CONFIG` through to the receiver. Use that standard token variable unless a future packaged manifest intentionally adds another name.
+- If `%USERPROFILE%\.codex\config.toml` already has an enabled Business MCP server, the relay reuses its URL and token env automatically. The bundled manifest passes `BUSINESS_MCP_TOKEN`, `BUSINESS_MCP_CLIENT_TOKEN`, and `CODEX_RELAY_CONFIG`.
 - Keep `allow_dispatch = false` by default on new machines.
 - Do not set `allow_all_threads = true` unless the machine is explicitly trusted for all Codex threads.
 - Add only thread IDs that may receive remote prompts to `allowed_thread_ids`.

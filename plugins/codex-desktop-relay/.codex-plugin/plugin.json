@@ -1,6 +1,6 @@
 {
   "name": "codex-desktop-relay",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Receive and dispatch Codex thread messages across machines through the shared Business MCP control plane.",
   "author": {
     "name": "Ngoc Lee"
