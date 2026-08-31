@@ -1,9 +1,9 @@
 ---
-name: codex-desktop-relay
+name: relay
 description: Use when sending or receiving Codex thread messages between registered machines through Business MCP.
 ---
 
-# Codex Desktop Relay
+# Relay
 
 Use this receiver to queue, dispatch, and acknowledge Codex thread messages without exposing the local sidecar to the network.
 
