@@ -48,3 +48,7 @@ temp_scripts/
 .tmp/
 .tmp-*/
 .tmp-*.ps1
+
+# Repatch scratch dirs (tmp-<topic>-<upstream build>): a full upstream download,
+# the extracted app, and per-patch app.asar backups. Multi-GB, never committed.
+tmp-*/

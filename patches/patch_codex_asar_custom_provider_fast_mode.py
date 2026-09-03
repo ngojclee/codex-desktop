@@ -21,6 +21,7 @@ from pathlib import Path
 
 from patch_codex_asar_model_availability_filter import (
     extract,
+    node_failure_line,
     read_header,
     repack,
     walk,
@@ -95,9 +96,8 @@ def syntax_errors(entries: list[tuple[str, str]]):
                 check=False,
             )
             if result.returncode != 0:
-                detail = (result.stderr or result.stdout).strip().splitlines()
                 errors.append(
-                    f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                 )
     return errors
 

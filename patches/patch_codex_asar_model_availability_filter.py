@@ -109,6 +109,24 @@ def extract(asar_path: Path, payload_start: int, meta: dict) -> bytes:
         return f.read(int(meta["size"]))
 
 
+def node_failure_line(output: str) -> str:
+    """Summarize a `node --check` failure.
+
+    Node ends stderr with a blank line and a `Node.js vX` banner, so taking the
+    last line reports the version instead of the real SyntaxError. Prefer the
+    first line that actually names the failure.
+    """
+    lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+    for line in lines:
+        if line.startswith(("SyntaxError", "ReferenceError", "TypeError", "RangeError", "Error")):
+            return line[:200]
+    for line in lines:
+        if line.startswith("at ") or line.startswith("Node.js v"):
+            continue
+        return line[:200]
+    return "node --check failed"
+
+
 def update_integrity(meta: dict, data: bytes):
     meta["size"] = len(data)
     integrity = meta.get("integrity")
