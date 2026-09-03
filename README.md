@@ -543,6 +543,11 @@ initial/load-more or `getHistoryLimit` fallback shapes to `1000`. Codex Desktop
 26.715+ includes native cursor pagination and moves the local/remote discovery
 defaults into a runtime helper (`500/50`). Patch A preserves the helper's
 catalog-consume value of `0` and raises both live-history defaults to `1000`.
+The helper has shipped in two ternary groupings and they are not
+interchangeable: 26.715 reads `local && catalog ? 0 : (local ? 500 : 50)`, while
+26.901 reads `guard ? (catalog ? 0 : 500) : 50`. Patch A matches each shape
+separately and keeps both numeric slots, because collapsing a nested ternary
+into one value produces invalid JavaScript and breaks the renderer bundle.
 The server still returns pages of at most 100 threads, so the native or patched
 Patch C loop performs the actual pagination.
 

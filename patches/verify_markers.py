@@ -33,6 +33,7 @@ from patch_codex_asar_model_availability_filter import (
     PATCHED_FILTER_PATTERN_V2 as PATCH_O_SAFE_PATTERN_V2,
     PATCHED_FILTER_PATTERN_V3 as PATCH_O_SAFE_PATTERN_V3,
     PATCHED_FILTER_PATTERN_V4 as PATCH_O_SAFE_PATTERN_V4,
+    node_failure_line,
 )
 from patch_codex_asar_composer_input_safety import status as patch_u_status
 from patch_codex_asar_voice_paste_shortcut import (
@@ -159,6 +160,33 @@ def find_signals(app_dir: Path):
     if best is None:
         raise SystemExit("Could not find recent state renderer chunk in app.asar")
     return best[1], best[2]
+
+
+def node_chunk_syntax_errors(entries: list[tuple[str, str]], prefix: str = "codex-chunk-syntax-"):
+    """Run `node --check` over patched renderer chunks.
+
+    Patches A, C and D all rewrite the recent-state chunk, and none of them
+    syntax-checks its own output, so a bad rewrite used to surface only when a
+    later patch happened to check the same file. Verify it explicitly here.
+    """
+    node = shutil.which("node")
+    if node is None:
+        return ["node executable not found for chunk syntax verification"]
+    errors = []
+    with tempfile.TemporaryDirectory(prefix=prefix) as temp_dir:
+        for index, (path, text) in enumerate(entries):
+            check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+            check_path.write_text(text, encoding="utf-8")
+            result = subprocess.run(
+                [node, "--check", str(check_path)],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+            if result.returncode != 0:
+                errors.append(f"{path}: {node_failure_line(result.stderr or result.stdout)}")
+    return errors
 
 
 def find_js_occurrences(app_dir: Path, needle: str):
@@ -308,9 +336,8 @@ def model_availability_filter_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
                     syntax_errors.append(
-                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                     )
 
     return {
@@ -371,8 +398,9 @@ def patch_j_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
-                    syntax_errors.append(f"{path}: {detail[-1] if detail else 'node --check failed'}")
+                    syntax_errors.append(
+                        f"{path}: {node_failure_line(result.stderr or result.stdout)}"
+                    )
 
     return {
         "marker_paths": sorted(path for path, _text in marker_entries),
@@ -425,9 +453,8 @@ def sol_max_effort_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
                     syntax_errors.append(
-                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                     )
 
     return {
@@ -478,9 +505,8 @@ def gpt_model_label_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
                     syntax_errors.append(
-                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                     )
 
     return {
@@ -527,9 +553,8 @@ def custom_provider_fast_mode_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
                     syntax_errors.append(
-                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                     )
 
     return {
@@ -574,9 +599,8 @@ def custom_provider_ultra_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
                     syntax_errors.append(
-                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                     )
 
     return {
@@ -625,9 +649,8 @@ def voice_paste_shortcut_status(app_dir: Path):
                     check=False,
                 )
                 if result.returncode != 0:
-                    detail = (result.stderr or result.stdout).strip().splitlines()
                     syntax_errors.append(
-                        f"{path}: {detail[-1] if detail else 'node --check failed'}"
+    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
                     )
 
     return {
@@ -677,6 +700,8 @@ def main():
     expect_patch_d = not args.upstream_tag.startswith('v26.513.')
 
     signals_path, signals_txt = find_signals(app_dir)
+    # A, C and D rewrite this same chunk; check the result once, here.
+    signals_syntax_errors = node_chunk_syntax_errors([(signals_path, signals_txt)])
     socks5 = socks5_proxy_status(app_dir)
     ws_payload = websocket_max_payload_status(app_dir)
     patch_j = patch_j_status(app_dir)
@@ -832,6 +857,11 @@ def main():
             ),
             True,
         ),
+        (
+            "Patch A/C/D — recent-state chunk passes syntax check",
+            lambda: len(signals_syntax_errors) == 0,
+            True,
+        ),
         ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in signals_txt, True),
         ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_txt, True),
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
@@ -888,6 +918,19 @@ def main():
     )
 
     failed = []
+    # Print the underlying node --check output for whichever syntax gate failed;
+    # the label alone does not say which chunk or which token broke.
+    syntax_details = {
+        "Patch A/C/D — recent-state chunk passes syntax check": signals_syntax_errors,
+        "Patch J — touched renderer chunks pass syntax check": patch_j["syntax_errors"],
+        "Patch O — touched renderer chunks pass syntax check": patch_o["syntax_errors"],
+        "Patch P — touched renderer chunks pass syntax check": patch_p["syntax_errors"],
+        "Patch Q — touched renderer chunks pass syntax check": patch_q["syntax_errors"],
+        "Patch R — touched renderer chunks pass syntax check": patch_r["syntax_errors"],
+        "Patch S — touched renderer chunks pass syntax check": patch_s["syntax_errors"],
+        "Patch T — touched renderer chunks pass syntax check": patch_t["syntax_errors"],
+        "Patch U — touched renderer chunks pass syntax check": patch_u["syntax_errors"],
+    }
     for label, check_fn, must_pass in checks:
         ok = bool(check_fn())
         if must_pass:
@@ -903,6 +946,8 @@ def main():
         print("FAILED markers:")
         for f in failed:
             print(f"  - {f}")
+            for detail in syntax_details.get(f, []):
+                print(f"      {detail}")
         raise SystemExit(1)
 
     print()

@@ -47,6 +47,15 @@ PATCH_PATTERNS = (
         "this.params.getHistoryLimit?.()??50,i=(t===`expanded`||n)&&r>50,a=i?r:50",
         "this.params.getHistoryLimit?.()??{limit},i=(t===`expanded`||n)&&r>50,a=i?r:50",
     ),
+    # Codex Desktop 26.901.x inserts a `disabled` short-circuit between the
+    # fallback and the page-size locals, and clamps each page to 100 behind a
+    # pagination loop, so bumping this default still widens the whole window.
+    (
+        "this.params.getHistoryLimit?.()??50;if(r===0){this.recentHistorySource=`disabled`;return}"
+        "let i=(t===`expanded`||n)&&r>50,a=i?r:50",
+        "this.params.getHistoryLimit?.()??{limit};if(r===0){this.recentHistorySource=`disabled`;return}"
+        "let i=(t===`expanded`||n)&&r>50,a=i?r:50",
+    ),
 )
 
 RECENT_WINDOW_FILENAME_HINTS = (
@@ -54,10 +63,24 @@ RECENT_WINDOW_FILENAME_HINTS = (
     "codex-micro-slot-signals-",
 )
 RUNTIME_HISTORY_MARKER = "/*A:history-limit*/"
+# The runtime history helper has shipped in two ternary shapes. Both keep a
+# `0` result while catalog consumption is on, and both fall back to 500/50
+# otherwise, so the patch keeps the `0` branch and raises the two defaults.
+#
+# 26.715: `local && catalog ? 0 : (local ? 500 : 50)`
 RUNTIME_HISTORY_PATTERN = re.compile(
     r"function (?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)"
     r"\((?P<local>[A-Za-z_$][A-Za-z0-9_$]*),(?P<catalog>[A-Za-z_$][A-Za-z0-9_$]*)\)"
     r"\{return (?P=local)&&(?P=catalog)\?0:(?P=local)\?500:50\}"
+)
+# 26.901: `guard ? (catalog ? 0 : 500) : 50`, where guard is a host/desktop
+# check. The two numeric branches must stay as two separate slots; collapsing
+# them into one value changes the ternary grouping and breaks the bundle.
+RUNTIME_HISTORY_PATTERN_V2 = re.compile(
+    r"function (?P<fn>[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"\((?P<args>[^()]*)\)"
+    r"\{return\s*(?P<guard>[^{}]*?)\?(?P<catalog>[A-Za-z_$][A-Za-z0-9_$]*)\?0:"
+    r"(?P<desktop>\d+):(?P<local_only>\d+)\}"
 )
 
 
@@ -136,20 +159,33 @@ def patch_js(data: bytes, limit: int):
         if old_count:
             text = text.replace(old, new)
 
-    runtime_matches = list(RUNTIME_HISTORY_PATTERN.finditer(text))
-    if len(runtime_matches) > 1:
+    # The two helper shapes are mutually exclusive, so at most one helper total
+    # may be present; more than one means the regexes drifted onto new code.
+    legacy_matches = list(RUNTIME_HISTORY_PATTERN.finditer(text))
+    nested_matches = list(RUNTIME_HISTORY_PATTERN_V2.finditer(text))
+    if len(legacy_matches) + len(nested_matches) > 1:
         raise RuntimeError(
-            f"Expected at most one 26.715 runtime history helper, found {len(runtime_matches)}"
+            "Expected at most one runtime history helper, found "
+            f"{len(legacy_matches)} legacy + {len(nested_matches)} nested"
         )
-    replacements["runtime_history_defaults_26_715"] = len(runtime_matches)
+    replacements["runtime_history_defaults_26_715"] = len(legacy_matches)
+    replacements["runtime_history_defaults_26_901"] = len(nested_matches)
     runtime_marker = f"{RUNTIME_HISTORY_MARKER}{limit}"
     already["runtime_history_limit_26_715"] = text.count(runtime_marker)
-    if runtime_matches:
-        match = runtime_matches[0]
+    if legacy_matches:
+        match = legacy_matches[0]
         replacement = (
             f"function {match.group('fn')}({match.group('local')},{match.group('catalog')})"
             f"{{return {match.group('local')}&&{match.group('catalog')}?0:"
             f"{runtime_marker}}}"
+        )
+        text = text[: match.start()] + replacement + text[match.end() :]
+    elif nested_matches:
+        match = nested_matches[0]
+        replacement = (
+            f"function {match.group('fn')}({match.group('args')})"
+            f"{{return {match.group('guard')}?{match.group('catalog')}?0:"
+            f"{runtime_marker}:{limit}}}"
         )
         text = text[: match.start()] + replacement + text[match.end() :]
 
@@ -287,6 +323,10 @@ def main():
         "native_history_limit_26_611": verify_text.count(
             f"this.params.getHistoryLimit?.()??{args.limit},i=(t===`expanded`||n)&&r>50,a=i?r:50"
         ),
+        "native_history_limit_26_901": verify_text.count(
+            f"this.params.getHistoryLimit?.()??{args.limit};if(r===0){{this.recentHistorySource=`disabled`;return}}"
+            f"let i=(t===`expanded`||n)&&r>50,a=i?r:50"
+        ),
         "runtime_history_limit_26_715": verify_text.count(
             f"{RUNTIME_HISTORY_MARKER}{args.limit}"
         ),
@@ -294,6 +334,7 @@ def main():
     native_history_limit = (
         expected["native_history_limit_26_608"]
         + expected["native_history_limit_26_611"]
+        + expected["native_history_limit_26_901"]
         + expected["runtime_history_limit_26_715"]
     )
     if native_history_limit:
