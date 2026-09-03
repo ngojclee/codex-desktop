@@ -82,47 +82,6 @@ jobs:
           Write-Host "Set repository secrets MAIL_TO, MAIL_SMTP_HOST, MAIL_SMTP_PORT, MAIL_SMTP_USER, MAIL_SMTP_PASSWORD (and optionally MAIL_FROM) to enable."
           "enabled=$($enabled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      - name: Build notification body
-        if: always() && steps.notify.outputs.enabled == 'true'
-        id: mailbody
-        shell: pwsh
-        env:
-          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
-          RELEASE_TAG: ${{ steps.ours.outputs.tag }}
-          ASSET_NAME: ${{ steps.pack.outputs.asset }}
-        run: |
-          $status = '${{ job.status }}'
-          $result = if ($status -eq 'success') { 'PATCHED RELEASE OK' } else { 'PATCH FAILED' }
-          $runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-          $body = @"
-          $result
-
-          Workflow : Auto repatch on upstream release ($status)
-          Upstream : $env:UPSTREAM_TAG
-          Release  : $env:RELEASE_TAG
-          Asset    : $env:ASSET_NAME
-          Run log  : $runUrl
-
-          Repo: https://github.com/${{ github.repository }}
-          "@
-          $delimiter = [Guid]::NewGuid().ToString('N')
-          "mailbody<<$delimiter" >> $env:GITHUB_OUTPUT
-          $body >> $env:GITHUB_OUTPUT
-          $delimiter >> $env:GITHUB_OUTPUT
-
-      - name: Send status email
-        if: always() && steps.notify.outputs.enabled == 'true'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.MAIL_SMTP_HOST }}
-          server_port: ${{ secrets.MAIL_SMTP_PORT || '587' }}
-          username: ${{ secrets.MAIL_SMTP_USER }}
-          password: ${{ secrets.MAIL_SMTP_PASSWORD }}
-          subject: "[${{ job.status }}] Codex patched ${{ steps.ours.outputs.tag || steps.upstream.outputs.tag }}"
-          body: ${{ steps.mailbody.outputs.mailbody }}
-          to: ${{ secrets.MAIL_TO }}
-          from: ${{ secrets.MAIL_FROM || secrets.MAIL_SMTP_USER }}
-
       - name: Check upstream Windows asset
         id: upstream_asset
         shell: pwsh
@@ -758,3 +717,48 @@ jobs:
             --notes $notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Keep these two steps last. They report on ${{ job.status }}, which only
+      # reflects a real outcome once the patch, verify and release steps have run;
+      # earlier in the job they always see "success" and can never announce a
+      # failed repatch.
+      - name: Build notification body
+        if: always() && steps.notify.outputs.enabled == 'true'
+        id: mailbody
+        shell: pwsh
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          RELEASE_TAG: ${{ steps.ours.outputs.tag }}
+          ASSET_NAME: ${{ steps.pack.outputs.asset }}
+        run: |
+          $status = '${{ job.status }}'
+          $result = if ($status -eq 'success') { 'PATCHED RELEASE OK' } else { 'PATCH FAILED' }
+          $runUrl = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+          $body = @"
+          $result
+
+          Workflow : Auto repatch on upstream release ($status)
+          Upstream : $env:UPSTREAM_TAG
+          Release  : $env:RELEASE_TAG
+          Asset    : $env:ASSET_NAME
+          Run log  : $runUrl
+
+          Repo: https://github.com/${{ github.repository }}
+          "@
+          $delimiter = [Guid]::NewGuid().ToString('N')
+          "mailbody<<$delimiter" >> $env:GITHUB_OUTPUT
+          $body >> $env:GITHUB_OUTPUT
+          $delimiter >> $env:GITHUB_OUTPUT
+
+      - name: Send status email
+        if: always() && steps.notify.outputs.enabled == 'true'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SMTP_HOST }}
+          server_port: ${{ secrets.MAIL_SMTP_PORT || '587' }}
+          username: ${{ secrets.MAIL_SMTP_USER }}
+          password: ${{ secrets.MAIL_SMTP_PASSWORD }}
+          subject: "[${{ job.status }}] Codex patched ${{ steps.ours.outputs.tag || steps.upstream.outputs.tag }}"
+          body: ${{ steps.mailbody.outputs.mailbody }}
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM || secrets.MAIL_SMTP_USER }}
