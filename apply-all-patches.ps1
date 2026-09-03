@@ -142,6 +142,11 @@ if (-not $SkipU) {
     Run-Patch 'patch_codex_asar_composer_input_safety.py' @('--app-dir', $AppDir) 'Patch U — literal Markdown paste and duplicate-paste guard'
 }
 
+# Patch B2 — rewrite embedded app.asar SHA256 in the exe (Owl Electron builds).
+# Must run AFTER every asar-mutating patch (A..U) so the hash matches the final asar.
+# On pure Electron builds this is a no-op (no embedded manifest).
+Run-Patch 'patch_codex_exe_asar_integrity_hash.py' @('--exe', $exe, '--app-dir', $AppDir) 'Patch B2 — rewrite embedded app.asar SHA256 in exe (Owl Electron integrity)'
+
 Write-Host ""
 Write-Host "All requested patches applied." -ForegroundColor Green
 Write-Host "Asar: $asar"

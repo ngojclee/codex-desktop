@@ -47,6 +47,18 @@ def looks_like_owl_shell(exe_path: Path) -> bool:
     return (app_dir / ".installed-owl-shell.json").exists() or (app_dir / "resources" / "owl-electron-app.json").exists()
 
 
+def _has_asar_integrity_fuse(exe_path: Path) -> bool:
+    """Owl Electron builds still embed the classic Electron fuse block (including
+    EnableEmbeddedAsarIntegrityValidation). Detecting owl-electron-app.json alone is
+    NOT sufficient to skip the fuse patch — the build below still validates app.asar
+    SHA256 at launch and dies with 'Integrity check failed for asar archive' if the
+    fuse is left enabled after patching app.asar. Only skip when the sentinel is absent."""
+    try:
+        return SENTINEL in exe_path.read_bytes()
+    except OSError:
+        return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Flip Electron ASAR-integrity fuse on Codex.exe.")
     parser.add_argument("--exe", required=True, help="Absolute path to the patched copy of Codex.exe")
@@ -61,8 +73,11 @@ def main() -> None:
     try:
         block_start = find_fuse_block(data)
     except RuntimeError as exc:
-        if looks_like_owl_shell(exe_path):
-            print(f"Skipped: {exc} Owl shell layout detected; Electron fuse patch is not required.")
+        # Only treat as a genuine no-op when the Electron fuse sentinel is absent.
+        # Owl Electron builds DO embed the fuse block (and validate app.asar integrity),
+        # so the owl-electron-app.json marker must NOT suppress the patch.
+        if not _has_asar_integrity_fuse(exe_path):
+            print(f"Skipped: {exc} No Electron fuse sentinel; ASAR integrity fuse patch not required.")
             return
         raise
     version = data[block_start]
