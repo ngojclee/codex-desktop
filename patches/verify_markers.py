@@ -14,6 +14,7 @@ matches), the verification fails loudly here instead of shipping a broken
 zip.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -134,6 +135,74 @@ def _extract(asar: Path, payload_start: int, meta: dict) -> str:
     with asar.open("rb") as f:
         f.seek(payload_start + int(meta["offset"]))
         return f.read(int(meta["size"])).decode("utf-8", "replace")
+
+
+def asar_integrity_manifest_status(app_dir: Path):
+    """Check the Owl shell exe embeds the hash the app computes for app.asar.
+
+    Verified on 26.901: the app compares the exe manifest against SHA256 of the
+    asar *header JSON* (per-file `integrity` fields included), not SHA256 of the
+    whole file. Patches A..U rewrite file bytes, which changes those per-file
+    hashes, so the header hash changes and Patch B2 must update the exe. When it
+    does not, the app dies at launch with "Integrity check failed for asar
+    archive" and every fresh install needs a manual exe fix.
+    """
+    out = {
+        "header_hash": None,
+        "manifest_exes": [],
+        "mismatched": [],
+        "applicable": False,
+    }
+    asar = app_dir / "resources" / "app.asar"
+    if not asar.exists():
+        out["mismatched"].append("resources/app.asar is missing")
+        return out
+    with asar.open("rb") as fh:
+        head = fh.read(16)
+    if len(head) != 16:
+        out["mismatched"].append("asar header is unreadable")
+        return out
+    _u0, _header_size, _payload_size, json_len = struct.unpack_from("<4I", head, 0)
+    if json_len <= 0 or json_len > (1 << 30):
+        out["mismatched"].append("implausible asar header json_len=%d" % json_len)
+        return out
+    h = hashlib.sha256()
+    with asar.open("rb") as fh:
+        fh.seek(16)
+        remaining = json_len
+        while remaining:
+            chunk = fh.read(min(1 << 20, remaining))
+            if not chunk:
+                break
+            h.update(chunk)
+            remaining -= len(chunk)
+    out["header_hash"] = h.hexdigest()
+
+    for exe in sorted(app_dir.glob("*.exe")):
+        try:
+            data = exe.read_bytes()
+        except OSError:
+            continue
+        idx = data.find(b'[{"file":"resources\\\\app.asar"')
+        if idx < 0:
+            idx = data.find(b'[{"file":"resources\\app.asar"')
+        if idx < 0:
+            continue
+        out["applicable"] = True
+        out["manifest_exes"].append(exe.name)
+        try:
+            txt = b"[" + data[idx:].split(b"]", 1)[0].split(b"[", 1)[1] + b"]"
+            manifest = json.loads(txt.decode("utf-8"))
+            entry = next(m for m in manifest if "app.asar" in m.get("file", ""))
+        except Exception as exc:
+            out["mismatched"].append("%s: unparseable manifest (%s)" % (exe.name, exc))
+            continue
+        if entry.get("value") != out["header_hash"]:
+            out["mismatched"].append(
+                "%s embeds %s but app.asar header hash is %s"
+                % (exe.name, str(entry.get("value"))[:16], out["header_hash"][:16])
+            )
+    return out
 
 
 def find_signals(app_dir: Path):
@@ -715,6 +784,7 @@ def main():
     patch_t = voice_paste_shortcut_status(app_dir)
     patch_u = patch_u_status(app_dir / "resources" / "app.asar")
     computer_use = computer_use_plugin_status(app_dir)
+    integrity = asar_integrity_manifest_status(app_dir)
 
     print(f"App version   : {app_version or 'unknown'}")
     print(f"Signals chunk : {signals_path}  ({len(signals_txt):,} bytes)")
@@ -915,6 +985,11 @@ def main():
         ("Patch U — composer safety markers present", lambda: len(patch_u["marker_paths"]) > 0, True),
         ("Patch U — inline Markdown/paste layouts replaced", lambda: len(patch_u["unpatched_paths"]) == 0, True),
         ("Patch U — touched renderer chunks pass syntax check", lambda: len(patch_u["syntax_errors"]) == 0, True),
+        (
+            "Patch B2 — exe app.asar integrity manifest matches the asar header hash",
+            lambda: (not integrity["applicable"]) or len(integrity["mismatched"]) == 0,
+            True,
+        ),
     )
 
     failed = []
@@ -930,6 +1005,7 @@ def main():
         "Patch S — touched renderer chunks pass syntax check": patch_s["syntax_errors"],
         "Patch T — touched renderer chunks pass syntax check": patch_t["syntax_errors"],
         "Patch U — touched renderer chunks pass syntax check": patch_u["syntax_errors"],
+        "Patch B2 — exe app.asar integrity manifest matches the asar header hash": integrity["mismatched"],
     }
     for label, check_fn, must_pass in checks:
         ok = bool(check_fn())

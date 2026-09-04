@@ -130,6 +130,42 @@ Tức `actual` là hằng số theo từng release, còn SHA256 cả file thì �
 - Guard `json_len` (phải > 0 và < 1 GiB) để CI **fail loudly** nếu upstream đổi layout asar, thay vì âm thầm ghi hash sai.
 - Test trên bản copy của exe đang chạy tốt → báo `Already correct ... No-op`, tức idempotent và không phá build đang chạy.
 
+### 4.3b NGUYÊN NHÂN THỨ HAI — B2 soi nhầm exe (đây là lý do bản CI vẫn hỏng)
+
+Log CI run `33862920171` (build `v26.901.22334-patched`) in ra:
+
+```text
+==> Patch B2 — rewrite embedded app.asar SHA256 in exe (Owl Electron integrity)
+Skipped: no embedded app.asar integrity manifest found in exe (pure Electron build?). No-op.
+```
+
+Nhưng manifest nằm trong `ChatGPT.exe` (4.4 MB), còn `apply-all-patches.ps1` dòng 51 lại đặt
+`$exe = Join-Path $AppDir 'Codex.exe'` — file stub 1.05 MB **không chứa manifest**.
+Kiểm tra trực tiếp trên bản build local:
+
+| File | có manifest? | giá trị |
+|---|---|---|
+| `ChatGPT.exe` | **CÓ** | `5d404e81...` (mặc định upstream, SAI với asar đã patch) |
+| `Codex.exe` | KHÔNG | - |
+| fuse sentinel trong cả 2 exe | KHÔNG | nên Patch B cũng no-op trên Owl |
+
+Suy ra: B2 luôn no-op trên CI → exe giữ hash gốc → mọi bản `-patched` phát hành đều FATAL,
+phải vá tay từng máy. Đã sửa bằng cách cho B2 **tự quét mọi `*.exe` ở thư mục app** và vá file
+nào thật sự chứa manifest, không phụ thuộc tham số `--exe` nữa.
+
+Thêm một dữ kiện giải thích vì sao upstream cũng lệch số: repo `codex-desktop-rebuild` đã
+**repack** asar, nên header của nó (`6567a4c7...`) khác ngay cả trước khi patch, trong khi exe
+vẫn lấy từ bản chính thức (`5d404e81...`). Vì vậy B2 bắt buộc phải chạy và phải ghi đúng
+`sha256(header)` của asar **bản cuối**.
+
+Header asar build này chứa **8824 field `integrity` per-file**; patch làm đổi nội dung file nên
+những hash đó đổi theo → header đổi (dù `json_len` giữ nguyên 2.429.195 byte). App so sánh bằng
+**toàn bộ header JSON giữ nguyên `integrity`**, không phải bản đã stripped.
+
+**Guard mới trong `verify_markers.py`:** "Patch B2 — exe app.asar integrity manifest matches the
+asar header hash". CI sẽ fail ngay nếu còn exe mang manifest lệch với header asar, thay vì âm
+thầm phát hành bản phải vá tay.
+
 ### 4.4 Cách fix thủ công đã áp dụng (workaround, cả 2 máy đều chạy được)
 Tìm blob JSON hash trong exe, thay `value` = chuỗi `actual` app báo:
 ```python
@@ -142,8 +178,9 @@ Sau khi vá: app mở OK (process chạy, `model/list`/`getAuthStatus` trả `er
 
 ### 4.5 VIỆC CÒN LẠI CHO DEV
 1. ~~Sửa Patch B2~~ **ĐÃ LÀM** — B2 tính SHA256 header JSON (xem §4.2b).
-2. **Force rebuild CI** để bản `-patched` phát hành embed đúng hash; các máy khác cài là chạy, hết phải vá tay exe.
-3. Thêm bước **smoke test launch trong CI**: chạy exe vừa build, nếu log ra `Integrity check failed` thì in cặp `(expected, actual)` và fail ngay tại CI.
+2. ~~Sửa B2 chọn sai exe~~ **ĐÃ LÀM** — B2 tự quét `*.exe` và vá file có manifest (§4.3b).
+3. **Force rebuild CI** để bản `-patched` phát hành embed đúng hash; các máy khác cài là chạy, hết phải vá tay exe.
+4. (Tuỳ chọn, đã có guard cơ bản) Thêm bước **smoke test launch trong CI**: chạy exe vừa build, nếu log ra `Integrity check failed` thì in cặp `(expected, actual)` và fail ngay tại CI.
 4. Giữ B2 là bước **cuối** sau mọi patch làm đổi asar (đã đúng trong `apply-all-patches.ps1`) và không repack asar sau B2.
 
 ---
