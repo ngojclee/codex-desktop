@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite the embedded app.asar SHA256 inside Codex.exe / ChatGPT.exe.
+"""Rewrite the embedded app.asar integrity hash inside Codex.exe / ChatGPT.exe.
 
 Owl Electron builds (detected by resources/owl-electron-app.json) do NOT use the
 classic Electron fuse mechanism (patch_codex_electron_fuse.py is a verified no-op
@@ -12,9 +12,31 @@ matches and the app dies at launch with:
 
     FATAL: Integrity check failed for asar archive (<expected> vs <actual>)
 
-This patch locates that manifest blob and rewrites the hash to the SHA256 of the
-current resources/app.asar. It is safe: the hash string length is fixed (64 hex
-chars), so the patch is an in-place overwrite of the same byte count.
+VERIFIED ALGORITHM (2026-09-04, against build 26.901.20858):
+The value the app reports as `<actual>` is SHA256 of the asar *header JSON blob*,
+NOT the SHA256 of the whole resources/app.asar file, and NOT a header `integrity`
+field (this build's header has no `integrity` section at all).
+
+    expected(embedded in exe) == sha256(header JSON) == actual(app computed)
+
+Measured proof on 10.11.1.1:
+    sha256(whole app.asar) = 11d282a8...   (does NOT match what the app wants)
+    sha256(header JSON)    = 53f5e962...   (matches, app launches with this)
+
+Because patches A..U are same-length byte edits inside the *content* region, the
+header is normally untouched, so this hash is stable across patch runs and B2
+becomes a no-op on an already-correct exe. It still runs last so a repacked or
+re-headered asar gets the right value embedded.
+
+Header layout (verified on 26.901 Owl builds):
+    [0]  uint32 = 4               outer size-pickle payload size
+    [4]  uint32 = header_size     aligned size of the inner header pickle
+    [8]  uint32 = inner pickle payload size
+    [12] uint32 = json_len
+    [16] json_len bytes of header JSON  <- hashed
+
+It is safe: the hash string length is fixed (64 hex chars), so the patch is an
+in-place overwrite of the same byte count.
 
 If the manifest is absent (e.g. a pure Electron build that relies on the fuse
 instead), this patch is a no-op.
@@ -23,6 +45,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import struct
 from pathlib import Path
 
 # The manifest is a JSON array; we search for this anchor substring.
@@ -36,11 +59,32 @@ ANCHOR_VARIANTS = [
 ]
 
 
-def compute_asar_sha256(asar_path: Path) -> str:
+def compute_asar_header_sha256(asar_path: Path) -> str:
+    """SHA256 of the asar header JSON blob — the value the app validates.
+
+    Raises SystemExit if the header layout looks wrong, so CI fails loudly
+    instead of silently embedding a bad hash.
+    """
+    with asar_path.open("rb") as f:
+        head = f.read(16)
+    if len(head) != 16:
+        raise SystemExit(f"asar too small to hold a header: {asar_path}")
+    _u0, _header_size, _payload_size, json_len = struct.unpack_from("<4I", head, 0)
+    if json_len <= 0 or json_len > (1 << 30):
+        raise SystemExit(
+            f"implausible asar header json_len={json_len} in {asar_path}; "
+            "asar layout changed — re-verify before releasing."
+        )
     h = hashlib.sha256()
     with asar_path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
+        f.seek(16)
+        remaining = json_len
+        while remaining:
+            chunk = f.read(min(1 << 20, remaining))
+            if not chunk:
+                raise SystemExit("asar truncated while reading header JSON")
             h.update(chunk)
+            remaining -= len(chunk)
     return h.hexdigest()
 
 
@@ -93,9 +137,9 @@ def main() -> None:
     if len(old_hash) != 64 or any(c not in "0123456789abcdef" for c in old_hash):
         raise SystemExit(f"Embedded hash has unexpected format: {old_hash!r}")
 
-    new_hash = compute_asar_sha256(asar_path)
+    new_hash = compute_asar_header_sha256(asar_path)
     if old_hash == new_hash:
-        print(f"Already correct: app.asar SHA256 in exe already matches ({new_hash[:12]}...). No-op.")
+        print(f"Already correct: embedded app.asar header hash already matches ({new_hash[:12]}...). No-op.")
         return
 
     # In-place overwrite of the 64-hex hash within the binary.
@@ -118,10 +162,10 @@ def main() -> None:
     # Verify
     verify = exe_path.read_bytes()
     assert new_bytes in verify and old_bytes not in verify, "Verification failed after write."
-    print(f"Patched embedded app.asar SHA256 in {exe_path.name}:")
+    print(f"Patched embedded app.asar header hash in {exe_path.name}:")
     print(f"  old: {old_hash}")
     print(f"  new: {new_hash}")
-    print(f"  (computed from {asar_path.name}, {asar_path.stat().st_size} bytes)")
+    print(f"  (sha256 of header JSON in {asar_path.name}, {asar_path.stat().st_size} bytes total)")
 
 
 if __name__ == "__main__":
