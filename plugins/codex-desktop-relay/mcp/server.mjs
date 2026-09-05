@@ -38,9 +38,16 @@ function firstString(...values) {
   return null;
 }
 
+// Windows PowerShell 5.1 writes UTF-8 with a byte-order mark, and JSON.parse
+// rejects a leading BOM. The launcher owns those state files, so read them
+// tolerantly instead of reporting the sidecar as unavailable.
+function stripBom(text) {
+  return typeof text === "string" && text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 async function readJsonFile(file) {
   try {
-    return JSON.parse(await readFile(file, "utf8"));
+    return JSON.parse(stripBom(await readFile(file, "utf8")));
   } catch (caught) {
     if (caught.code === "ENOENT") return null;
     throw caught;
@@ -365,7 +372,7 @@ async function callBusiness(config, toolName, args) {
 async function sidecarHealth() {
   try {
     const statePath = path.join(homedir(), ".codex", "desktop-shared-app-server.json");
-    const state = JSON.parse(await readFile(statePath, "utf8"));
+    const state = JSON.parse(stripBom(await readFile(statePath, "utf8")));
     const response = await fetch(`http://127.0.0.1:${state.port}/healthz`);
     return {
       available: response.ok,

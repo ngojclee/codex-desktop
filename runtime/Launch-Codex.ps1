@@ -515,7 +515,7 @@ if (-not $bound) {
 
 # Record state
 New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
-[ordered]@{
+$stateJson = [ordered]@{
     ws_url          = $WsUrl
     port            = $Port
     sidecar_pid     = $sidecarPid
@@ -524,7 +524,12 @@ New-Item -ItemType Directory -Force -Path (Split-Path $StateFile) | Out-Null
     log_out         = $logOut
     log_err         = $logErr
     build_flavor    = $ResolvedBuildFlavor
-} | ConvertTo-Json | Set-Content -LiteralPath $StateFile -Encoding UTF8
+} | ConvertTo-Json
+# Write UTF-8 without a BOM. Set-Content -Encoding UTF8 on Windows PowerShell 5.1
+# emits a byte-order mark, and Node's JSON.parse in the Codex Desktop Relay plugin
+# rejects it, which surfaced as sidecar.available=false in relay_status.
+[System.IO.File]::WriteAllText(
+    $StateFile, $stateJson, (New-Object System.Text.UTF8Encoding($false)))
 
 # Launch Desktop with env vars
 $env:CODEX_APP_SERVER_WS_URL = $WsUrl
