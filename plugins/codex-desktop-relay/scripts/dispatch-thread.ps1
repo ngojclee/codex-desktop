@@ -11,6 +11,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
 
 if ([string]::IsNullOrWhiteSpace($Prompt)) {
     throw 'Empty prompt.'
@@ -77,13 +80,13 @@ function Wait-Response {
 }
 
 try {
-    $ws.ConnectAsync([Uri]$WsUrl, $token).GetAwaiter().GetResult()
+    $null = $ws.ConnectAsync([Uri]$WsUrl, $token).GetAwaiter().GetResult()
 
     Send-JsonRpc 'initialize' ([ordered]@{
         clientInfo = [ordered]@{
             name    = 'codex-desktop-relay'
             title   = 'Codex Desktop Relay'
-            version = '0.2.1'
+            version = '0.2.4'
         }
         capabilities = [ordered]@{ experimentalApi = $true }
     }) 1
