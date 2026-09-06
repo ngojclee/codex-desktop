@@ -227,6 +227,7 @@ jobs:
             throw 'Codex Desktop Relay plugin is missing from the Git marketplace'
           }
           node --check 'plugins\codex-desktop-relay\mcp\server.mjs'
+          powershell.exe -NoProfile -NonInteractive -Command "[void][scriptblock]::Create([System.IO.File]::ReadAllText('plugins\codex-desktop-relay\scripts\dispatch-thread.ps1'))"
           node 'plugins\codex-desktop-relay\mcp\test-server.mjs'
 
       - name: Setup Rust

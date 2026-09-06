@@ -3,13 +3,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginServer = path.join(here, "server.mjs");
+const dispatchScript = path.join(here, "..", "scripts", "dispatch-thread.ps1");
 const tempRoot = await mkdtemp(path.join(tmpdir(), "codex-relay-test-"));
 const calls = [];
 let toolCallCount = 0;
@@ -123,6 +124,23 @@ function waitForJson(child, id, timeoutMs = 10_000) {
 }
 
 try {
+  const dispatchSource = await readFile(dispatchScript, "utf8");
+  assert.match(
+    dispatchSource,
+    /\$null\s*=\s*\$ws\.ConnectAsync\(\[Uri\]\$WsUrl,\s*\$token\)\.GetAwaiter\(\)\.GetResult\(\)/,
+    "ConnectAsync must not write VoidTaskResult into the dispatched reply"
+  );
+  assert.match(
+    dispatchSource,
+    /\[Console\]::OutputEncoding\s*=\s*\$utf8NoBom/,
+    "dispatch output must explicitly use UTF-8 for Node's stdout decoder"
+  );
+  assert.match(
+    dispatchSource,
+    /\$OutputEncoding\s*=\s*\$utf8NoBom/,
+    "PowerShell pipeline output must explicitly use UTF-8"
+  );
+
   await new Promise((resolve) => business.listen(0, "127.0.0.1", resolve));
   const address = business.address();
   assert.ok(address && typeof address === "object");
