@@ -410,6 +410,29 @@ jobs:
           python $patchV --source-dir $codexSrc
           if ($LASTEXITCODE -ne 0) { throw "Patch V failed with exit $LASTEXITCODE" }
 
+          # Patch X: Patch V refuses any stored standalone tool output with no
+          # call_id, but thread/fork (the Desktop duplicate action) copies stored
+          # history verbatim, so a freshly created lane can inherit the rows and
+          # never resume again; compaction builds its request the same way, so the
+          # thread cannot even heal itself. X converts those stored rows into the
+          # same assistant commentary the live path persists, request view only,
+          # and keeps V's refusal for anything that cannot be rendered losslessly.
+          $patchX = 'patches\patch_codex_sidecar_legacy_unpaired_output_recovery.py'
+          if (-not (Test-Path -LiteralPath $patchX)) { throw "Missing Patch X source patcher: $patchX" }
+          python $patchX --source-dir $codexSrc
+          if ($LASTEXITCODE -ne 0) { throw "Patch X failed with exit $LASTEXITCODE" }
+
+          # Patch W1: gateways and interceptors reject an oversized Responses body
+          # with HTTP 413, which upstream classified as retryable, so Codex re-sent
+          # the same too-large body until the retry budget ran out. W1 measures the
+          # final serialized request body, refuses locally when it cannot fit the
+          # configured provider budget, and classifies any size rejection
+          # (local or gateway) as non-retryable with an actionable message.
+          $patchW1 = 'patches\patch_codex_sidecar_request_byte_budget.py'
+          if (-not (Test-Path -LiteralPath $patchW1)) { throw "Missing Patch W1 source patcher: $patchW1" }
+          python $patchW1 --source-dir $codexSrc
+          if ($LASTEXITCODE -ne 0) { throw "Patch W1 failed with exit $LASTEXITCODE" }
+
           # Patch N: upstream fixed excessive persistent SQLite log churn in
           # openai/codex#29432 and #29457. Keep this as an idempotent guard so
           # source refs before rust-v0.142.0 are protected, while newer refs
@@ -488,6 +511,14 @@ jobs:
           Write-Host 'Running Patch V controlled legacy-recovery regression test'
           cargo test -p codex-core rejects_legacy_unpaired_function_call_output_before_provider_request
           if ($LASTEXITCODE -ne 0) { throw "Patch V legacy-recovery regression test failed with exit $LASTEXITCODE" }
+          Write-Host 'Running Patch X inherited-history recovery regression tests'
+          cargo test -p codex-core --lib -- client::tests::inherited client::tests::binary client::tests::custom
+          if ($LASTEXITCODE -ne 0) { throw "Patch X recovery regression tests failed with exit $LASTEXITCODE" }
+          Write-Host 'Running Patch W1 request byte budget tests'
+          cargo test -p codex-api --lib request_size
+          if ($LASTEXITCODE -ne 0) { throw "Patch W1 byte budget unit tests failed with exit $LASTEXITCODE" }
+          cargo test -p codex-api --test clients
+          if ($LASTEXITCODE -ne 0) { throw "Patch W1 byte budget client tests failed with exit $LASTEXITCODE" }
           Pop-Location
 
           $built = Join-Path $codexSrc 'codex-rs\target\dev-small\codex.exe'
@@ -507,6 +538,8 @@ jobs:
           "patch_i=true" >> $env:GITHUB_OUTPUT
           "patch_n=true" >> $env:GITHUB_OUTPUT
           "patch_v=true" >> $env:GITHUB_OUTPUT
+          "patch_x=true" >> $env:GITHUB_OUTPUT
+          "patch_w1=true" >> $env:GITHUB_OUTPUT
 
       - name: Verify patch markers
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -676,6 +709,8 @@ jobs:
           - **Patch I** — source-built `resources/codex.exe` with `send_input` empty-items normalization baked into the default release lane
           - **Patch N** — guard source-built `resources/codex.exe` against excessive persistent `logs_2.sqlite` churn by applying/verifying upstream OpenAI fixes #29432 and #29457
           - **Patch V** — write new standalone app-server tool output as assistant commentary context with tool provenance, while blocking pre-existing unpaired function-call output locally before a strict provider request
+          - **Patch X** — resume tasks that inherited pre-Patch-V standalone tool output rows: `thread/fork` and Desktop duplicate copy stored history verbatim, so those rows are now converted into the same assistant commentary at request-build time (no invented call ids, no dropped output, no transcript or database edits), which also restores manual compaction for the thread; anything that cannot be rendered losslessly still gets Patch V's refusal
+          - **Patch W1** — measure the final serialized Responses request body and refuse it locally when it cannot fit `[model_providers.<id>] max_request_bytes`, and classify any size rejection from the client or the gateway as non-retryable with measured bytes, budget, provider, and the single dominant top-level field, so an oversized task reports an actionable error instead of retrying until the stream dies
           - **Patch J** — bypass renderer Statsig gates for Computer Use (Any App + Chrome)
           - **Patch K** — expose the bundled Codex mobile setup route in the sidebar while preserving upstream account/auth checks
           - **Patch L** — decode percent-escaped plugin package folders so Computer Use can resolve `@oai/sky` and its vendored pnpm deps
@@ -690,7 +725,7 @@ jobs:
           - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 
           ## Bundled Codex CLI sidecar
-          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I, Patch N, and Patch V merged/verified.
+          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I, Patch N, Patch V, Patch X, and Patch W1 merged/verified.
           - Source ref ${{ steps.codexsrc.outputs.resolved_ref }} resolved to [${{ steps.codexsrc.outputs.source_sha }}](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from ${{ steps.codexsrc.outputs.source_date }}. The same metadata is bundled at tools\.sidecar-source.
 
           ## Install
