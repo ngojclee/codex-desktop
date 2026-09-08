@@ -528,6 +528,8 @@ GitHub Action `.github/workflows/auto-repatch-release.yml`:
 4. If patterns no longer match (upstream refactored), the verification step fails loudly and the maintainer needs to update the patcher pattern strings.
 5. Manual `workflow_dispatch` can still publish isolated lanes with `release_suffix` if needed, but the default lane already includes Patch I and no longer needs a separate `-sendinput` tag.
 
+**Rebuilt artifacts need their own tag.** `release_suffix` exists exactly for this. When a patch changes but the upstream version does not, dispatch with a suffix (for example `xw1`, which published `v26.901.51231-patched-xw1`) instead of reusing the mutable `-patched` tag: a rebuild under an unchanged tag gives installed copies the same version string with different bytes, so anything that only compares tags cannot see the change. `runtime\Update-Codex.ps1` compares the asset digest, which is why the digest check exists, and the release workflow now records the superseded asset digest in the notes and emits a warning whenever a tag is replaced. `patches\test_update_release_state.ps1` locks the republished-tag case.
+
 This means: **upstream updates flow downstream automatically; our customizations re-apply themselves.**
 
 ## Add a new patch
