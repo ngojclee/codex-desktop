@@ -668,9 +668,39 @@ jobs:
 
       - name: Delete existing release before replacement
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true' && steps.ours.outputs.replace == 'true'
+        id: prevrelease
         shell: pwsh
         run: |
           $tag = '${{ steps.ours.outputs.tag }}'
+          # Record what we are about to throw away. A force rebuild replaces a
+          # release in place under the same mutable tag, so two installs can share
+          # one version string with different bytes. The updater compares digests,
+          # but a human reading only the tag cannot see that, and `v26.901.51231-patched`
+          # was in fact republished that way. Capture the predecessor's fingerprint,
+          # warn about the reuse, and write it into the new release body.
+          $prevDigest = ''
+          $prevUpdatedAt = ''
+          $prevCreatedAt = ''
+          $view = gh release view $tag --repo $env:GITHUB_REPOSITORY --json createdAt,assets 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            $prev = $view | ConvertFrom-Json
+            $prevAsset = @($prev.assets | Where-Object { $_.name -like 'CodexDesktop-Patched-win-x64-*.zip' }) |
+              Select-Object -First 1
+            if ($prevAsset) {
+              $prevDigest = [string]$prevAsset.digest
+              $prevUpdatedAt = [string]$prevAsset.updated_at
+            }
+            $prevCreatedAt = [string]$prev.createdAt
+          }
+          $global:LASTEXITCODE = 0
+
+          if ($prevDigest) {
+            Write-Host "::warning::Reusing mutable tag $tag. The previous asset ($prevDigest, $prevUpdatedAt) is being replaced; installs keyed on the version string alone are stale until their digest is re-checked. Pass release_suffix to publish a distinct tag instead."
+          }
+          "digest=$prevDigest" >> $env:GITHUB_OUTPUT
+          "updated_at=$prevUpdatedAt" >> $env:GITHUB_OUTPUT
+          "created_at=$prevCreatedAt" >> $env:GITHUB_OUTPUT
+
           Write-Host "Deleting existing release $tag so the refreshed upstream asset can be republished."
           gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag 2>&1 | Out-Host
           if ($LASTEXITCODE -ne 0) {
@@ -695,6 +725,12 @@ jobs:
           upstream_windows_asset_digest=${{ steps.upstream_asset.outputs.digest }}
           upstream_windows_asset_updated_at=${{ steps.upstream_asset.outputs.updated_at }}
           upstream_windows_asset_size=${{ steps.upstream_asset.outputs.size }}
+          -->
+
+          <!-- codex-patched-superseded-asset
+          superseded_patched_release_created_at=${{ steps.prevrelease.outputs.created_at }}
+          superseded_patched_asset_digest=${{ steps.prevrelease.outputs.digest }}
+          superseded_patched_asset_updated_at=${{ steps.prevrelease.outputs.updated_at }}
           -->
 
           ## Patches applied
