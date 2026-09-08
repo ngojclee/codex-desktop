@@ -508,6 +508,8 @@ This repo (scripts only — no binaries)
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── Patch V                 Source-built standalone app-server tool-output serializer and legacy replay guard
+├── Patch X                 Source-built recovery for tasks that inherited pre-Patch-V tool-output rows
+├── Patch W1                Source-built serialized request byte budget with non-retryable size rejection
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
 ├── apply-all-patches.ps1    Orchestrator — runs the patch set on a given app dir
@@ -607,6 +609,24 @@ Patch I is now part of the default stable lane. The failure lives in the bundled
 `turn/start.toolOutput` is an app-server-only standalone event: it has a tool name, namespace, and output, but no model `call_id`. Older sidecars persisted it as a Responses `function_call_output` and later replayed that invalid shape into strict Responses-compatible providers.
 
 Patch V keeps the UI tool-output event, but writes new standalone output into model history as an assistant-commentary context item carrying the original source and payload. It does not grant the payload user or developer authority, invent a call ID, or pair it with a nearby call. For pre-existing histories that already contain an unpaired or blank-call-id `function_call_output`, the source-built sidecar stops locally before a provider request and reports that the task needs controlled clean-history recovery. The patch never rewrites stored JSONL/SQLite history.
+
+### Patch X — inherited standalone tool-output recovery
+
+V's refusal is correct at the provider boundary but wider than intended, because history travels. `thread/fork` is the request behind the Desktop **duplicate** action, and it copies stored history verbatim: `thread_processor.rs` only truncates at turn boundaries and no layer filters item shapes. So a lane created that way inherits the pre-V rows and is refused on its **first** turn even though it never called the app-server tool itself. Measured here: the thread the owner created as a new lane carried `forked_from_id` pointing at the blocked CPA lane, with sixteen inherited rows at the same line offsets as its parent, and its whole 47.9 MB history rewritten inside a 2.4 second copy window.
+
+It is worse than a blocked turn. The refusal sits inside `build_responses_request`, and `compact_conversation_history` builds its request through that same function, so a blocked thread cannot even compact itself out: the block is permanent.
+
+X adds a request-view conversion in front of V's refusal and leaves the refusal untouched as the fail-closed net. A stored output with no usable `call_id` becomes the same assistant-commentary item the live path persists, so payload and provenance stay model-visible without gaining user or developer authority. X never invents an id, never pairs by proximity, never deletes an output, and never writes to stored history, transcripts, or the database, and because it runs at request build it covers resume, fork, duplicate, and compaction with one mechanism. Rows whose payload is not text-representable still get V's original message, because turning a screenshot into prose would both misrepresent the result and inflate the body past the budget W1 exists to police. Coverage extends to `custom_tool_call_output` and `tool_search_output`, measured at zero on real histories, so those arms are defensive only.
+
+**Operating rule for multi-lane work: start a replacement task with New task, never with Duplicate or fork, for any thread that ever reported through `codex_app.send_message_to_thread`.** Failed native `send_message_to_thread` calls are what wrote those rows for months, which is why lanes here report only through the shared sidecar or this relay. To check whether a thread is safe to fork, run `python runtime\Audit-Codex-History-Shapes.py`; it prints ids, line numbers, timestamps, namespaces, tool names and JSON value kinds only, never message content.
+
+### Patch W1 — serialized request byte budget
+
+A gateway in front of Codex can reject a request body before it ever selects a provider. Upstream classified that rejection as retryable, so Codex re-sent the same oversized body until it exhausted its retries and surfaced a stream error instead of a size error. Tokens and bytes are not the same measure: the history estimator counts a resized image as a fixed ~1.8k tokens while the real payload can be megabytes, so a task can sit comfortably inside its token limit and far outside the byte limit, and remote compaction replays the same oversized history, so it cannot self-rescue.
+
+W1 measures the final serialized request body and refuses it locally when it cannot fit `[model_providers.<id>] max_request_bytes`, which keeps the setting inside the provider block where Codex actually reads it. A size rejection, from the local budget or from a gateway HTTP 413, becomes one distinct non-retryable error carrying measured bytes, budget, provider, and only the dominant top-level field name; the response body is never echoed, and no field breakdown is computed unless a field holds a majority of the body. When `max_request_bytes` is unset the behaviour is exactly upstream. The sampling, remote-compaction and compaction-fallback loops are untouched: the change is one retryability predicate plus the preflight.
+
+Adding the variant deliberately forced every exhaustive `ApiError` match to say what a local size refusal means there: the telemetry label, the doctor handshake line, and the guardian sampler's own retry decision, which is separate from the core predicate. None of them swallows the variant in a wildcard.
 
 ### Patch N -- Persistent SQLite log churn guard
 

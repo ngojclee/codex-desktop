@@ -54,6 +54,40 @@ Assert-True (-not (
     Test-CodexReleaseStateMatch -State $wrongDigest -Tag 'v26.721.41059-patched' -Asset $asset
 )) 'A replaced same-tag asset must require an update.'
 
+# The real incident this guard exists for: `v26.901.51231-patched` was deleted and
+# republished with a different digest, size and timestamp while every installed copy
+# kept the same version string. Two machines under one tag must not look identical.
+$republishedAsset = [pscustomobject]@{
+    name = 'CodexDesktop-Patched-win-x64-v26.901.51231-patched.zip'
+    digest = 'sha256:d41723c618b4060def39eec0e5fd78753aefcd13cc0c70cd95f89dc24164fea3'
+    updated_at = '2026-09-08T10:12:09Z'
+    size = 791841359
+}
+$installedBeforeRepublish = [pscustomobject]@{
+    schemaVersion = 1
+    tag = 'v26.901.51231-patched'
+    assetName = $republishedAsset.name
+    assetDigest = 'sha256:c97600ba6df933cb270b7815782e4be3a47b76707d5e7ba053af4ffb26f3dfa7'
+    assetUpdatedAt = '2026-09-06T01:24:12Z'
+    assetSize = 790740866
+}
+Assert-True (-not (
+    Test-CodexReleaseStateMatch `
+        -State $installedBeforeRepublish `
+        -Tag 'v26.901.51231-patched' `
+        -Asset $republishedAsset
+)) 'A copy installed before a republish must not be treated as current.'
+
+$installedAfterRepublish = Get-CodexAssetState `
+    -Tag 'v26.901.51231-patched' `
+    -Asset $republishedAsset
+Assert-True (
+    Test-CodexReleaseStateMatch `
+        -State $installedAfterRepublish `
+        -Tag 'v26.901.51231-patched' `
+        -Asset $republishedAsset
+) 'A copy installed from the republished digest is current.'
+
 Assert-True (-not (
     Test-CodexReleaseStateMatch -State $null -Tag 'v26.721.41059-patched' -Asset $asset
 )) 'Missing release state must trigger a one-time refresh.'

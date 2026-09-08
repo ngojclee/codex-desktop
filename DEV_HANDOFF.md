@@ -41,6 +41,33 @@
 
 ---
 
+## 2b. NHÁNH SIDECAR (nguồn `openai/codex` build ra `resources\codex.exe`)
+
+Nhánh này không nằm trong `apply-all-patches.ps1`. CI áp trực tiếp lên bản checkout mã nguồn, **theo đúng thứ tự** I → V → X → W1 → N, rồi build và chạy gate. Mỗi patcher đều fail-loud khi anchor drifted và idempotent khi chạy lại.
+
+| Patch | Script | Mục đích |
+|---|---|---|
+| I | inline trong workflow | `send_input` với `items: []` hợp lệ hoá thành absent |
+| V | `patches/patch_codex_sidecar_standalone_tool_output.py` | `turn/start.toolOutput` (không có `call_id`) lưu thành assistant commentary có provenance; từ chối gửi lịch sử cũ bị hỏng tới provider |
+| X | `patches/patch_codex_sidecar_legacy_unpaired_output_recovery.py` | Chuyển dòng tool-output cũ thành assistant commentary **ngay khi dựng request**, để thread kế thừa dòng hỏng qua fork vẫn resume và **compact được**; giữ nguyên lưới chặn của V cho payload không biểu diễn lossless được (ảnh/âm thanh) |
+| W1 | `patches/patch_codex_sidecar_request_byte_budget.py` | Đo byte của request body đã serialize; chặn cục bộ nếu vượt `max_request_bytes` trong `[model_providers.<id>]`; mọi lỗi kích thước (của client hoặc gateway 413) là **non-retryable** kèm measured bytes + budget + provider + tên field chiếm đa số, không bao giờ echo nội dung |
+| N | inline trong workflow | Guard `logs_2.sqlite` khỏi log TRACE dồn dập |
+
+### Quy tắc vận hành đa lane (BẮT BUỘC, đo được 2026-09-08)
+
+1. **Tạo lane thay thế bằng New task (`thread/start`). KHÔNG dùng Duplicate/fork** từ bất kỳ thread nào từng gọi `codex_app.send_message_to_thread`. Lý do: `thread/fork` chỉ cắt theo turn boundary (`app-server/src/request_processors/thread_processor.rs` ~5022-5036) và chép history nguyên xi, nên lane "mới" mang theo toàn bộ dòng hỏng của thread cha và bị chặn ngay lượt đầu.
+2. **Chỉ báo cáo qua shared sidecar / Codex Desktop Relay.** Không fallback sang tool native `send_message_to_thread` khi gọi lỗi: đo trên 830 rollout của máy này cho thấy **301/301 dòng thiếu `call_id` đều là `codex_app.send_message_to_thread`**, và **0 dòng mới** được sinh ra sau khi Patch V chạy (14:40Z 2026-09-08).
+3. Trước khi fork một thread để làm tiếp, chạy census chỉ-đọc:
+
+   ```powershell
+   python runtime\Audit-Codex-History-Shapes.py
+   ```
+
+   Công cụ in ra id, số dòng, timestamp, namespace, tên tool và kiểu JSON; **không bao giờ in nội dung tin nhắn**. Máy 10.11.1.1 đo được 7 thread đang chặn (24 dòng live); máy 10.11.1.3 đo được 0.
+4. Máy chưa cài Patch X mà bị chặn thì **không tự cứu được trong app**: đừng retry, đừng cố compact (compact cũng đi qua `build_responses_request`), hãy mở New task và mang brief sang.
+
+---
+
 ## 3. BA LỖI NGHIÊM TRỌNG ĐÃ TÌM RA
 
 ### 3.1 Patch D — regex pagination (ĐÃ FIX TRONG REPO)
