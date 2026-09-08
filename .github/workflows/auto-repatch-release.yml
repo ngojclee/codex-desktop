@@ -402,6 +402,14 @@ jobs:
             throw 'Patch I verification failed: empty-items normalization marker missing'
           }
 
+          # Patch V: app-server TurnToolOutput is intentionally unpaired. Persist
+          # new output as assistant commentary context, and reject old malformed
+          # history before it can reach a strict Responses-compatible provider.
+          $patchV = 'patches\patch_codex_sidecar_standalone_tool_output.py'
+          if (-not (Test-Path -LiteralPath $patchV)) { throw "Missing Patch V source patcher: $patchV" }
+          python $patchV --source-dir $codexSrc
+          if ($LASTEXITCODE -ne 0) { throw "Patch V failed with exit $LASTEXITCODE" }
+
           # Patch N: upstream fixed excessive persistent SQLite log churn in
           # openai/codex#29432 and #29457. Keep this as an idempotent guard so
           # source refs before rust-v0.142.0 are protected, while newer refs
@@ -474,6 +482,12 @@ jobs:
           Write-Host 'Starting cargo build: codex-cli dev-small'
           cargo build --profile dev-small -p codex-cli --bin codex --verbose
           if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli dev-small failed with exit $LASTEXITCODE" }
+          Write-Host 'Running Patch V app-server integration regression test'
+          cargo test -p codex-app-server --test all thread_inject_items_adds_raw_response_items_to_thread_history
+          if ($LASTEXITCODE -ne 0) { throw "Patch V app-server regression test failed with exit $LASTEXITCODE" }
+          Write-Host 'Running Patch V controlled legacy-recovery regression test'
+          cargo test -p codex-core rejects_legacy_unpaired_function_call_output_before_provider_request
+          if ($LASTEXITCODE -ne 0) { throw "Patch V legacy-recovery regression test failed with exit $LASTEXITCODE" }
           Pop-Location
 
           $built = Join-Path $codexSrc 'codex-rs\target\dev-small\codex.exe'
@@ -492,6 +506,7 @@ jobs:
           "new_version=$verifiedVersion" >> $env:GITHUB_OUTPUT
           "patch_i=true" >> $env:GITHUB_OUTPUT
           "patch_n=true" >> $env:GITHUB_OUTPUT
+          "patch_v=true" >> $env:GITHUB_OUTPUT
 
       - name: Verify patch markers
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -660,6 +675,7 @@ jobs:
           - **Patch H** — sanitize Windows backslashes in app directive lines before markdown directive parsing so one malformed directive cannot crash thread rendering
           - **Patch I** — source-built `resources/codex.exe` with `send_input` empty-items normalization baked into the default release lane
           - **Patch N** — guard source-built `resources/codex.exe` against excessive persistent `logs_2.sqlite` churn by applying/verifying upstream OpenAI fixes #29432 and #29457
+          - **Patch V** — write new standalone app-server tool output as assistant commentary context with tool provenance, while blocking pre-existing unpaired function-call output locally before a strict provider request
           - **Patch J** — bypass renderer Statsig gates for Computer Use (Any App + Chrome)
           - **Patch K** — expose the bundled Codex mobile setup route in the sidebar while preserving upstream account/auth checks
           - **Patch L** — decode percent-escaped plugin package folders so Computer Use can resolve `@oai/sky` and its vendored pnpm deps
@@ -674,7 +690,7 @@ jobs:
           - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 
           ## Bundled Codex CLI sidecar
-          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I and Patch N merged/verified.
+          - Replaced upstream `resources/codex.exe` (`${{ steps.sidecar.outputs.old_version }}`) with `${{ steps.sidecar.outputs.new_version }}`. The default lane now uses a source-built `openai/codex` binary with Patch I, Patch N, and Patch V merged/verified.
           - Source ref ${{ steps.codexsrc.outputs.resolved_ref }} resolved to [${{ steps.codexsrc.outputs.source_sha }}](https://github.com/openai/codex/commit/${{ steps.codexsrc.outputs.source_sha }}) from ${{ steps.codexsrc.outputs.source_date }}. The same metadata is bundled at tools\.sidecar-source.
 
           ## Install
