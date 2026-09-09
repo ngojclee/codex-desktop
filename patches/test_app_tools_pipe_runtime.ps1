@@ -58,8 +58,11 @@ enabled = true
     Assert-True ($?) 'First ensure run should exit successfully.'
 
     $after = [IO.File]::ReadAllText($config)
-    Assert-True ($after -notmatch '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') `
-        'Static codex_app parent and child tables must be removed.'
+    if ($after -match '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') {
+        Write-Host "Config after first ensure run:"
+        Write-Host $after
+        throw 'Static codex_app parent and child tables must be removed.'
+    }
     Assert-True ($after -match '\[mcp_servers\.open-design\]') `
         'Unrelated MCP configuration must be preserved.'
     Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `

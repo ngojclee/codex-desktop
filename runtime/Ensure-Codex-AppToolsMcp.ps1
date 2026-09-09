@@ -194,4 +194,5 @@ try {
     if (-not $Quiet) {
         @{ status = 'error'; error = $_.Exception.Message } | ConvertTo-Json -Compress | Write-Host
     }
+    throw
 }
