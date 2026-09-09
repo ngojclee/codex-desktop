@@ -208,6 +208,7 @@ jobs:
           & ./patches/test_model_catalog_sync.ps1
           & ./patches/test_update_release_state.ps1
           & ./patches/test_repair_project_config.ps1
+          & ./patches/test_app_tools_pipe_runtime.ps1
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -759,6 +760,7 @@ jobs:
           - **Patch T** — remove the conflicting default `Ctrl+Shift+V` Voice Mode keybinding so Windows paste-as-plain-text has a single input path; Voice Mode remains available from the UI and custom shortcuts
           - **Patch U** — keep pasted Markdown/HTML and inline `_`/`*` sequences literal in the composer, while suppressing duplicate paste delivery for the same clipboard payload
           - **Patch Y** — replace the two nested outer `automation_update` mode discriminated unions with plain unions so valid `create` and `update` calls survive the embedded Zod validator
+          - **Codex app-tools pipe repair** — remove the obsolete static `mcp_servers.codex_app` command workaround from `config.toml` on pipe-capable Desktop bundles so Desktop can inject the per-session `CODEX_APP_TOOLS_PIPE_PATH`
           - **Model features sync** — add verified Max/Ultra metadata to existing GPT 5.6 Sol, Terra, and Luna catalog entries, then mirror the result to `models_cache.json`, without writing `model_catalog_json` into `config.toml`
           - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 

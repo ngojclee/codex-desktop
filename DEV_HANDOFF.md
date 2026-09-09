@@ -77,10 +77,9 @@ Nhánh này không nằm trong `apply-all-patches.ps1`. CI áp trực tiếp lê
 - Regex cũ không khớp → CI báo `pattern_not_found` → fail 5 lần.
 - **Fix:** thêm group optional `(?:pag_cancel\.)?` vào regex. Đã commit, CI xanh.
 
-### 3.2 invalid transport `codex_app` (ĐÃ FIX QUA config.toml)
+### 3.2 invalid transport / app-tools pipe `codex_app`
 - App 26.831+ inject `[mcp_servers.codex_app]` vào plugin `.mcp.json`/`desktop-mcp.json` với trường `transport`/`type` **bị thiếu** → lỗi `invalid transport` → app không load được config.toml → thread không resume được.
-- **KHÔNG sửa file plugin** (app ghi đè mỗi lần update → vô ích).
-- **Fix đúng:** thêm block tường minh vào `C:\Users\ngocl\.codex\config.toml`:
+- Workaround lịch sử từng dùng: thêm block tường minh vào `C:\Users\ngocl\.codex\config.toml`:
   ```toml
   [mcp_servers.codex_app]
   command = 'cmd.exe'
@@ -88,7 +87,8 @@ Nhánh này không nằm trong `apply-all-patches.ps1`. CI áp trực tiếp lê
   cwd = 'C:/Users/ngocl/.codex/plugins/cache/openai-bundled/codex-app-tools/0.1.3'
   enabled = true
   ```
-  (Luôn backup `config.toml` trước khi sửa.) Block này override cái inject lỗi. User xác nhận "cách này đúng là fix đc".
+- **Không dùng workaround này trên bundle pipe-capable mới.** `codex-app-tools` cần pipe động `CODEX_APP_TOOLS_PIPE_PATH`; block tĩnh sẽ start MCP server không có env này và gây lỗi `Codex did not provide CODEX_APP_TOOLS_PIPE_PATH to the app tools MCP`.
+- **Fix hiện tại trong repo:** `runtime\Ensure-Codex-AppToolsMcp.ps1` vẫn tạo `.mcp.json` mirror `enabled=false`, nhưng khi `resources\app.asar` có marker `CODEX_APP_TOOLS_PIPE_PATH` thì nó backup rồi gỡ block `[mcp_servers.codex_app]` tĩnh khỏi `config.toml`. Sau đó Desktop tự inject config pipe động lúc launch. Không sửa transcript/SQLite/automation.
 
 ### 3.3 Patch B2 — Owl Electron embedded asar hash (XEM §4 — ĐÃ FIX ĐÚNG)
 

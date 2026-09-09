@@ -58,7 +58,9 @@ embedded ASAR header hash after the final `app.asar` bytes are known.
 These are not ASAR patches, but they are part of a usable release:
 
 - `Ensure-Codex-AppToolsMcp.ps1`: maintains the sidecar-readable `.mcp.json`
-  mirror for the Desktop `codex_app` transport.
+  mirror for the Desktop `codex_app` transport and quarantines the obsolete
+  static `mcp_servers.codex_app` workaround once the installed Desktop bundle
+  proves it supports the per-session `CODEX_APP_TOOLS_PIPE_PATH` capability.
 - `Ensure-Codex-WslNative.ps1`: keeps
   `runCodexInWindowsSubsystemForLinux = false` in the correct `[desktop]` scope.
 - `Launch-Codex.ps1`: starts/joins the shared sidecar and writes BOM-free state.
@@ -98,3 +100,8 @@ Before treating a release as installable:
    `automation_update` with `mode=create`; then verify `update` separately.
 7. Do not claim the live Automation call is fixed until step 6 succeeds on the
    installed artifact.
+8. Confirm `resources/list` can start `codex_app` without a
+   `CODEX_APP_TOOLS_PIPE_PATH` error. A static user-level `codex_app` command
+   block must be absent on pipe-capable Desktop builds; the helper preserves a
+   timestamped `config.toml` backup and leaves older non-pipe-aware bundles
+   unchanged.

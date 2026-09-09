@@ -119,6 +119,30 @@ jobs:
           python patches\verify_markers.py $appDir --upstream-tag 'v26.903.61454'
           if ($LASTEXITCODE -ne 0) { throw "Patch marker verification failed with exit $LASTEXITCODE" }
 
+      - name: Bundle current runtime helpers and verify app-tools pipe repair
+        shell: pwsh
+        run: |
+          $appDir = (Resolve-Path build).Path
+          $tools = 'build/tools'
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          Copy-Item -Recurse -Force runtime/* $tools
+
+          $runtimeRoot = (Resolve-Path 'runtime').Path
+          foreach ($src in Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse) {
+            $rel = [IO.Path]::GetRelativePath($runtimeRoot, $src.FullName)
+            $dst = Join-Path $tools $rel
+            if (-not (Test-Path -LiteralPath $dst)) {
+              throw "Bundled tools verification failed: missing $rel"
+            }
+            $srcHash = (Get-FileHash -LiteralPath $src.FullName -Algorithm SHA256).Hash
+            $dstHash = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
+            if ($srcHash -ne $dstHash) {
+              throw "Bundled tools verification failed: hash mismatch for $rel"
+            }
+          }
+
+          & ./patches/test_app_tools_pipe_runtime.ps1
+
       - name: Repackage artifact
         id: pack
         shell: pwsh
@@ -146,7 +170,10 @@ jobs:
           This artifact preserves the verified source-built sidecar containing
           Patch X and Patch W1. It adds renderer Patch Y for the
           `automation_update` nested-Zod mode discriminator bug, then refreshes
-          Patch B2's Owl ASAR integrity hash.
+          Patch B2's Owl ASAR integrity hash. It also bundles the current
+          runtime helpers, including the codex_app app-tools pipe repair that
+          removes the obsolete static config workaround on pipe-capable Desktop
+          bundles.
 
           Patch inventory and future update rules:
           `docs/PATCH_INVENTORY.md`
