@@ -54,7 +54,8 @@ enabled = true
 '@
     [IO.File]::WriteAllText($config, $text, [Text.UTF8Encoding]::new($false))
 
-    & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
+    $ensureOutput = & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config
+    Write-Host "First ensure result: $($ensureOutput | ConvertTo-Json -Depth 6 -Compress)"
     Assert-True ($?) 'First ensure run should exit successfully.'
 
     $after = [IO.File]::ReadAllText($config)
