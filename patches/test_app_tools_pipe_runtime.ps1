@@ -54,9 +54,8 @@ enabled = true
 '@
     [IO.File]::WriteAllText($config, $text, [Text.UTF8Encoding]::new($false))
 
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script `
-        -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
-    Assert-True ($LASTEXITCODE -eq 0) 'First ensure run should exit successfully.'
+    & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
+    Assert-True ($?) 'First ensure run should exit successfully.'
 
     $after = [IO.File]::ReadAllText($config)
     Assert-True ($after -notmatch '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') `
@@ -74,9 +73,8 @@ enabled = true
     Assert-True (@($mirrorJson.mcpServers.codex_app.env_vars) -contains 'CODEX_APP_TOOLS_PIPE_PATH') `
         'The mirror must retain the dynamic pipe environment declaration.'
 
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script `
-        -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
-    Assert-True ($LASTEXITCODE -eq 0) 'Second ensure run should exit successfully.'
+    & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
+    Assert-True ($?) 'Second ensure run should exit successfully.'
     Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `
         'Idempotent rerun must not create another backup.'
 
@@ -90,8 +88,7 @@ enabled = true
         "[mcp_servers.codex_app]`ncommand = `"node`"`n",
         [Text.UTF8Encoding]::new($false)
     )
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script `
-        -CodexHome $codexHome -InstallDir $legacyInstall -ConfigPath $legacyConfig -Quiet
+    & $script -CodexHome $codexHome -InstallDir $legacyInstall -ConfigPath $legacyConfig -Quiet
     $legacyAfter = [IO.File]::ReadAllText($legacyConfig)
     Assert-True ($legacyAfter -match '\[mcp_servers\.codex_app\]') `
         'Legacy bundle config must remain untouched without the dynamic pipe marker.'
