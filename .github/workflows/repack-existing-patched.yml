@@ -1,0 +1,160 @@
+name: Repack existing patched release
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_release_tag:
+        description: 'Verified patched release to reuse as the base'
+        required: true
+        type: string
+        default: 'v26.903.61454-patched'
+      release_tag:
+        description: 'Distinct output release tag'
+        required: true
+        type: string
+        default: 'v26.903.61454-patched-automation'
+
+permissions:
+  contents: write
+
+jobs:
+  repack:
+    name: Repack verified sidecar with renderer Patch Y
+    runs-on: windows-latest
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Resolve base artifact
+        id: base
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $baseTag = '${{ inputs.base_release_tag }}'.Trim()
+          $releaseTag = '${{ inputs.release_tag }}'.Trim()
+          if (-not $baseTag -or -not $releaseTag) {
+            throw 'Both base_release_tag and release_tag are required.'
+          }
+          if ($baseTag -eq $releaseTag) {
+            throw 'Output release_tag must be distinct from base_release_tag.'
+          }
+
+          $release = gh release view $baseTag --repo $env:GITHUB_REPOSITORY --json assets,body,tagName | ConvertFrom-Json
+          $asset = @($release.assets | Where-Object {
+            $_.name -like 'CodexDesktop-Patched-win-x64-*.zip'
+          }) | Select-Object -First 1
+          if ($null -eq $asset) {
+            throw "No patched Windows ZIP found in $baseTag."
+          }
+          if ($release.body -notmatch '(?s)\*\*Patch X\*\*' -or $release.body -notmatch '(?s)\*\*Patch W1\*\*') {
+            throw "Base release $baseTag is not documented as containing both Patch X and Patch W1."
+          }
+
+          Write-Host "Base release: $baseTag"
+          Write-Host "Base asset: $($asset.name)"
+          Write-Host "Base asset digest: $($asset.digest)"
+          "base_tag=$baseTag" >> $env:GITHUB_OUTPUT
+          "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+          "asset_name=$($asset.name)" >> $env:GITHUB_OUTPUT
+          "base_digest=$($asset.digest)" >> $env:GITHUB_OUTPUT
+          "base_body<<EOF" >> $env:GITHUB_OUTPUT
+          $release.body >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
+      - name: Download verified base artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts,build | Out-Null
+          gh release download '${{ steps.base.outputs.base_tag }}' `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern '${{ steps.base.outputs.asset_name }}' `
+            --dir artifacts `
+            --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download base asset."
+          }
+          $zip = Get-Item -LiteralPath (Join-Path artifacts '${{ steps.base.outputs.asset_name }}')
+          if ($zip.Length -le 0) {
+            throw 'Downloaded base ZIP is empty.'
+          }
+          Write-Host ("Downloaded base ZIP: {0:N0} bytes" -f $zip.Length)
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath build -Force
+
+      - name: Verify base X and W1 sidecar metadata
+        shell: pwsh
+        run: |
+          $sidecarSource = Join-Path build 'tools\.sidecar-source'
+          if (-not (Test-Path -LiteralPath $sidecarSource)) {
+            throw 'Base artifact is missing tools\.sidecar-source.'
+          }
+          $metadata = Get-Content -LiteralPath $sidecarSource -Raw
+          if ($metadata -notmatch 'sidecar_new_version=') {
+            throw 'Base artifact sidecar metadata is incomplete.'
+          }
+          Write-Host 'Base artifact retains its already-verified source-built sidecar (Patch X/W1 release lane).'
+          Get-Content -LiteralPath $sidecarSource
+
+      - name: Apply renderer Patch Y and refresh Owl integrity
+        shell: pwsh
+        run: |
+          $appDir = (Resolve-Path build).Path
+          python patches\patch_codex_asar_automation_mode_union.py --app-dir $appDir
+          if ($LASTEXITCODE -ne 0) { throw "Patch Y failed with exit $LASTEXITCODE" }
+          $exe = Join-Path $appDir 'Codex.exe'
+          python patches\patch_codex_exe_asar_integrity_hash.py --exe $exe --app-dir $appDir
+          if ($LASTEXITCODE -ne 0) { throw "Patch B2 failed with exit $LASTEXITCODE" }
+          python patches\verify_markers.py $appDir --upstream-tag 'v26.903.61454'
+          if ($LASTEXITCODE -ne 0) { throw "Patch marker verification failed with exit $LASTEXITCODE" }
+
+      - name: Repackage artifact
+        id: pack
+        shell: pwsh
+        run: |
+          $releaseTag = '${{ steps.base.outputs.release_tag }}'
+          $asset = "CodexDesktop-Patched-win-x64-$releaseTag.zip"
+          Compress-Archive -Path build\* -DestinationPath $asset -Force
+          $size = (Get-Item -LiteralPath $asset).Length
+          if ($size -le 0) { throw 'Repacked ZIP is empty.' }
+          Write-Host ("Repacked: {0} ({1:N0} bytes)" -f $asset, $size)
+          "asset=$asset" >> $env:GITHUB_OUTPUT
+
+      - name: Create distinct release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $releaseTag = '${{ steps.base.outputs.release_tag }}'
+          $asset = '${{ steps.pack.outputs.asset }}'
+          $notes = @"
+          Renderer-only repack derived from verified patched release `${{ steps.base.outputs.base_tag }}`.
+
+          Base asset digest: `${{ steps.base.outputs.base_digest }}`
+
+          This artifact preserves the verified source-built sidecar containing
+          Patch X and Patch W1. It adds renderer Patch Y for the
+          `automation_update` nested-Zod mode discriminator bug, then refreshes
+          Patch B2's Owl ASAR integrity hash.
+
+          Patch inventory and future update rules:
+          `docs/PATCH_INVENTORY.md`
+          "@
+          gh release create $releaseTag $asset `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "Codex Desktop $releaseTag" `
+            --notes $notes
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create release $releaseTag."
+          }
