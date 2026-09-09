@@ -40,6 +40,11 @@ from patch_codex_asar_composer_input_safety import status as patch_u_status
 from patch_codex_asar_voice_paste_shortcut import (
     UPSTREAM_SAFE_PATTERN as PATCH_T_UPSTREAM_SAFE_PATTERN,
 )
+from patch_codex_asar_automation_mode_union import (
+    PATCH_MARKER as PATCH_Y_MARKER,
+    X_MODE_PATTERN as PATCH_Y_X_UPSTREAM_PATTERN,
+    Y_MODE_PATTERN as PATCH_Y_Y_UPSTREAM_PATTERN,
+)
 
 PATCH_J_MARKER = "/*J*/"
 PATCH_J_GATES = ("1506311413", "410065390", "410262010")
@@ -679,6 +684,54 @@ def custom_provider_ultra_status(app_dir: Path):
     }
 
 
+def automation_mode_union_status(app_dir: Path):
+    asar, payload_start, header = _read_asar(app_dir)
+    marker_entries = []
+    unpatched_paths = []
+
+    for path, meta in _walk(header):
+        if not (
+            path.startswith("webview/assets/")
+            and path.endswith(".js")
+            and "offset" in meta
+        ):
+            continue
+        text = _extract(asar, payload_start, meta)
+        if PATCH_Y_MARKER in text:
+            marker_entries.append((path, text))
+        if PATCH_Y_Y_UPSTREAM_PATTERN.search(text) or PATCH_Y_X_UPSTREAM_PATTERN.search(text):
+            unpatched_paths.append(path)
+
+    syntax_errors = []
+    node = shutil.which("node")
+    if marker_entries and node is None:
+        syntax_errors.append("node executable not found for Patch Y syntax verification")
+    elif marker_entries:
+        with tempfile.TemporaryDirectory(prefix="codex-patch-y-syntax-") as temp_dir:
+            for index, (path, text) in enumerate(marker_entries):
+                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
+                check_path.write_text(text, encoding="utf-8")
+                result = subprocess.run(
+                    [node, "--check", str(check_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    syntax_errors.append(
+                        f"{path}: {node_failure_line(result.stderr or result.stdout)}"
+                    )
+
+    marker_count = sum(text.count(PATCH_Y_MARKER) for _path, text in marker_entries)
+    return {
+        "marker_paths": sorted(path for path, _text in marker_entries),
+        "marker_count": marker_count,
+        "unpatched_paths": sorted(set(unpatched_paths)),
+        "syntax_errors": syntax_errors,
+    }
+
+
 def voice_paste_shortcut_status(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
     marker_entries = []
@@ -783,6 +836,7 @@ def main():
     patch_s = custom_provider_ultra_status(app_dir)
     patch_t = voice_paste_shortcut_status(app_dir)
     patch_u = patch_u_status(app_dir / "resources" / "app.asar")
+    patch_y = automation_mode_union_status(app_dir)
     computer_use = computer_use_plugin_status(app_dir)
     integrity = asar_integrity_manifest_status(app_dir)
 
@@ -900,6 +954,18 @@ def main():
         print("Patch U syntax errors:")
         for error in patch_u["syntax_errors"]:
             print(f"  - {error}")
+    print(f"Patch Y automation mode-union marker paths: {len(patch_y['marker_paths'])}")
+    for path in patch_y["marker_paths"]:
+        print(f"  - {path}")
+    print(f"Patch Y replacement marker count: {patch_y['marker_count']}")
+    if patch_y["unpatched_paths"]:
+        print("Patch Y upstream nested mode unions still present:")
+        for path in patch_y["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_y["syntax_errors"]:
+        print("Patch Y syntax errors:")
+        for error in patch_y["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -985,6 +1051,9 @@ def main():
         ("Patch U — composer safety markers present", lambda: len(patch_u["marker_paths"]) > 0, True),
         ("Patch U — inline Markdown/paste layouts replaced", lambda: len(patch_u["unpatched_paths"]) == 0, True),
         ("Patch U — touched renderer chunks pass syntax check", lambda: len(patch_u["syntax_errors"]) == 0, True),
+        ("Patch Y — both automation mode unions replaced", lambda: patch_y["marker_count"] == 2, True),
+        ("Patch Y — nested automation mode unions absent", lambda: len(patch_y["unpatched_paths"]) == 0, True),
+        ("Patch Y — touched renderer chunks pass syntax check", lambda: len(patch_y["syntax_errors"]) == 0, True),
         (
             "Patch B2 — exe app.asar integrity manifest matches the asar header hash",
             lambda: (not integrity["applicable"]) or len(integrity["mismatched"]) == 0,
@@ -1005,6 +1074,7 @@ def main():
         "Patch S — touched renderer chunks pass syntax check": patch_s["syntax_errors"],
         "Patch T — touched renderer chunks pass syntax check": patch_t["syntax_errors"],
         "Patch U — touched renderer chunks pass syntax check": patch_u["syntax_errors"],
+        "Patch Y — touched renderer chunks pass syntax check": patch_y["syntax_errors"],
         "Patch B2 — exe app.asar integrity manifest matches the asar header hash": integrity["mismatched"],
     }
     for label, check_fn, must_pass in checks:

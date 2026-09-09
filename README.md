@@ -504,7 +504,8 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
 │   ├── patch_codex_asar_custom_provider_ultra.py Patch S — expose catalog-declared Ultra for API providers
 │   ├── patch_codex_asar_voice_paste_shortcut.py Patch T — remove the Ctrl+Shift+V Voice Mode shortcut collision
-│   └── patch_codex_asar_composer_input_safety.py Patch U — keep composer input literal and deduplicate paste events
+│   ├── patch_codex_asar_composer_input_safety.py Patch U — keep composer input literal and deduplicate paste events
+│   └── patch_codex_asar_automation_mode_union.py Patch Y — keep automation mode validation compatible with embedded Zod
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── Patch V                 Source-built standalone app-server tool-output serializer and legacy replay guard
@@ -629,6 +630,21 @@ A gateway in front of Codex can reject a request body before it ever selects a p
 W1 measures the final serialized request body and refuses it locally when it cannot fit `[model_providers.<id>] max_request_bytes`, which keeps the setting inside the provider block where Codex actually reads it. A size rejection, from the local budget or from a gateway HTTP 413, becomes one distinct non-retryable error carrying measured bytes, budget, provider, and only the dominant top-level field name; the response body is never echoed, and no field breakdown is computed unless a field holds a majority of the body. When `max_request_bytes` is unset the behaviour is exactly upstream. The sampling, remote-compaction and compaction-fallback loops are untouched: the change is one retryability predicate plus the preflight.
 
 Adding the variant deliberately forced every exhaustive `ApiError` match to say what a local size refusal means there: the telemetry label, the doctor handshake line, and the guardian sampler's own retry decision, which is separate from the core predicate. None of them swallows the variant in a wildcard.
+
+### Patch Y — automation mode validation
+
+The Desktop webview's `automation_update` validator has two outer
+`mode` discriminated unions whose members include nested `kind` discriminated
+unions. The embedded Zod build in affected Desktop bundles can build that
+nested discriminator map incorrectly, omitting valid modes such as `update` and
+rejecting valid `create` requests before the Codex app MCP receives them.
+
+Patch Y changes only those two outer unions to chained plain unions. The inner
+`kind` unions, `GUn` mode transform, target-thread UUID refinement, and all
+valid request shapes remain unchanged. It is marker-verified, syntax-checked,
+idempotent, and fail-loud when the upstream schema layout drifts. This is a
+renderer-only fix; it does not change the Automation MCP server or create
+terminal/Windows schedulers.
 
 ### Patch N -- Persistent SQLite log churn guard
 

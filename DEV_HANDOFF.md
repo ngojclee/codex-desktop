@@ -10,16 +10,16 @@
 
 - **Repo:** `ngojclee/codex-desktop` (fork từ OpenAI codex-desktop).
 - **CI:** `.github/workflows/auto-repatch-release.yml`
-  - Trigger: phát hiện bản mới (tag/version) → tải bản chính thức → chạy 18 patch scripts → build → tạo GitHub Release `v<ver>-patched`.
+  - Trigger: phát hiện bản mới (tag/version) → tải bản chính thức → chạy patch set → build → tạo GitHub Release `v<ver>-patched`.
   - Step "Send status email" chạy `if: always()` (báo cả success lẫn failure) NHƯNG **đang disabled** vì chưa có secrets SMTP.
 - **2 máy chạy app:** `10.11.1.1` (user) và `10.11.1.3` (pcfr-des-01-lan). Catalog/model json + config.toml phải **sync 2 máy**.
 - **CPA (proxy model):** `http://10.21.1.101:8317/v1` (key nằm trong `config.toml`, đọc bằng regex Python, không hardcode).
 
 ---
 
-## 2. DANH SÁCH 18 PATCHES (A–U)
+## 2. DANH SÁCH PATCHES (A–Y)
 
-`apply-all-patches.ps1` gọi tuần tự A→U. Trạng thái verify từ CI log:
+`apply-all-patches.ps1` gọi tuần tự A→Y, sau đó B2 cập nhật integrity của exe. Trạng thái verify từ CI log:
 
 | Script | Mục đích | Behavior |
 |---|---|---|
@@ -33,6 +33,7 @@
 | K | ... | patched |
 | L | ... | already_patched |
 | O–U | ... | patched / upstream_safe |
+| Y | automation mode union | thay outer nested discriminated unions bằng plain unions để embedded Zod không làm mất mode `create`/`update` |
 | T | unbind Ctrl+Shift+V voice mode | **upstream_safe** (Windows đã tự fix ở 26.831) |
 | U | double-paste | **vẫn patched** (bản gốc chưa fix) |
 | **B2** | **rewrite embedded app.asar header hash trong exe** | **đã sửa đúng = SHA256 header JSON — xem §4** |
