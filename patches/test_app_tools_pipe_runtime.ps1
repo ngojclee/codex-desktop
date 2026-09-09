@@ -77,6 +77,23 @@ enabled = true
     Assert-True (@($mirrorJson.mcpServers.codex_app.env_vars) -contains 'CODEX_APP_TOOLS_PIPE_PATH') `
         'The mirror must retain the dynamic pipe environment declaration.'
 
+    # CI checks out scripts as CRLF, and real Windows configs may be CRLF too.
+    # Lock the .NET multiline-anchor behavior that made the old `$` pattern
+    # silently report `absent` on those files.
+    $crlfConfig = Join-Path $root 'crlf-config.toml'
+    $crlfText = $text -replace "`r?`n", "`r`n"
+    [IO.File]::WriteAllText($crlfConfig, $crlfText, [Text.UTF8Encoding]::new($false))
+    & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $crlfConfig -Quiet
+    Assert-True ($?) 'CRLF config ensure run should exit successfully.'
+    $crlfAfter = [IO.File]::ReadAllText($crlfConfig)
+    if ($crlfAfter -match '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') {
+        Write-Host "CRLF config after ensure run:"
+        Write-Host $crlfAfter
+        throw 'CRLF static codex_app configuration must also be removed.'
+    }
+    Assert-True ($crlfAfter -match '\[mcp_servers\.open-design\]') `
+        'CRLF cleanup must preserve unrelated MCP configuration.'
+
     & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
     Assert-True ($?) 'Second ensure run should exit successfully.'
     Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `
