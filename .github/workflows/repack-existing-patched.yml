@@ -57,7 +57,9 @@ jobs:
           if ($null -eq $asset) {
             throw "No patched Windows ZIP found in $baseTag."
           }
-          if ($release.body -notmatch '(?s)\*\*Patch X\*\*' -or $release.body -notmatch '(?s)\*\*Patch W1\*\*') {
+          # Accept both the inventory's bold markdown and the earlier
+          # renderer-repack wording ("containing Patch X and Patch W1").
+          if ($release.body -notmatch '(?is)\bPatch X\b' -or $release.body -notmatch '(?is)\bPatch W1\b') {
             throw "Base release $baseTag is not documented as containing both Patch X and Patch W1."
           }
 
