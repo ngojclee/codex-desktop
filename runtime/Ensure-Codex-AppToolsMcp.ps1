@@ -47,7 +47,9 @@ function Remove-StaticCodexAppServerConfig {
 
     $text = [IO.File]::ReadAllText($Path)
     $newline = if ($text -match "`r`n") { "`r`n" } else { "`n" }
-    $headerPattern = '(?m)^[ \t]*\[mcp_servers\.codex_app\][ \t]*(?:#.*)?$'
+    # Use a line-end lookahead instead of `$`: on Windows, CRLF configs must
+    # still match, and .NET multiline `$` does not anchor before `\r`.
+    $headerPattern = '(?m)^[ \t]*\[mcp_servers\.codex_app\][ \t]*(?:#.*)?(?=\r?\n|$)'
     $match = [regex]::Match($text, $headerPattern)
     if (-not $match.Success) {
         return @{ status = 'absent'; path = $Path }
@@ -56,7 +58,7 @@ function Remove-StaticCodexAppServerConfig {
     # Include child tables such as `[mcp_servers.codex_app.env]` in the
     # quarantined block. Stopping at the first child table would leave a
     # partial static definition behind.
-    $headerRegex = [regex]::new('(?m)^[ \t]*\[[^\r\n]+\][ \t]*(?:#.*)?$')
+    $headerRegex = [regex]::new('(?m)^[ \t]*\[[^\r\n]+\][ \t]*(?:#.*)?(?=\r?\n|$)')
     $next = $headerRegex.Match($text, $match.Index + $match.Length)
     while ($next.Success -and
         $next.Value.Trim() -match '^\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') {
