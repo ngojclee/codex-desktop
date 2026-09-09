@@ -75,6 +75,11 @@ These are not ASAR patches, but they are part of a usable release:
   sidecar build.
 - `-xw1` was a historical combined release tag. Future rebuilt artifacts must
   use a distinct tag such as `-automation` or another explicit suffix.
+- `repack-existing-patched.yml` is the bounded renderer-only recovery lane.
+  It reuses a verified artifact that already contains X/W1, applies Y through
+  the normal patcher, refreshes B2, and publishes a distinct tag. The normal
+  upstream lane still rebuilds I/V/X/W1/N from source for future upstream
+  versions.
 - A patch may report `already_patched` or `upstream_safe`; that is not a
   failure. Only an anchor-drift error, missing marker, syntax error, integrity
   mismatch, or non-zero build/test exit is a release blocker.
