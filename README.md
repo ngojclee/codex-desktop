@@ -513,6 +513,7 @@ This repo (scripts only — no binaries)
 ├── Patch W1                Source-built serialized request byte budget with non-retryable size rejection
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
 ├── docs/HANDOFF.md          Long-form technical handoff
+├── docs/PATCH_INVENTORY.md  Release patch order, status, and acceptance checklist
 ├── apply-all-patches.ps1    Orchestrator — runs the patch set on a given app dir
 └── .github/workflows/auto-repatch-release.yml   CI: detect upstream release, repatch, release
 ```

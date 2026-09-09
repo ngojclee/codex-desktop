@@ -11,6 +11,7 @@
 - **Repo:** `ngojclee/codex-desktop` (fork từ OpenAI codex-desktop).
 - **CI:** `.github/workflows/auto-repatch-release.yml`
   - Trigger: phát hiện bản mới (tag/version) → tải bản chính thức → chạy patch set → build → tạo GitHub Release `v<ver>-patched`.
+  - Inventory chuẩn và thứ tự patch: `docs/PATCH_INVENTORY.md`.
   - Step "Send status email" chạy `if: always()` (báo cả success lẫn failure) NHƯNG **đang disabled** vì chưa có secrets SMTP.
 - **2 máy chạy app:** `10.11.1.1` (user) và `10.11.1.3` (pcfr-des-01-lan). Catalog/model json + config.toml phải **sync 2 máy**.
 - **CPA (proxy model):** `http://10.21.1.101:8317/v1` (key nằm trong `config.toml`, đọc bằng regex Python, không hardcode).
@@ -19,7 +20,7 @@
 
 ## 2. DANH SÁCH PATCHES (A–Y)
 
-`apply-all-patches.ps1` gọi tuần tự A→Y, sau đó B2 cập nhật integrity của exe. Trạng thái verify từ CI log:
+`apply-all-patches.ps1` gọi tuần tự A→Y, sau đó B2 cập nhật integrity của exe. Nhánh sidecar source luôn chạy `I → V → X → W1 → N`; xem inventory chuẩn trong `docs/PATCH_INVENTORY.md`.
 
 | Script | Mục đích | Behavior |
 |---|---|---|
