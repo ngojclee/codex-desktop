@@ -204,6 +204,7 @@ jobs:
           python patches/test_voice_paste_shortcut.py
           python patches/test_composer_input_safety.py
           python patches/test_reconnect_clear.py
+          python patches/test_automation_mode_union.py
           & ./patches/test_model_catalog_sync.ps1
           & ./patches/test_update_release_state.ps1
           & ./patches/test_repair_project_config.ps1
@@ -757,6 +758,7 @@ jobs:
           - **Patch S** — retain catalog-declared Ultra reasoning for API-key providers while preserving the upstream ChatGPT Statsig gate; Codex maps Ultra to provider-compatible Max at the Responses API boundary
           - **Patch T** — remove the conflicting default `Ctrl+Shift+V` Voice Mode keybinding so Windows paste-as-plain-text has a single input path; Voice Mode remains available from the UI and custom shortcuts
           - **Patch U** — keep pasted Markdown/HTML and inline `_`/`*` sequences literal in the composer, while suppressing duplicate paste delivery for the same clipboard payload
+          - **Patch Y** — replace the two nested outer `automation_update` mode discriminated unions with plain unions so valid `create` and `update` calls survive the embedded Zod validator
           - **Model features sync** — add verified Max/Ultra metadata to existing GPT 5.6 Sol, Terra, and Luna catalog entries, then mirror the result to `models_cache.json`, without writing `model_catalog_json` into `config.toml`
           - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 
