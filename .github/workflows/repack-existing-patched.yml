@@ -125,6 +125,21 @@ jobs:
           python patches\verify_markers.py $appDir --upstream-tag 'v26.903.61454'
           if ($LASTEXITCODE -ne 0) { throw "Patch marker verification failed with exit $LASTEXITCODE" }
 
+      - name: Remove patcher backup artifacts from package
+        shell: pwsh
+        run: |
+          $appDir = (Resolve-Path build).Path
+          $backupFiles = @(
+            Get-ChildItem -LiteralPath $appDir -File -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like '*.bak-before-*' }
+            Get-ChildItem -LiteralPath (Join-Path $appDir 'resources') -File -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like 'app.asar.bak-before-*' }
+          )
+          foreach ($backup in $backupFiles) {
+            Write-Host ("Removing package-only backup: {0} ({1:N0} bytes)" -f $backup.Name, $backup.Length)
+            Remove-Item -LiteralPath $backup.FullName -Force
+          }
+
       - name: Bundle current runtime helpers and verify app-tools pipe repair
         shell: pwsh
         run: |
