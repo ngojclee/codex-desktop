@@ -295,3 +295,36 @@ renderer lane as a whole, not just Y.
   `Ensure-Codex-AppToolsMcp.ps1`, which removes the static block. This machine
   still has the block at `config.toml:493`, so it has not been through that path
   since. The O1 experiment is the first time it will.
+
+### 2026-09-11 (release) - lane 10.11.1.1
+
+**First green build on upstream 26.908 is published.**
+
+| Field | Value |
+| --- | --- |
+| Tag | `v26.908.40401-patched-yfix` |
+| Asset | `CodexDesktop-Patched-win-x64-v26.908.40401-patched-yfix.zip` |
+| Size | `762610380` |
+| Digest | `sha256:7aea44f34e7c4d07890ee4f4fe673b947cb7a773a2aae3dcad19e8c664b86f14` |
+| CI run | `34640654953`, all steps success |
+| Renderer patches | applied on the real unpatched 26.908 bundle, step 15 green |
+| Sidecar lane | built from pinned `d6489472`, step 17 green |
+| Full marker gate | step 18 green, includes the B2 header-hash assertion |
+
+This is the release to install on **both** machines. It is a genuine upstream
+version jump, 26.903 to 26.908, not a re-patch of the same version, so expect
+normal upstream UI movement alongside our patches.
+
+Two things worth knowing before installing:
+
+1. The earlier failure at `Apply patches` was Patch V, not Patch Y. Patch Y was
+   already fixed by then; run `34639099045` cleared every renderer patch and
+   died later in the sidecar lane. That is what O4 records.
+2. Installing this runs `Update-Codex.ps1`, which calls
+   `Ensure-Codex-AppToolsMcp.ps1`, which removes the static `[mcp_servers.codex_app]`
+   block. On 10.11.1.1 that block is still present at `config.toml:493`, so
+   **this install is the O1 experiment**. Rollback is one edit:
+   `Ensure-Codex-AppToolsMcp.ps1` writes a timestamped
+   `config.toml.bak-before-codex-app-pipe-*` before removing anything. If legacy
+   threads then fail to resume, restore that file and reopen O1 as "block is
+   load-bearing" rather than guessing.
