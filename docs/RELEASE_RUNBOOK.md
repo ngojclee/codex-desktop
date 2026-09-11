@@ -145,6 +145,12 @@ same tag with different bytes makes every already-installed machine look
 up-to-date while holding a different digest, which is the trap closed by
 `8c7ba07` and `b175ef1`.
 
+The sidecar lane builds `openai/codex` at the `VERIFIED_CODEX_REF` pin, never at
+a branch. Patches I, V, X, W1 and N match exact upstream Rust snippets, so
+tracking a moving default breaks releases with nothing changed in this repo; that
+is O4 in the desk log. Raise the pin only on purpose, and only after confirming
+all five patches apply to the new revision.
+
 Watch it:
 
 ```powershell
@@ -162,12 +168,22 @@ gh release view <tag> --repo ngojclee/codex-desktop `
   --json tagName,createdAt,assets --jq '{tag:.tagName,created:.createdAt,assets:[.assets[].name]}'
 ```
 
-Then confirm the published bytes carry the patches, by downloading the asset to
-a scratch directory and running `verify_markers.py` against it. Specifically,
-when an ASAR change is involved, assert that the hash embedded in the executable
-equals `sha256(header JSON)` of the final `app.asar`. A release that passes CI
-but fails this assertion is the `expected vs actual` integrity failure class
-recorded in the desk log, and it must not be installed anywhere.
+Then confirm the published bytes carry the patches by downloading the asset to a
+scratch directory and running `verify_markers.py` against it:
+
+```powershell
+python patches/verify_markers.py <extractedAppDir> --upstream-tag <vXXXX>
+```
+
+That one command already covers the integrity question, so do not go looking for
+a missing assertion. `asar_integrity_manifest_status()` computes
+`sha256(header JSON)` of the final `resources/app.asar` and compares it with the
+manifest embedded in every top-level exe, and the match is a must-pass gate.
+Because both release lanes run this verifier before publishing, **a gated release
+cannot ship the `expected vs actual` integrity failure**. If an installed machine
+shows that failure anyway, the artifact did not come from a gated build: establish
+which pipeline produced those bytes, including any manual `apply-all-patches.ps1`
+run or superseded tag, before changing patch code.
 
 ## Step 7 - Install on both machines
 
