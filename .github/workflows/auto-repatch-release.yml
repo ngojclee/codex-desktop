@@ -23,10 +23,10 @@ on:
         required: false
         type: string
       codex_ref:
-        description: 'openai/codex git ref for source-built sidecar lanes'
+        description: 'openai/codex git ref for source-built sidecar lanes. Leave as the default to build the pinned, verified source; set it deliberately when re-validating the sidecar patches against newer upstream.'
         required: false
         type: string
-        default: 'main'
+        default: 'd6489472f3c15e87d2d7763a5fde033545c530f8'
 
 concurrency:
   group: auto-repatch-release
@@ -37,6 +37,14 @@ permissions:
 
 env:
   UPSTREAM_REBUILD_REPO: ngojclee/codex-desktop-rebuild
+  # The source-built sidecar patches (I, V, X, W1, N) match exact upstream Rust
+  # snippets, so they drift the moment openai/codex main moves. Building against
+  # a moving default turned every hourly cron into a coin flip; run 34639099045
+  # failed on "Patch V drift: expected exactly one standalone output history
+  # write anchor, found 0" for exactly this reason. Upgrading this pin is a
+  # deliberate act: change it, run the lane, and confirm I/V/X/W1/N all apply
+  # before trusting the artifact.
+  VERIFIED_CODEX_REF: d6489472f3c15e87d2d7763a5fde033545c530f8
 
 jobs:
   repatch:
@@ -356,7 +364,7 @@ jobs:
         shell: pwsh
         run: |
           $codexRef = '${{ inputs.codex_ref }}'
-          if (-not $codexRef) { $codexRef = 'main' }
+          if (-not $codexRef) { $codexRef = '${{ env.VERIFIED_CODEX_REF }}' }
           Write-Host "Checking out openai/codex ref: $codexRef"
           git clone --depth 1 --branch $codexRef https://github.com/openai/codex.git codex-src
           if ($LASTEXITCODE -ne 0) {
@@ -386,7 +394,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $target)) { throw "Missing bundled sidecar: $target" }
 
           $codexRef = '${{ inputs.codex_ref }}'
-          if (-not $codexRef) { $codexRef = 'main' }
+          if (-not $codexRef) { $codexRef = '${{ env.VERIFIED_CODEX_REF }}' }
           Write-Host "Building source-patched sidecar from openai/codex ref: $codexRef"
 
           $codexSrc = 'codex-src'
