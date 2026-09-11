@@ -17,6 +17,7 @@ A patched build of OpenAI Codex Desktop that fixes:
 13. **Google Drive MCP bootstrap** — launch/update tools ensure Google Drive, Sheets, Docs, Slides, and Drive Comments MCP entries stay pointed at the shared connector endpoint after fresh installs or updates.
 14. **Model features consistency** — existing GPT 5.6 Sol, Terra, and Luna catalog entries receive the verified Max/Ultra metadata on every launch and update, without forcing catalog opt-in.
 15. **Same-tag release refresh** — the updater fingerprints the installed ZIP so corrected assets republished under an existing tag are not mistaken for an already-current install.
+16. **Old-thread app-tool compatibility** — Patch Z keeps the legacy dynamic `automation_update`, `create_thread`, `send_message_to_thread`, `fork_thread`, and `handoff_thread` path working in conversations created before the `codex_app` MCP lane, while new conversations continue to use MCP.
 
 The patches are **derived patches** applied on top of upstream binary releases:
 
@@ -504,8 +505,9 @@ This repo (scripts only — no binaries)
 │   ├── patch_codex_asar_custom_provider_fast_mode.py Patch R — expose catalog-declared Fast selector for API providers
 │   ├── patch_codex_asar_custom_provider_ultra.py Patch S — expose catalog-declared Ultra for API providers
 │   ├── patch_codex_asar_voice_paste_shortcut.py Patch T — remove the Ctrl+Shift+V Voice Mode shortcut collision
-│   ├── patch_codex_asar_composer_input_safety.py Patch U — keep composer input literal and deduplicate paste events
-│   └── patch_codex_asar_automation_mode_union.py Patch Y — keep automation mode validation compatible with embedded Zod
+  │   ├── patch_codex_asar_composer_input_safety.py Patch U — keep composer input literal and deduplicate paste events
+  │   ├── patch_codex_asar_automation_mode_union.py Patch Y — keep automation mode validation compatible with embedded Zod
+  │   └── patch_codex_asar_legacy_dynamic_app_tools.py Patch Z — keep legacy dynamic app-tool calls compatible in old threads
 ├── Patch I                 Source-built sidecar fix for `functions.send_input` `items: []`
 ├── Patch N                 Source-built sidecar guard for noisy `logs_2.sqlite` persistent logs
 ├── Patch V                 Source-built standalone app-server tool-output serializer and legacy replay guard
@@ -646,6 +648,21 @@ valid request shapes remain unchanged. It is marker-verified, syntax-checked,
 idempotent, and fail-loud when the upstream schema layout drifts. This is a
 renderer-only fix; it does not change the Automation MCP server or create
 terminal/Windows schedulers.
+
+### Patch Z — legacy dynamic app-tool compatibility
+
+Codex Desktop moved app tools such as `automation_update`, `create_thread`,
+`send_message_to_thread`, `fork_thread`, and `handoff_thread` to the
+`codex_app` MCP server. New threads receive the MCP tool names, but old
+conversations can still carry the legacy dynamic tool names. The renderer
+previously rejected those legacy calls outright.
+
+Patch Z narrows the guard so only the five explicitly allow-listed legacy tools
+remain callable from old conversations. The dynamic rejection stays for other
+app tools, and new conversations still use the MCP lane. This patch does not
+edit transcripts, SQLite, or stored thread history. It preserves byte length
+and is syntax-checked because the minified anchor has no spare room for a
+comment marker.
 
 ### Patch N -- Persistent SQLite log churn guard
 
