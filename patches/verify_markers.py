@@ -42,8 +42,8 @@ from patch_codex_asar_voice_paste_shortcut import (
 )
 from patch_codex_asar_automation_mode_union import (
     PATCH_MARKER as PATCH_Y_MARKER,
-    X_MODE_PATTERN as PATCH_Y_X_UPSTREAM_PATTERN,
-    Y_MODE_PATTERN as PATCH_Y_Y_UPSTREAM_PATTERN,
+    automation_member_ids as patch_y_member_ids,
+    mode_union_state as patch_y_state,
 )
 from patch_codex_asar_legacy_dynamic_app_tools import status as patch_z_status
 
@@ -688,7 +688,10 @@ def custom_provider_ultra_status(app_dir: Path):
 def automation_mode_union_status(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
     marker_entries = []
+    schema_entries = []
     unpatched_paths = []
+    indeterminate_paths = []
+    upstream_safe = False
 
     for path, meta in _walk(header):
         if not (
@@ -698,18 +701,31 @@ def automation_mode_union_status(app_dir: Path):
         ):
             continue
         text = _extract(asar, payload_start, meta)
+        # Structural detection: the automation schema is identified by its own
+        # `view` and `delete` enum literals, so an upstream identifier rename
+        # cannot hide it the way the old hard-coded `sWn`/`zh` anchors did.
+        if patch_y_member_ids(text) is None:
+            continue
+        schema_entries.append((path, text))
+        state = patch_y_state(text)
         if PATCH_Y_MARKER in text:
             marker_entries.append((path, text))
-        if PATCH_Y_Y_UPSTREAM_PATTERN.search(text) or PATCH_Y_X_UPSTREAM_PATTERN.search(text):
+        if state["state"] == "unpatched":
             unpatched_paths.append(path)
+        if state["state"] == "indeterminate":
+            indeterminate_paths.append(path)
+        if state["state"] == "upstream_safe":
+            upstream_safe = True
 
     syntax_errors = []
     node = shutil.which("node")
-    if marker_entries and node is None:
+    # Syntax-check every automation-schema chunk, patched or already flat, so a
+    # bundle that needed no edit is still proven parseable rather than skipped.
+    if schema_entries and node is None:
         syntax_errors.append("node executable not found for Patch Y syntax verification")
-    elif marker_entries:
+    elif schema_entries:
         with tempfile.TemporaryDirectory(prefix="codex-patch-y-syntax-") as temp_dir:
-            for index, (path, text) in enumerate(marker_entries):
+            for index, (path, text) in enumerate(schema_entries):
                 check_path = Path(temp_dir) / f"chunk-{index}.mjs"
                 check_path.write_text(text, encoding="utf-8")
                 result = subprocess.run(
@@ -729,6 +745,8 @@ def automation_mode_union_status(app_dir: Path):
         "marker_paths": sorted(path for path, _text in marker_entries),
         "marker_count": marker_count,
         "unpatched_paths": sorted(set(unpatched_paths)),
+        "indeterminate_paths": sorted(set(indeterminate_paths)),
+        "upstream_safe": upstream_safe,
         "syntax_errors": syntax_errors,
     }
 
@@ -960,9 +978,14 @@ def main():
     for path in patch_y["marker_paths"]:
         print(f"  - {path}")
     print(f"Patch Y replacement marker count: {patch_y['marker_count']}")
+    print(f"Patch Y outcome: {'upstream_safe' if patch_y['upstream_safe'] else 'patched' if patch_y['marker_count'] == 2 else 'invalid'}")
     if patch_y["unpatched_paths"]:
         print("Patch Y upstream nested mode unions still present:")
         for path in patch_y["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_y["indeterminate_paths"]:
+        print("Patch Y automation mode unions indeterminate:")
+        for path in patch_y["indeterminate_paths"]:
             print(f"  - {path}")
     if patch_y["syntax_errors"]:
         print("Patch Y syntax errors:")
@@ -1064,8 +1087,9 @@ def main():
         ("Patch U — composer safety markers present", lambda: len(patch_u["marker_paths"]) > 0, True),
         ("Patch U — inline Markdown/paste layouts replaced", lambda: len(patch_u["unpatched_paths"]) == 0, True),
         ("Patch U — touched renderer chunks pass syntax check", lambda: len(patch_u["syntax_errors"]) == 0, True),
-        ("Patch Y — both automation mode unions replaced", lambda: patch_y["marker_count"] == 2, True),
+        ("Patch Y — automation mode unions flattened by patch or upstream", lambda: patch_y["marker_count"] == 2 or patch_y["upstream_safe"], True),
         ("Patch Y — nested automation mode unions absent", lambda: len(patch_y["unpatched_paths"]) == 0, True),
+        ("Patch Y — automation mode unions classify unambiguously", lambda: len(patch_y["indeterminate_paths"]) == 0, True),
         ("Patch Y — touched renderer chunks pass syntax check", lambda: len(patch_y["syntax_errors"]) == 0, True),
         ("Patch Z — legacy dynamic app-tool guard relaxed", lambda: len(patch_z["marker_paths"]) > 0, True),
         ("Patch Z — upstream rejection guard absent", lambda: len(patch_z["unpatched_paths"]) == 0, True),
