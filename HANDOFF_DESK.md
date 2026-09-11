@@ -193,10 +193,55 @@ surprising.
 `inferred`, flagged for whoever owns the next build. Given S3, a mismatch of
 this shape means B2 did not run against the final `app.asar` bytes, or the
 install mixes an exe and an asar from different builds. Do not "fix" this by
-changing the hash function. Fix it by asserting, after the last patch, that the
-value embedded in the exe equals `sha256(header JSON)` of the final asar, and
-fail the release when they differ. Add that assertion to CI and to
-`verify_markers.py`.
+changing the hash function.
+
+Correction to this entry as first written, which told a reader to go and add an
+integrity assertion: **the assertion already exists and is already must-pass.**
+`asar_integrity_manifest_status()` in `patches/verify_markers.py` computes
+`sha256(header JSON)` of `resources/app.asar` and compares it to the manifest
+embedded in every top-level exe, and gate
+`"Patch B2 — exe app.asar integrity manifest matches the asar header hash"` is
+enforced at `verify_markers.py:1098`, which both release lanes run. `source-derived`.
+So a release that passed the gate cannot ship this mismatch, and the bytes on
+10.11.1.3 did not come from a gated build. Before changing any code for this,
+establish which pipeline actually produced the installed `resources/` pair,
+including whether it was a manual `apply-all-patches.ps1` run or an older tag.
+
+**O4. The sidecar lane must not build `openai/codex@main`. FIXED in `cafca54`.**
+`measured`.
+
+Run `34639099045` (`v26.908.40401`, default `codex_ref=main`) passed **every
+renderer patch**, which independently confirms the structural Patch Y anchor on
+a real unpatched upstream bundle, and then failed further along:
+
+```
+Building source-patched sidecar from openai/codex ref: main
+Patch V drift: expected exactly one standalone output history write anchor, found 0
+```
+
+`source-derived`: patches I, V, X, W1 and N match exact upstream Rust snippets,
+and `patch_codex_sidecar_standalone_tool_output.py` fails loudly through
+`replace_once()` whenever an anchor count is not exactly one. The workflow set
+`default: 'main'` and had two `if (-not $codexRef) { $codexRef = 'main' }`
+fallbacks, so the hourly cron rebuilt against a moving target and any upstream
+commit could break a release with nothing changed in this repo.
+
+The verified revision `d6489472f3c15e87d2d7763a5fde033545c530f8` is now recorded
+once as workflow env `VERIFIED_CODEX_REF` and used as the dispatch default and by
+both fallback sites, so the cron path and the manual path cannot disagree. To
+raise it deliberately:
+
+```powershell
+gh workflow run auto-repatch-release.yml --repo ngojclee/codex-desktop `
+  -f force=true -f codex_ref=<new-openai-codex-sha> -f release_suffix=<suffix>
+```
+
+Confirm I, V, X, W1 and N all apply, then move the pin. Never leave it on a
+branch name.
+
+**Still unproven:** whether renderer patches other than Y survive 26.903 to
+26.908. Run `34639099045` cleared all of them, so this is now `measured` for the
+renderer lane as a whole, not just Y.
 
 ---
 
