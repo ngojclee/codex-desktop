@@ -31,21 +31,114 @@ from patch_codex_asar_model_availability_filter import (
 PATCH_MARKER = "/*Y:automation-mode-union*/"
 IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 
-# Keep the member order and the two different inner-union names explicit.
-# These are the schema's stable semantic roles; a drifted minified layout must
-# stop the release rather than silently ship without the fix.
-Y_MODE_PATTERN = re.compile(
-    rf"(?P<name>{IDENT})=zh\(`mode`,\[sWn,_Wn,vWn,cWn\]\)"
+# Anchor on structure, never on minified names. Identifiers such as `sWn` and
+# the discriminated-union builder `zh` are regenerated on every upstream
+# rebuild, and name-based anchors are precisely what broke release
+# `v26.903.61454-patched-automation-pipe-z2`. What stays stable is the schema's
+# own enum literals, `view` and `delete`, because the tool contract hands those
+# strings to the model and cannot rename them without breaking callers.
+VIEW_MEMBER_PATTERN = re.compile(
+    rf"(?P<id>{IDENT})={IDENT}\(\{{mode:{IDENT}\(`view`\)"
 )
-X_MODE_PATTERN = re.compile(
-    rf"(?P<name>{IDENT})=zh\(`mode`,\[sWn,bWn,vWn,cWn\]\)"
+DELETE_MEMBER_PATTERN = re.compile(
+    rf"(?P<id>{IDENT})={IDENT}\(\{{mode:{IDENT}\(`delete`\)"
 )
-PATCHED_Y_PATTERN = re.compile(
-    rf"(?P<name>{IDENT})=sWn\.or\(_Wn\)\.or\(vWn\)\.or\(cWn\){re.escape(PATCH_MARKER)}"
+# A discriminated union over `mode` whose members are bare schema identifiers.
+# Requiring bare identifiers rejects look-alikes such as the annotation-mode
+# union, which inlines `n.ql({mode:...})` object literals instead.
+MODE_UNION_PATTERN = re.compile(
+    rf"(?P<target>{IDENT})={IDENT}\(`mode`,\[(?P<members>{IDENT}(?:,{IDENT})+)\]\)"
 )
-PATCHED_X_PATTERN = re.compile(
-    rf"(?P<name>{IDENT})=sWn\.or\(bWn\)\.or\(vWn\)\.or\(cWn\){re.escape(PATCH_MARKER)}"
+# The flattened chain this patch produces, and the form upstream may ship.
+FLAT_UNION_PATTERN = re.compile(
+    rf"(?P<target>{IDENT})=(?P<head>{IDENT})((?:\.or\({IDENT}\))+)"
 )
+FLAT_LINK_PATTERN = re.compile(rf"\.or\(({IDENT})\)")
+
+
+def automation_member_ids(text: str):
+    """Return the view/delete member ids, or None if this chunk is not the
+    automation schema."""
+    view = VIEW_MEMBER_PATTERN.search(text)
+    delete = DELETE_MEMBER_PATTERN.search(text)
+    if view is None or delete is None:
+        return None
+    if view.group("id") == delete.group("id"):
+        return None
+    return view.group("id"), delete.group("id")
+
+
+def find_upstream_mode_unions(text: str):
+    """Automation `mode` discriminated unions that still need flattening."""
+    member_ids = automation_member_ids(text)
+    if member_ids is None:
+        return []
+    view_id, delete_id = member_ids
+    found = []
+    for match in MODE_UNION_PATTERN.finditer(text):
+        names = match.group("members").split(",")
+        if view_id in names and delete_id in names:
+            found.append(
+                {
+                    "target": match.group("target"),
+                    "members": names,
+                    "start": match.start(),
+                    "end": match.end(),
+                }
+            )
+    return found
+
+
+def find_flat_mode_unions(text: str):
+    """Automation `mode` unions already written as a plain `.or()` chain."""
+    member_ids = automation_member_ids(text)
+    if member_ids is None:
+        return []
+    view_id, delete_id = member_ids
+    found = []
+    for match in FLAT_UNION_PATTERN.finditer(text):
+        names = [match.group("head")] + FLAT_LINK_PATTERN.findall(match.group(3))
+        if match.group("head") != view_id or delete_id not in names:
+            continue
+        end = match.end()
+        found.append(
+            {
+                "target": match.group("target"),
+                "members": names,
+                "start": match.start(),
+                "end": end,
+                "marked": text[end:end + len(PATCH_MARKER)] == PATCH_MARKER,
+            }
+        )
+    return found
+
+
+def mode_union_state(text: str):
+    """Classify one renderer chunk for Patch Y.
+
+    `upstream_safe` means the shipped bundle already flattens both mode unions,
+    so the embedded-Zod defect cannot occur and Patch Y must not touch it.
+    `indeterminate` is always a release blocker, never a silent pass.
+    """
+    upstream = find_upstream_mode_unions(text)
+    flat = find_flat_mode_unions(text)
+    marked = [entry for entry in flat if entry["marked"]]
+    unmarked = [entry for entry in flat if not entry["marked"]]
+    if upstream:
+        state = "unpatched"
+    elif len(marked) == 2 and not unmarked:
+        state = "already_patched"
+    elif len(unmarked) == 2 and not marked:
+        state = "upstream_safe"
+    else:
+        state = "indeterminate"
+    return {
+        "state": state,
+        "upstream_count": len(upstream),
+        "marked_count": len(marked),
+        "unmarked_count": len(unmarked),
+        "members": automation_member_ids(text),
+    }
 
 
 def find_targets(asar: Path):
@@ -59,58 +152,57 @@ def find_targets(asar: Path):
         ):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if (
-            PATCH_MARKER in text
-            or Y_MODE_PATTERN.search(text)
-            or X_MODE_PATTERN.search(text)
-        ):
+        # Membership in this set is decided by the schema's own enum literals,
+        # so an upstream rename still lands here instead of being reported as
+        # "unions not found".
+        if automation_member_ids(text) is not None:
             targets.append((path, meta, text))
     return header, payload_start, targets
 
 
 def patch_text(text: str):
-    marker_count = text.count(PATCH_MARKER)
-    if marker_count:
-        if marker_count != 2 or not (
-            PATCHED_Y_PATTERN.search(text) and PATCHED_X_PATTERN.search(text)
-        ):
-            raise RuntimeError(
-                "Patch Y marker is partial or malformed; refusing to continue"
-            )
-        if Y_MODE_PATTERN.search(text) or X_MODE_PATTERN.search(text):
-            raise RuntimeError(
-                "Patch Y has both patched and upstream automation unions"
-            )
+    state = mode_union_state(text)
+    if state["state"] == "already_patched":
+        return text, False
+    if state["state"] == "upstream_safe":
         return text, False
 
-    y_matches = list(Y_MODE_PATTERN.finditer(text))
-    x_matches = list(X_MODE_PATTERN.finditer(text))
-    if len(y_matches) != 1:
+    if state["members"] is None:
         raise RuntimeError(
-            "Expected exactly one automation validation union with _Wn, "
-            f"found {len(y_matches)}"
+            "Patch Y cannot classify the automation mode unions: this chunk "
+            "carries neither the `view`/`delete` member schemas nor a flattened "
+            "union, so shipping it would leave the fix absent without saying so."
         )
-    if len(x_matches) != 1:
+    view_id, delete_id = state["members"]
+    upstream = find_upstream_mode_unions(text)
+    if upstream and (state["marked_count"] or state["unmarked_count"]):
         raise RuntimeError(
-            "Expected exactly one automation validation union with bWn, "
-            f"found {len(x_matches)}"
+            "Patch Y sees discriminated and flattened automation unions at "
+            f"once (upstream={state['upstream_count']} "
+            f"marked={state['marked_count']} unmarked={state['unmarked_count']}): "
+            "a previous run was likely interrupted mid-replacement"
+        )
+    if not upstream:
+        raise RuntimeError(
+            "Patch Y cannot classify the automation mode unions: "
+            f"state={state['state']} upstream={state['upstream_count']} "
+            f"marked={state['marked_count']} unmarked={state['unmarked_count']} "
+            f"(view member {view_id!r}, delete member {delete_id!r})"
+        )
+    if len(upstream) != 2:
+        raise RuntimeError(
+            "Expected exactly two automation mode discriminated unions, "
+            f"found {len(upstream)}: {[entry['target'] for entry in upstream]}. "
+            "The renderer schema shape moved; refuse to ship without the fix."
         )
 
-    # Apply from right to left so the first match offset remains valid.
-    replacements = [
-        (
-            y_matches[0].start(),
-            y_matches[0].end(),
-            f"{y_matches[0].group('name')}=sWn.or(_Wn).or(vWn).or(cWn)"
-            + PATCH_MARKER,
-        ),
-        (
-            x_matches[0].start(),
-            x_matches[0].end(),
-            f"{x_matches[0].group('name')}=sWn.or(bWn).or(vWn).or(cWn)"
-            + PATCH_MARKER,
-        ),
-    ]
+    # Apply right to left so earlier match offsets stay valid. Member order is
+    # preserved verbatim from the source, so no name is ever assumed.
+    replacements = []
+    for entry in upstream:
+        chain = entry["members"][0] + "".join(f".or({name})" for name in entry["members"][1:])
+        replacements.append((entry["start"], entry["end"], f"{entry['target']}={chain}" + PATCH_MARKER))
+
     patched = text
     for start, end, replacement in sorted(replacements, reverse=True):
         patched = patched[:start] + replacement + patched[end:]
@@ -141,43 +233,98 @@ def syntax_errors(entries: list[tuple[str, str]]):
 
 def verify(asar: Path):
     _header, _payload_start, targets = find_targets(asar)
-    marker_entries = [
-        (path, text)
-        for path, _meta, text in targets
-        if PATCH_MARKER in text
-    ]
-    unpatched_paths = [
-        path
-        for path, _meta, text in targets
-        if Y_MODE_PATTERN.search(text) or X_MODE_PATTERN.search(text)
-    ]
-    if not marker_entries:
-        raise SystemExit("Verification failed: Patch Y marker not found")
-    if len(marker_entries) != 1:
+    states = {
+        path: mode_union_state(text) for path, _meta, text in targets
+    }
+    if not states:
         raise SystemExit(
-            "Verification failed: expected Patch Y in one renderer chunk, "
-            f"found {len(marker_entries)}"
+            "Verification failed: no renderer chunk carries the automation "
+            "mode schema (no `mode` union with `view` and `delete` members)"
         )
+
+    unpatched_paths = sorted(p for p, s in states.items() if s["state"] == "unpatched")
+    indeterminate = sorted(p for p, s in states.items() if s["state"] == "indeterminate")
+    marked_chunks = sorted(p for p, s in states.items() if s["marked_count"])
+    marker_count = sum(s["marked_count"] for s in states.values())
+    unmarked_count = sum(s["unmarked_count"] for s in states.values())
+    upstream_count = sum(s["upstream_count"] for s in states.values())
+
     if unpatched_paths:
         raise SystemExit(
             "Verification failed: upstream automation mode unions remain: "
-            f"{sorted(set(unpatched_paths))}"
+            f"{unpatched_paths}"
+        )
+    if indeterminate:
+        raise SystemExit(
+            f"Verification failed: automation mode unions indeterminate in {indeterminate}"
+        )
+    # Either our own replacement is present in both unions, or upstream already
+    # shipped both flattened. Anything else is an unverifiable bundle.
+    if not (marker_count == 2 and len(marked_chunks) == 1) and unmarked_count != 2:
+        raise SystemExit(
+            "Verification failed: Patch Y outcome unverifiable "
+            f"(marker_count={marker_count} marked_chunks={len(marked_chunks)} "
+            f"already-flat={unmarked_count})"
         )
 
-    marker_text = marker_entries[0][1]
-    if marker_text.count(PATCH_MARKER) != 2:
-        raise SystemExit("Verification failed: Patch Y must replace both mode unions")
-    errors = syntax_errors(marker_entries)
+    # Syntax-check every automation schema chunk, patched or not, so a bundle
+    # that needs no edit is still proven parseable by this patch's own gate.
+    errors = syntax_errors([(path, text) for path, _meta, text in targets])
     if errors:
         raise SystemExit(
             "Verification failed: Patch Y syntax errors:\n"
             + "\n".join(f"  - {error}" for error in errors)
         )
     return {
-        "marker_paths": sorted(path for path, _text in marker_entries),
-        "unpatched_paths": sorted(set(unpatched_paths)),
+        "marker_paths": marked_chunks,
+        "marker_count": marker_count,
+        "unpatched_paths": unpatched_paths,
+        "indeterminate_paths": indeterminate,
+        "upstream_safe": marker_count == 0 and unmarked_count == 2,
         "syntax_errors": errors,
     }
+
+
+def _drift_report(asar: Path) -> str:
+    """Short, structural description of what the bundle actually contains.
+
+    When the automation schema cannot be located, a bare "not found" message
+    costs a full CI round trip to diagnose. Reporting the candidate `mode`
+    union call sites and the enum literals that do exist lets the next anchor
+    be written from a single failed run. Only minified application code is
+    echoed, never user data, and every snippet is truncated.
+    """
+    header, payload_start = read_header(asar)
+    chunks = 0
+    mode_union_count = 0
+    literal_hits = dict.fromkeys(("view", "delete", "create", "suggested_create"), 0)
+    samples = []
+    for path, meta in walk(header):
+        if not (
+            path.startswith("webview/assets/")
+            and path.endswith(".js")
+            and "offset" in meta
+        ):
+            continue
+        chunks += 1
+        text = extract(asar, payload_start, meta).decode("utf-8", "replace")
+        for key in literal_hits:
+            literal_hits[key] += text.count(f"`{key}`")
+        for match in re.finditer(r"[A-Za-z_$][A-Za-z0-9_$]*=\w+\(`mode`,\[", text):
+            mode_union_count += 1
+            if len(samples) < 3:
+                start = match.start()
+                samples.append(f"{path}: {text[start:start + 160]}")
+    lines = [
+        f"scanned webview/assets/*.js chunks: {chunks}",
+        f"`mode` discriminated-union call sites: {mode_union_count}",
+        "mode enum literal counts: "
+        + ", ".join(f"{key}={value}" for key, value in literal_hits.items()),
+    ]
+    if samples:
+        lines.append("first `mode` union shapes:")
+        lines.extend(f"  - {sample}" for sample in samples)
+    return "\n".join(lines)
 
 
 def main():
@@ -197,18 +344,32 @@ def main():
 
     header, payload_start, targets = find_targets(asar)
     if not targets:
-        raise SystemExit("Could not find renderer automation mode validation unions")
+        raise SystemExit(
+            "Could not find the renderer automation mode schema: no "
+            "`mode` union carrying `view` and `delete` member schemas exists "
+            "in webview/assets/*.js. Patch Y would ship without its fix.\n"
+            + _drift_report(asar)
+        )
 
     patched_by_path = {}
     scanned = []
+    pre_states = {}
     for path, _meta, text in targets:
         scanned.append(path)
+        pre_states[path] = mode_union_state(text)
         try:
             patched_text, changed = patch_text(text)
         except RuntimeError as exc:
             raise SystemExit(f"{path}: {exc}") from exc
         if changed:
             patched_by_path[path] = patched_text.encode("utf-8")
+
+    if patched_by_path:
+        status = "patched"
+    elif any(s["state"] == "upstream_safe" for s in pre_states.values()):
+        status = "upstream_safe"
+    else:
+        status = "already_patched"
 
     if patched_by_path:
         if not args.no_backup:
@@ -221,10 +382,11 @@ def main():
     print(
         json.dumps(
             {
-                "status": "patched" if patched_by_path else "already_patched",
+                "status": status,
                 "asar": str(asar),
                 "scanned": sorted(set(scanned)),
                 "patched": sorted(patched_by_path),
+                "pre_state": {path: state["state"] for path, state in pre_states.items()},
                 **result,
             },
             indent=2,

@@ -154,12 +154,40 @@ minified member names (`sWn`, `_Wn`, `bWn`, `vWn`, `cWn`) and the builder name
 `/*Y:automation-mode-union*/` exactly twice, so the anchors matched when it was
 built; upstream has since renamed them.
 
-Required remedy: anchor on structure instead of names. Locate the outer union by
-its semantic members (the object schema whose `mode` enum is `view`, and the one
-whose `mode` enum is `delete`), rewrite to the `.or()` chain, and keep a
-`upstream_safe` outcome for a bundle that already ships a flat chain. Still fail
-loud when no automation `mode` union can be found at all, so a real regression
-cannot ship silently.
+**RESOLVED by 10.11.1.1 lane, same day.** The remedy above is implemented and
+proven against the real upstream bundle, not only fixtures:
+
+- Anchors are now structural. The automation schema is identified by its own
+  `view` and `delete` enum literals; a `mode` union is selected only when its
+  member list contains both, which also rejects the look-alike annotation-mode
+  union that inlines object literals.
+- Outcomes are `unpatched` / `already_patched` / `upstream_safe` /
+  `indeterminate`, and `indeterminate` fails the release rather than shipping
+  without the fix. Member order is copied from the source, never re-derived.
+- When no automation schema can be found at all, the patcher now prints a drift
+  report (chunk count, `mode` union call sites, enum literal counts, first union
+  shapes) so one failed run is enough to write the next anchor.
+
+Evidence, all `measured`:
+
+| Check | Result |
+| --- | --- |
+| Installed `-z2` bundle | 1 schema chunk, `already_patched`, `marker_count=2` |
+| `verify_markers.py` on installed build | exit 0, "All patch markers verified", `Patch Y outcome: patched` |
+| Upstream `v26.908.40401` win-x64 `app.asar`, **unpatched** | chunk `webview/assets/app-initial-f094ef01c64d.js`, members `Sqn`/`Cqn`, state `unpatched`, 2 unions |
+| Same bundle after running Patch Y | `status: patched`, `marker_count=2`, `syntax_errors: []` |
+| Second run on that bundle | `already_patched`, file untouched (idempotent) |
+
+The upstream jump also renames the chunk hash suffix (`app-initial-f87238153a19`
+on 26.903 to `app-initial-f094ef01c64d` on 26.908) **and** every identifier
+(`sWn/cWn` to `Sqn/Cqn`), which is exactly the failure mode the old hard-coded
+anchor could not survive. `patches/test_automation_mode_union.py` now pins that
+rename case so it cannot regress silently again.
+
+Not yet proven: whether patches A-X survive the 26.903 to 26.908 jump. Only Y
+was exercised against the new bundle. The next CI run on `v26.908.40401` is the
+first real test for the rest, and anchor drift there is expected, not
+surprising.
 
 **O3. Explains the `8d98a573` vs `8dc558b4` integrity FATAL on 10.11.1.3.**
 `inferred`, flagged for whoever owns the next build. Given S3, a mismatch of
@@ -203,3 +231,22 @@ fail the release when they differ. Add that assertion to CI and to
   reading, which wrongly supported reverting the keep-block edit. S1 and O1
   replace that conclusion.
 - Wrote `docs/RELEASE_RUNBOOK.md` as the shared push/build/install procedure.
+
+### 2026-09-11 (later) - lane 10.11.1.1
+
+- Closed O2: Patch Y now anchors on schema structure instead of minified names,
+  gained `upstream_safe`, gained a drift report, and is proven against the real
+  unpatched `v26.908.40401` bundle. See O2 for the evidence table.
+- Downloaded upstream `v26.908.40401` win-x64 to test, then deleted the 706 MB
+  archive and every extracted copy. `patches/` holds no binary left over from
+  this work; confirm with
+  `git status --short` plus a check for non-`.py`/`.ps1` files in `patches/`.
+- Left `runtime/Ensure-Codex-AppToolsMcp.ps1` untouched. The keep-block edit is
+  another lane's uncommitted work, O1 is still open, and committing it would
+  redden `test_app_tools_pipe_runtime.ps1` in CI, which runs that test at
+  `auto-repatch-release.yml:212` and `repack-existing-patched.yml:165`. Nothing
+  about it has reached `main`, so current CI is unaffected by it.
+- Note for whoever picks up O1: the `-z2` install and every later install runs
+  `Ensure-Codex-AppToolsMcp.ps1`, which removes the static block. This machine
+  still has the block at `config.toml:493`, so it has not been through that path
+  since. The O1 experiment is the first time it will.
