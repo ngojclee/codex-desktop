@@ -45,6 +45,7 @@ from patch_codex_asar_automation_mode_union import (
     X_MODE_PATTERN as PATCH_Y_X_UPSTREAM_PATTERN,
     Y_MODE_PATTERN as PATCH_Y_Y_UPSTREAM_PATTERN,
 )
+from patch_codex_asar_legacy_dynamic_app_tools import status as patch_z_status
 
 PATCH_J_MARKER = "/*J*/"
 PATCH_J_GATES = ("1506311413", "410065390", "410262010")
@@ -837,6 +838,7 @@ def main():
     patch_t = voice_paste_shortcut_status(app_dir)
     patch_u = patch_u_status(app_dir / "resources" / "app.asar")
     patch_y = automation_mode_union_status(app_dir)
+    patch_z = patch_z_status(app_dir / "resources" / "app.asar")
     computer_use = computer_use_plugin_status(app_dir)
     integrity = asar_integrity_manifest_status(app_dir)
 
@@ -966,6 +968,17 @@ def main():
         print("Patch Y syntax errors:")
         for error in patch_y["syntax_errors"]:
             print(f"  - {error}")
+    print(f"Patch Z legacy dynamic tool marker paths: {len(patch_z['marker_paths'])}")
+    for path in patch_z["marker_paths"]:
+        print(f"  - {path}")
+    if patch_z["unpatched_paths"]:
+        print("Patch Z upstream legacy guard still present:")
+        for path in patch_z["unpatched_paths"]:
+            print(f"  - {path}")
+    if patch_z["syntax_errors"]:
+        print("Patch Z syntax errors:")
+        for error in patch_z["syntax_errors"]:
+            print(f"  - {error}")
     print(f"Computer Use plugin: {'present' if computer_use['present'] else 'absent'}")
     if computer_use["present"]:
         print(f"  escaped package folders: {', '.join(computer_use['escaped_scopes']) or '(none)'}")
@@ -1054,6 +1067,9 @@ def main():
         ("Patch Y — both automation mode unions replaced", lambda: patch_y["marker_count"] == 2, True),
         ("Patch Y — nested automation mode unions absent", lambda: len(patch_y["unpatched_paths"]) == 0, True),
         ("Patch Y — touched renderer chunks pass syntax check", lambda: len(patch_y["syntax_errors"]) == 0, True),
+        ("Patch Z — legacy dynamic app-tool guard relaxed", lambda: len(patch_z["marker_paths"]) > 0, True),
+        ("Patch Z — upstream rejection guard absent", lambda: len(patch_z["unpatched_paths"]) == 0, True),
+        ("Patch Z — touched renderer chunks pass syntax check", lambda: len(patch_z["syntax_errors"]) == 0, True),
         (
             "Patch B2 — exe app.asar integrity manifest matches the asar header hash",
             lambda: (not integrity["applicable"]) or len(integrity["mismatched"]) == 0,
@@ -1075,6 +1091,7 @@ def main():
         "Patch T — touched renderer chunks pass syntax check": patch_t["syntax_errors"],
         "Patch U — touched renderer chunks pass syntax check": patch_u["syntax_errors"],
         "Patch Y — touched renderer chunks pass syntax check": patch_y["syntax_errors"],
+        "Patch Z — touched renderer chunks pass syntax check": patch_z["syntax_errors"],
         "Patch B2 — exe app.asar integrity manifest matches the asar header hash": integrity["mismatched"],
     }
     for label, check_fn, must_pass in checks:

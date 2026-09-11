@@ -10,7 +10,7 @@ contains the equivalent behavior.
 
 Renderer patches run in this order:
 
-`A -> B -> C -> D -> G -> M -> H -> J -> K -> L -> O -> P -> Q -> R -> S -> T -> U -> Y -> B2`
+`A -> B -> C -> D -> G -> M -> H -> J -> K -> L -> O -> P -> Q -> R -> S -> T -> U -> Y -> Z -> B2`
 
 The source-built `resources/codex.exe` lane runs in this order:
 
@@ -41,6 +41,7 @@ embedded ASAR header hash after the final `app.asar` bytes are known.
 | T | `patch_codex_asar_voice_paste_shortcut.py` | Removes the conflicting Windows `Ctrl+Shift+V` Voice Mode binding. Current Windows layouts may be upstream-safe. | Keep as compatibility/no-op. |
 | U | `patch_codex_asar_composer_input_safety.py` | Makes technical Markdown literal and suppresses duplicate paste delivery. | Keep; current bundle still requires it unless verifier says upstream-safe. |
 | Y | `patch_codex_asar_automation_mode_union.py` | Replaces the two fragile outer nested `mode` discriminated unions with plain unions so valid Automation `create`/`update` calls reach the MCP tool. | Keep; current fix for the embedded-Zod discriminator bug. |
+| Z | `patch_codex_asar_legacy_dynamic_app_tools.py` | Relaxes the renderer guard only for the five legacy dynamic thread/automation tools, so old conversations can keep calling the old dynamic path while new conversations use the `codex_app` MCP lane. | Keep while old chats must remain compatible. |
 | B2 | `patch_codex_exe_asar_integrity_hash.py` | Updates the Owl executable's embedded ASAR header hash after all renderer patches. | Keep and run last. |
 
 ## Source-Built Sidecar Patches
@@ -61,6 +62,8 @@ These are not ASAR patches, but they are part of a usable release:
   mirror for the Desktop `codex_app` transport and quarantines the obsolete
   static `mcp_servers.codex_app` workaround once the installed Desktop bundle
   proves it supports the per-session `CODEX_APP_TOOLS_PIPE_PATH` capability.
+  Patch Z keeps the old dynamic renderer path compatible for threads created
+  before that MCP lane was introduced; it does not edit stored transcripts.
 - `Ensure-Codex-WslNative.ps1`: keeps
   `runCodexInWindowsSubsystemForLinux = false` in the correct `[desktop]` scope.
 - `Launch-Codex.ps1`: starts/joins the shared sidecar and writes BOM-free state.
@@ -90,17 +93,21 @@ These are not ASAR patches, but they are part of a usable release:
 
 Before treating a release as installable:
 
-1. `apply-all-patches.ps1` completes through `Y` and `B2`.
+1. `apply-all-patches.ps1` completes through `Z` and `B2`.
 2. `verify_markers.py` passes every applicable renderer check, including both
-   Patch Y markers and the ASAR integrity check.
+   Patch Y guards, Patch Z's relaxed legacy dynamic guard, and the ASAR
+   integrity check.
 3. Sidecar source tests pass for I, V, X, W1, and N.
 4. The release tag is distinct when the upstream version is unchanged.
 5. The ZIP asset digest is recorded in the release and installer state.
 6. After installation and restart, confirm the bundle has Patch Y and call
    `automation_update` with `mode=create`; then verify `update` separately.
-7. Do not claim the live Automation call is fixed until step 6 succeeds on the
+7. Confirm an old chat can invoke `automation_update` through the legacy
+   dynamic path and a new chat can invoke the same tool through `codex_app`
+   MCP. Patch Z must not re-enable dynamic calls for non-allowlisted tools.
+8. Do not claim the live Automation call is fixed until steps 6 and 7 succeed on the
    installed artifact.
-8. Confirm `resources/list` can start `codex_app` without a
+9. Confirm `resources/list` can start `codex_app` without a
    `CODEX_APP_TOOLS_PIPE_PATH` error. A static user-level `codex_app` command
    block must be absent on pipe-capable Desktop builds; the helper preserves a
    timestamped `config.toml` backup and leaves older non-pipe-aware bundles

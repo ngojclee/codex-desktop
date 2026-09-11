@@ -41,6 +41,7 @@ param(
     [switch]$SkipT,
     [switch]$SkipU,
     [switch]$SkipY,
+    [switch]$SkipZ,
 
     [string]$UpstreamTag
 )
@@ -147,8 +148,12 @@ if (-not $SkipY) {
     Run-Patch 'patch_codex_asar_automation_mode_union.py' @('--app-dir', $AppDir) 'Patch Y — use plain unions for automation mode validation'
 }
 
+if (-not $SkipZ) {
+    Run-Patch 'patch_codex_asar_legacy_dynamic_app_tools.py' @('--app-dir', $AppDir) 'Patch Z — keep legacy dynamic app-tool calls working for old threads'
+}
+
 # Patch B2 — rewrite embedded app.asar SHA256 in the exe (Owl Electron builds).
-# Must run AFTER every asar-mutating patch (A..Y) so the hash matches the final asar.
+# Must run AFTER every asar-mutating patch (A..Z) so the hash matches the final asar.
 # On pure Electron builds this is a no-op (no embedded manifest).
 Run-Patch 'patch_codex_exe_asar_integrity_hash.py' @('--exe', $exe, '--app-dir', $AppDir) 'Patch B2 — rewrite embedded app.asar SHA256 in exe (Owl Electron integrity)'
 

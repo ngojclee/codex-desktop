@@ -115,6 +115,10 @@ jobs:
           $appDir = (Resolve-Path build).Path
           python patches\patch_codex_asar_automation_mode_union.py --app-dir $appDir
           if ($LASTEXITCODE -ne 0) { throw "Patch Y failed with exit $LASTEXITCODE" }
+          python patches\test_legacy_dynamic_app_tools.py
+          if ($LASTEXITCODE -ne 0) { throw "Patch Z matcher test failed with exit $LASTEXITCODE" }
+          python patches\patch_codex_asar_legacy_dynamic_app_tools.py --app-dir $appDir
+          if ($LASTEXITCODE -ne 0) { throw "Patch Z failed with exit $LASTEXITCODE" }
           $exe = Join-Path $appDir 'Codex.exe'
           python patches\patch_codex_exe_asar_integrity_hash.py --exe $exe --app-dir $appDir
           if ($LASTEXITCODE -ne 0) { throw "Patch B2 failed with exit $LASTEXITCODE" }
@@ -171,7 +175,8 @@ jobs:
 
           This artifact preserves the verified source-built sidecar containing
           Patch X and Patch W1. It adds renderer Patch Y for the
-          `automation_update` nested-Zod mode discriminator bug, then refreshes
+          `automation_update` nested-Zod mode discriminator bug and renderer
+          Patch Z for legacy dynamic app-tool compatibility. Then it refreshes
           Patch B2's Owl ASAR integrity hash. It also bundles the current
           runtime helpers, including the codex_app app-tools pipe repair that
           removes the obsolete static config workaround on pipe-capable Desktop
