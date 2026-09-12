@@ -420,3 +420,24 @@ Two things worth knowing before installing:
 > `runtime/Ensure-Codex-AppToolsMcp.ps1` AND `test_app_tools_pipe_runtime.ps1` (S4)
 > must be relaxed in the same commit. If you disagree, show a legacy-thread resume
 > that works WITHOUT the static block.
+
+### 2026-09-12 - O1 closed and durable fix landed
+
+- **O1 is resolved.** Removing the static block caused `invalid transport` on
+  legacy thread `019e17c5-b7e2-7df2-9393-05ec157a06e6`; restoring it let the
+  thread resume and `automation_update` create/update/delete work. This is the
+  load-bearing evidence.
+- Commit `c901574` contains both halves of the fix:
+  `runtime/Ensure-Codex-AppToolsMcp.ps1` keeps a static block only when
+  `command`, `args`, and `cwd` are all present; incomplete blocks are still
+  removed. `patches/test_app_tools_pipe_runtime.ps1` was changed in the same
+  commit to prove valid LF/CRLF blocks survive, malformed blocks are removed,
+  unrelated MCP tables survive, mirror creation works, and reruns are idempotent.
+- Local evidence: the runtime test passed with `status=kept`; all eight Python
+  patch matcher tests passed. `source-derived` and `measured`.
+- **Release rule:** do not use broken full-lane
+  `v26.908.40401-patched-yfix` as a base. Its sidecar was downgraded to
+  `codex-cli 0.0.0` and broke `mcp__codex_app__automation_update` (O5). The
+  next release must repack known-good
+  `v26.903.61454-patched-automation-pipe-z2` so its healthy sidecar is
+  preserved while this runtime fix is bundled into `tools/`.
