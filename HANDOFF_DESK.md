@@ -827,3 +827,68 @@ hook is after Electron has booted, not in the pre-spawn path, and
 `Launch-Codex.ps1` currently waits for Electron to exit rather than polling during
 the session, so wiring this needs a real restructure, not a one-line insertion.
 Recorded as unimplemented; nothing in this section is active on either machine.
+
+### 2026-09-12 - source settles it: Electron owns the pipe server, config env is the missing piece
+
+Read from the installed `resources/app.asar`, `source-derived`.
+
+1. Electron's main boot starts the app-tools named-pipe **server** and stores the
+   generated name on its own process env:
+
+   ```js
+   Ne != null && (process.env[pf] = Ne.pipePath)     // pf = "CODEX_APP_TOOLS_PIPE_PATH"
+   ```
+
+   with a `.catch` that only logs "Failed to start the Codex app tools native
+   pipe". The server class does `server.listen(this.pipePath)`, and the base name
+   is shared with browser-use: `win32 ? '\\.\pipe\codex-browser-use' :
+   '/tmp/codex-browser-use'`. That is why S2's enumeration wrote the answer off as
+   noise.
+2. The `-c` override is built from exactly that env var:
+
+   ```js
+   async function ek({hostConfig, resourcesPath}) {
+     let r = process.env[pf];
+     if (kind !== 'local') return [];
+     if (!r) return tk('missing-pipe');
+     ... return [`mcp_servers.codex_app=${nk({... c, enabled:true, env:l})}`]
+   }
+   function tk(reason) { return ['mcp_servers.codex_app={command="",enabled=false}'] }
+   ```
+
+   Two consequences. The pipe is created by Electron independent of app-server
+   topology, so **the pipe should exist in shared mode too**; only the handoff is
+   missing. And the degenerate `command=""` override is the real origin of the
+   widespread `invalid transport in mcp_servers.codex_app` report: an empty command
+   is not a valid transport, and it appears whenever Electron failed to start the
+   pipe. Our old manual workaround comment about overriding the injected block was
+   aimed at this.
+3. Therefore the fix for shared mode needs no app.asar patch. In shared mode there
+   is no `-c` at all, so a user-level entry is authoritative rather than shadowed,
+   and it only lacked `env = { CODEX_APP_TOOLS_PIPE_PATH = <live> }`. That is what
+   `Find-CodexAppToolsPipe.ps1 -Apply` writes. This retroactively explains all
+   three measured rows: `enabled=true` without env spawned a server that could not
+   find a pipe; `enabled=false` never started one; absent never started one.
+
+**Validation still owed, and why it is not done yet.** The apply path has only been
+proven against a temp `config.toml` copy, never against a live shared-mode
+sidecar, because switching this machine from Direct to shared restarts the
+app-server and ends the running lane turn. Sequence when the owner is ready:
+
+```text
+1. quit Codex fully
+2. launch via Codex (GitHub Patched)              # shared --listen mode
+3. tools\Find-CodexAppToolsPipe.ps1               # scan, expect one APP-TOOLS verdict
+4. tools\Find-CodexAppToolsPipe.ps1 -Apply        # persist env, backs up config
+5. tools\refresh-codex-app-server.ps1             # respawn sidecar so it re-reads config
+6. create a PAUSED automation on a legacy thread
+```
+
+If step 3 finds no `APP-TOOLS` pipe, the pipe genuinely does not come up in shared
+mode and the modes are mutually exclusive; then stop and wire the launcher to warn.
+If step 6 works, promote the same discovery into `Launch-Codex.ps1` behind a flag.
+
+**Stale-pipe rule for that wiring.** Re-discover every session and rewrite the env
+entry; a persisted pipe name from a dead Electron session is worse than no entry,
+because the spawned server will hang until the MCP startup timeout instead of
+failing fast.
