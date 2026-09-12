@@ -452,3 +452,27 @@ Two things worth knowing before installing:
 - This release preserves the verified `-z2` sidecar, bundles the O1 runtime
   guard, and passed the updated runtime regression test. It does not use the
   broken 26.908 full-lane `-yfix` artifact.
+
+### 2026-09-12 - live automation route failed after the keepblock install
+
+- After installing `...-keepblock`, this legacy thread resumed normally, but
+  `mcp__codex_app__automation_update` returned
+  `unsupported call: mcp__codex_app__automation_update`.
+- Shared sidecar identity is `codex-cli 0.0.0`. The current app process is its
+  child; `app/list` returns empty and the direct app-tools server rejects
+  `tools/list` with `Codex did not provide CODEX_APP_TOOLS_PIPE_PATH`.
+- `resources/app.asar` does contain the literal
+  `CODEX_APP_TOOLS_PIPE_PATH`, so capability-marker checks are not enough. The
+  runtime must provide a live pipe path to the stdio MCP server before it can
+  list/call app tools.
+- Published fix2 repack:
+  `v26.903.61454-patched-automation-pipe-z2-keepblock-fix2`
+  - run `34679230956`
+  - digest `sha256:843f70d11a8b8268bd87941a52206a3d97f2aa9b50afa2c8b52cca369f95b00c`
+  - size `790357349`
+- The repack intentionally preserves the `-z2` sidecar and bundles the O1
+  keep-block runtime. It is not yet a verified fix for the app-tools route until
+  the owner installs it, fully restarts, and both new and legacy threads can
+  create an automation.
+- New CI guard in `b9d0cff` blocks future full-lane releases whose source-built
+  sidecar is unstamped or older than the bundled sidecar.
