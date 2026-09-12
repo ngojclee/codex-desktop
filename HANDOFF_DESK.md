@@ -566,3 +566,75 @@ Two things worth knowing before installing:
 - Release lane: run `34691007210` publishes
   `v26.903.61454-patched-automation-pipe-z2-appdisabled` from base
   `v26.903.61454-patched-automation-pipe-z2`, preserving that sidecar.
+
+### 2026-09-12 - RECOVERY NOTE: the disabled-block fix failed, entry now dropped
+
+Read this first if the app will not open a thread or shows `invalid transport`.
+
+**Live machine state on 10.11.1.1 (this note is the hand-off point).**
+
+| Item | Value |
+| --- | --- |
+| Installed release tag | `v26.903.61454-patched-automation-pipe-z2-keepblock-fix2` |
+| Installed asset digest | `sha256:843f70d11a8b8268bd87941a52206a3d97f2aa9b50afa2c8b52cca369f95b00c` |
+| Bundled Ensure script | old keep-guard version, hash `5BB589306A7F35C63697D7AC392EB5F81FEA5D03E176B23BAF7F4E6B0ED96C71`, no disable normalization |
+| `config.toml` `[mcp_servers.codex_app]` | **ABSENT as of this note** (deliberate experiment) |
+| Restore point | `~\.codex\config.toml.bak-drop-codexapp-entry` |
+| Earlier restore point | `~\.codex\config.toml.bak-before-codex-app-pipe-20260912-130550` |
+| Legacy thread under test | `019e17c5-b7e2-7df2-9393-05ec157a06e6` |
+
+**Hypothesis that was tested and REJECTED (measured, twice, fresh sidecars).**
+
+Normalizing the user-level `[mcp_servers.codex_app]` block to `enabled = false`
+does not restore the app-tools route. After a genuine restart (sidecar PID
+`24220`, start 17:38:22, i.e. after the edit) `mcp__codex_app__automation_update`
+still returned `unsupported call: mcp__codex_app__automation_update`. So the mere
+presence of a user-level `codex_app` entry, enabled or not, is what prevents the
+tools from registering. The `a6cd2ac` plus `1fbf54a` normalization is therefore
+**not** the automation fix; it only stops the pipeless server from being spawned.
+Keep it for that narrower reason, or drop it, but do not sell it as a fix.
+
+**Open experiment the owner is running.**
+
+With the entry absent, the next Desktop start is the state that `-z2` had when
+app-tools last worked. Two outcomes, both informative:
+
+1. Threads open and `automation_update` works: the user-level entry is the sole
+   blocker. Then the durable fix is "never write a user-level `codex_app` entry",
+   `RemoveStaticCodexAppServerConfig` goes back to unconditional removal, O1 is
+   re-opened, and the legacy-thread transport must come from the plugin mirror.
+2. `config.toml: invalid transport in mcp_servers.codex_app` returns: O1 is
+   confirmed and the conflict is real. Then stop editing `config.toml` and fix the
+   writer instead: Desktop writes `mcp_servers.codex_app.enabled_tools` into user
+   config without a transport, which the loader rejects.
+
+**Restore command if outcome 2 blocks the owner or a lane is locked out.**
+
+Fully quit Codex first (clear `ChatGPT.exe` and `codex.exe`), then:
+
+```powershell
+Copy-Item "$env:USERPROFILE\.codex\config.toml.bak-drop-codexapp-entry" `
+          "$env:USERPROFILE\.codex\config.toml" -Force
+```
+
+That returns the machine to `enabled = false` with working chat. No reinstall is
+needed; the change is config-only and read at app-server start.
+
+**Machine drift the owner declined to test on.**
+
+`10.11.1.3` is still on `v26.903.61454-patched-automation`, which predates `-z`,
+`-z2`, Patch X/W1/Y/Z and the keep guard, and its installed Ensure is the
+remove-only version with `enabled = true` still in `config.toml`. The two desktops
+are not on the same artifact, so any cross-machine conclusion drawn before
+re-syncing is unreliable.
+
+**Standing hygiene for whoever continues.**
+
+- `unsupported call:` is a sidecar string, `This app tool is no longer available
+  through dynamic tools.` is a renderer shim string. They mean different layers;
+  quote the exact one when reporting.
+- Never conclude from `status=kept-disabled` or any returned status string; assert
+  on parsed TOML.
+- Restarting Desktop ends the in-flight lane turn. Coordinate before killing.
+- Report through the shared sidecar or relay, never through native
+  `send_message_to_thread`, which is what produced the `call_id`-less rows.

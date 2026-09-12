@@ -68,6 +68,12 @@ These are not ASAR patches, but they are part of a usable release:
   spawn was what made every `codex_app` tool call return `unsupported call`.
   Desktop's `desktop-mcp.json` (`enabled: true` plus `env_vars`) owns the live
   server, and the rerun is a no-op once the block is already disabled.
+  **Measured limit:** disabling is not the automation fix. With the block present
+  and `enabled = false`, a freshly restarted sidecar still returns
+  `unsupported call: mcp__codex_app__automation_update`. Any user-level
+  `codex_app` entry, enabled or disabled, keeps the tools unregistered, so this
+  normalization only prevents a doomed pipeless spawn and must not be treated as
+  restoring the app-tools route. See `HANDOFF_DESK.md`, recovery note 2026-09-12.
   It maintains the disabled `.mcp.json` mirror for the Desktop `codex_app`
   transport. The ASAR capability literal gates cleanup; that literal alone
   does not prove a live per-session pipe exists.
