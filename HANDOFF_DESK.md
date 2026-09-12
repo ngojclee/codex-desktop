@@ -638,3 +638,65 @@ re-syncing is unreliable.
 - Restarting Desktop ends the in-flight lane turn. Coordinate before killing.
 - Report through the shared sidecar or relay, never through native
   `send_message_to_thread`, which is what produced the `call_id`-less rows.
+
+### 2026-09-12 - all three user-entry states now measured; new leading hypothesis
+
+**Measured matrix on 10.11.1.1, `automation_update` create, fresh sidecar each row.**
+
+| `config.toml` `[mcp_servers.codex_app]` | sidecar | automation result |
+| --- | --- | --- |
+| present, `enabled = true` | PID 4164, 19:10:42 | `unsupported call` |
+| present, `enabled = false` | PID 24220, 17:38:22 | `unsupported call` |
+| absent (my deliberate drop) | ~18:50 window | see config evidence below |
+
+Chat and legacy-thread resume worked in every row that had a block. The block was
+restored to `enabled = true` by the recovery lane from
+`config.toml.bak-before-codex-app-pipe-20260912-130550`, so the machine is back to
+the pre-experiment state and is currently chat-healthy, automation-dead.
+
+**New fact that weakens the O1 story.** While the entry was absent, the app wrote
+config at 18:50 and `bak-prerun-185027` proves `mcp_servers.codex_app` stayed
+absent with **no `enabled_tools` key created**. In other words this Desktop build
+did not strand a transport-less `codex_app` table behind us, which was the assumed
+mechanism for `invalid transport`. If an `invalid transport` banner appeared during
+that window, its cause is still unidentified, and dropping the entry is not proven
+to be what produced it. Do not re-run the drop experiment to find out; it costs the
+owner a locked thread and we already know it cannot restore automation.
+
+**Leading hypothesis, not yet measured: shared vs private app-server topology.**
+
+Every automation failure recorded today ran on the launcher-owned shared sidecar:
+
+```text
+resources\codex.exe app-server --listen ws://127.0.0.1:24567
+```
+
+That process is started by `Launch-Codex.ps1` **before** Electron exists, so it can
+never be handed a per-session `CODEX_APP_TOOLS_PIPE_PATH` that only Electron creates
+later. When Electron instead spawns its own app-server privately, the stdio MCP
+child inherits exactly that env. This explains why the pipe is absent in all three
+rows regardless of the user-level block, and why `-z2` "app-tools worked" was a
+different topology (a private sidecar), not a different config.
+
+**Decisive cheap test, no build and no config edit.** Fully quit, then start via
+`Codex Desktop - Direct.lnk` (`CodexFromGithub\ChatGPT.exe`), which lets Electron own
+its app-server. Confirm no `--listen` codex.exe exists, then call
+`automation_update` create on a legacy thread.
+
+- If it works: the real conflict is shared-sidecar versus app-tools pipe, not
+  static versus dynamic config. Fix target becomes the launcher: either pass
+  Electron's pipe path into the shared sidecar's environment at spawn, or reload
+  the MCP server after Electron publishes it. `Ensure-Codex-AppToolsMcp.ps1` is the
+  wrong layer entirely and the keep-block argument should be retired.
+- If it still fails: drop this hypothesis and go after `app/list` returning empty
+  apps, which is the remaining unexplained signal on this machine.
+
+**Stop doing list, for whoever picks this up.**
+
+- Do not keep toggling `enabled` true/false. All three states are measured; none
+  registers the tools.
+- Do not delete plugin or bundle files to force a path; the app rewrites them.
+- Do not reinstall to "clear" this; the failure survives reinstall because it is a
+  startup-topology issue, not a corrupt artifact.
+- Machine 10.11.1.3 is still on `v26.903.61454-patched-automation` and is actively
+  working; the owner declined to use it as the test subject. Leave it alone.
