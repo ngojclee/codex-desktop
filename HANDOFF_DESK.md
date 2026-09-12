@@ -639,6 +639,60 @@ re-syncing is unreliable.
 - Report through the shared sidecar or relay, never through native
   `send_message_to_thread`, which is what produced the `call_id`-less rows.
 
+### 2026-09-12 - shipped runtime\Find-CodexAppToolsPipe.ps1, one question left open
+
+Retracting S2. It said "there is no app-tools named pipe" because enumeration only
+showed `codex-browser-use-*` names. That was a naming trap, not a measurement:
+Electron injects
+`CODEX_APP_TOOLS_PIPE_PATH = \\.\pipe\codex-browser-use-b7875770-...` straight from
+its own `-c` override, so the app-tools pipe **is** one of those names. `measured`.
+
+New tool, `runtime/Find-CodexAppToolsPipe.ps1`, bundled into `tools/` by both
+release workflows automatically (everything under `runtime/` is copied and
+hash-verified). It resolves the ambiguity honestly by running the bundle's own
+`server.mjs` against each candidate pipe and calling `tools/list`, so it does not
+depend on a reverse-engineered frame format and will follow upstream protocol
+changes. Both branches verified on 10.11.1.1 in Direct mode:
+
+| Probe target | Result |
+| --- | --- |
+| `\\.\pipe\codex-ipc` | clean `probe timeout`, no false positive |
+| live app-tools pipe | `APP-TOOLS`, 27 tools, includes `automation_update` |
+
+After probing the live pipe, `automation_update` view still worked, so a probe plus
+cleanup does not break an active lane. The guard still refuses by default when an
+Electron-owned app-server is running; `-Force` was used only for these two named
+targets, never a blind scan.
+
+`-Apply` writes the discovered pipe and `CODEX_MCP_NODE_PATH` into
+`[mcp_servers.codex_app]` plus `[mcp_servers.codex_app.env]`, backing up first, and
+the sidecar picks it up on its next start via `refresh-codex-app-server.ps1`. That
+apply path is **written but not yet executed**, deliberately: applying it needs a
+shared-mode run, which means quitting Direct and ending this lane's turn.
+
+**The single open question that decides everything.** In shared `--listen` mode,
+does Electron still create the app-tools pipe, or only when it owns the app-server?
+
+```text
+pipe exists in shared mode  -> Find-CodexAppToolsPipe.ps1 -Apply then
+                               refresh-codex-app-server.ps1 restores app-tools and
+                               keeps the relay; the fix is launcher-side, no new
+                               release gate needed beyond bundling runtime/.
+pipe absent in shared mode  -> the two modes are mutually exclusive by design. Then
+                               stop trying to repair shared mode, make
+                               Launch-Codex.ps1 detect the conflict and warn, and
+                               document Direct as the automation mode and shared as
+                               the relay-only mode.
+```
+
+To answer it: quit Direct, launch through `Codex (GitHub Patched)`, then run
+`tools\Find-CodexAppToolsPipe.ps1` with no arguments. It scans candidates and prints
+a verdict per pipe, no `-Force` needed because no private app-server will be alive.
+
+Until then the owner's working setup is Direct, where automation is confirmed good on
+a legacy thread with `direct-route-test` persisted under
+`~\.codex\automations\direct-route-test\automation.toml`, status `PAUSED`.
+
 ### 2026-09-12 - all three user-entry states now measured; new leading hypothesis
 
 **Measured matrix on 10.11.1.1, `automation_update` create, fresh sidecar each row.**
