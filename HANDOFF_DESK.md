@@ -700,3 +700,65 @@ its app-server. Confirm no `--listen` codex.exe exists, then call
   startup-topology issue, not a corrupt artifact.
 - Machine 10.11.1.3 is still on `v26.903.61454-patched-automation` and is actively
   working; the owner declined to use it as the test subject. Leave it alone.
+
+### 2026-09-12 - ROOT CAUSE PROVEN: shared WS sidecar loses Electron's app-tools override
+
+**Decisive measurement.** `automation_update` create on the same legacy thread,
+same installed artifact, only the launch mode changed.
+
+| Launch mode | app-server | `automation_update` |
+| --- | --- | --- |
+| `Codex (GitHub Patched)` = `Launch-Codex.vbs` | launcher spawns `codex.exe app-server --listen ws://127.0.0.1:24567` | `unsupported call` |
+| `Codex Desktop - Direct` = `ChatGPT.exe` | Electron spawns `codex.exe -c features.code_mode_host=true app-server ...` | **created**, `automationId=direct-route-test`, `status=PAUSED` |
+
+Persisted on disk at `~\.codex\automations\direct-route-test\automation.toml`.
+`measured`.
+
+**Why.** Electron owns the app-tools wiring and hands it to the app-server as a
+command-line override, verbatim from the private sidecar process:
+
+```text
+-c mcp_servers.codex_app={
+     command="cmd.exe", args=["/d","/s","/c","call",
+       "./scripts/launch_codex_app_tools_mcp.cmd","./server.mjs"],
+     cwd="<install>\resources\plugins\openai-bundled\plugins\codex-app-tools",
+     enabled=true, tools={automation_update,...approval_mode="prompt"},
+     env_vars=["CODEX_APP_TOOLS_PIPE_PATH", ...],
+     env={ CODEX_APP_TOOLS_PIPE_PATH="\\.\pipe\codex-browser-use-<guid>",
+           CODEX_MCP_NODE_PATH="<install>\resources\cua_node\bin\node.exe" } }
+```
+
+`Launch-Codex.ps1` starts the shared sidecar itself, before Electron exists, and
+that spawn carries **no `-c` override at all**. So in shared mode the sidecar never
+learns the live pipe or the node path, the MCP server cannot start, `codex_app`
+tools are never registered, and every call returns the sidecar's
+`unsupported call`. Two secondary facts from the same capture: the injected `cwd`
+is the bundle plugin directory, not `~\.codex\plugins\cache\...\0.1.3`, and the
+app-tools pipe lives in the same `codex-browser-use-*` namespace as browser-use.
+`measured`.
+
+**What this retroactively invalidates.** The entire static-versus-dynamic
+`config.toml` debate was the wrong axis. The user-level `[mcp_servers.codex_app]`
+block is irrelevant in Direct mode because a `-c` override outranks config files,
+and it is irrelevant in shared mode because nothing supplies a pipe either way.
+Expect `RemoveStaticCodexAppServerConfig`, the keep guard from `c901574` and the
+`enabled = false` normalization from `a6cd2ac` to be dead weight once the launcher
+is fixed. Do not build another release around them. O1's legacy-thread evidence
+needs re-testing under Direct before anyone cites it again.
+
+**Owner-facing consequence today.** Use `Codex Desktop - Direct` for normal work;
+automation and app-tools function there. The cost is the shared WS sidecar, which
+`codex-exec-remote.ps1` and the cross-machine relay read from
+`desktop-shared-app-server.json`, so cross-machine dispatch is unavailable while
+running Direct.
+
+**Open design question for whoever fixes shared mode.** The pipe path is generated
+per Electron session, so the launcher cannot know it at spawn time. The candidate
+routes are: discover the live `\\.\pipe\codex-browser-use-*` belonging to app-tools
+after Electron boots and push it into the already-running sidecar through the
+`config/batchWrite` RPC with `reloadUserConfig` (that call exists in the bundle and
+is how app settings are toggled); or let Electron own the app-server and have it
+publish a WS listener so the relay can still attach; or accept the two modes as
+mutually exclusive and make the launcher warn instead of silently breaking
+app-tools. Nothing here is implemented, and no code should be written for it
+without a decision on which route the owner wants.
