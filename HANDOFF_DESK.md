@@ -441,3 +441,14 @@ Two things worth knowing before installing:
   next release must repack known-good
   `v26.903.61454-patched-automation-pipe-z2` so its healthy sidecar is
   preserved while this runtime fix is bundled into `tools/`.
+
+### 2026-09-12 - keep-block release published
+
+- Repack run `34677128764` completed successfully from known-good `-z2`.
+- Release tag: `v26.903.61454-patched-automation-pipe-z2-keepblock`.
+- Asset: `CodexDesktop-Patched-win-x64-v26.903.61454-patched-automation-pipe-z2-keepblock.zip`.
+- Asset digest: `sha256:5612dfb8a7c69ade021c8986dbb0edb1fb9679d1550b383f9ff97f78c6f06bf5`.
+- Asset size: `790357349` bytes.
+- This release preserves the verified `-z2` sidecar, bundles the O1 runtime
+  guard, and passed the updated runtime regression test. It does not use the
+  broken 26.908 full-lane `-yfix` artifact.

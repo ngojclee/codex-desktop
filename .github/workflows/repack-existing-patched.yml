@@ -194,8 +194,10 @@ jobs:
           Patch Z for legacy dynamic app-tool compatibility. Then it refreshes
           Patch B2's Owl ASAR integrity hash. It also bundles the current
           runtime helpers, including the codex_app app-tools pipe repair that
-          removes the obsolete static config workaround on pipe-capable Desktop
-          bundles.
+          preserves existing command/args/cwd static transport definitions for
+          legacy threads. Runtime tests cover preservation, incomplete-definition
+          cleanup, CRLF handling and idempotence. Native old/new-thread automation
+          acceptance must still be verified after the owner restarts the app.
 
           Patch inventory and future update rules:
           `docs/PATCH_INVENTORY.md`
