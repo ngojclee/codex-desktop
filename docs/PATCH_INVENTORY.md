@@ -81,6 +81,19 @@ These are not ASAR patches, but they are part of a usable release:
   before that MCP lane was introduced; it does not edit stored transcripts.
 - `Ensure-Codex-WslNative.ps1`: keeps
   `runCodexInWindowsSubsystemForLinux = false` in the correct `[desktop]` scope.
+- `Find-CodexAppToolsPipe.ps1`: identifies which `\\.\pipe\codex-browser-use-*`
+  named pipe is actually the app-tools host by running the bundle's own
+  `server.mjs` against each candidate and asking it for `tools/list`. Reusing the
+  app's client keeps the probe correct across upstream protocol changes, and the
+  naming is why earlier manual enumeration dismissed the real pipe. Refuses to run
+  while an Electron-owned app-server is live unless `-Force` is passed, because
+  attaching a second client can disturb an active app-tools lane. `-Apply` writes
+  the discovered pipe plus `CODEX_MCP_NODE_PATH` into
+  `[mcp_servers.codex_app]` and `[mcp_servers.codex_app.env]`, backing up
+  `config.toml` first. Verified both branches: a wrong pipe reports a clean
+  timeout, the live app-tools pipe reports 27 tools including
+  `automation_update`. It is bundled into `tools/` by the release workflows because
+  everything under `runtime/` is copied and hash-checked.
 - `Launch-Codex.ps1`: starts/joins the shared sidecar and writes BOM-free state.
 - `Ensure-Codex-StreamResilience.ps1`: maintains the provider-local retry and
   idle-timeout settings.
