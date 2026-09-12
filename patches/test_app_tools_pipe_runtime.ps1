@@ -59,15 +59,16 @@ enabled = true
     Assert-True ($?) 'First ensure run should exit successfully.'
 
     $after = [IO.File]::ReadAllText($config)
-    if ($after -match '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') {
-        Write-Host "Config after first ensure run:"
-        Write-Host $after
-        throw 'Static codex_app parent and child tables must be removed.'
-    }
+    Assert-True ($after -match '\[mcp_servers\.codex_app\]') `
+        'A valid static codex_app transport must be kept for legacy threads.'
+    Assert-True ($after -match 'command = "cmd\.exe"') `
+        'Kept codex_app block must retain its command transport.'
+    Assert-True ($after -match 'cwd = "C:/Users/example/\.codex/plugins/cache/openai-bundled/codex-app-tools/0\.1\.3"') `
+        'Kept codex_app block must retain its cwd.'
     Assert-True ($after -match '\[mcp_servers\.open-design\]') `
         'Unrelated MCP configuration must be preserved.'
-    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `
-        'First run should create exactly one config backup.'
+    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 0) `
+        'Keeping a valid legacy transport must not create a rewrite backup.'
 
     $mirror = Join-Path $pluginDir '.mcp.json'
     Assert-True (Test-Path -LiteralPath $mirror) 'Sidecar mirror should be created.'
@@ -86,18 +87,31 @@ enabled = true
     & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $crlfConfig -Quiet
     Assert-True ($?) 'CRLF config ensure run should exit successfully.'
     $crlfAfter = [IO.File]::ReadAllText($crlfConfig)
-    if ($crlfAfter -match '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') {
-        Write-Host "CRLF config after ensure run:"
-        Write-Host $crlfAfter
-        throw 'CRLF static codex_app configuration must also be removed.'
-    }
+    Assert-True ($crlfAfter -match '\[mcp_servers\.codex_app\]') `
+        'CRLF config must also keep a valid legacy codex_app transport.'
     Assert-True ($crlfAfter -match '\[mcp_servers\.open-design\]') `
         'CRLF cleanup must preserve unrelated MCP configuration.'
 
     & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
     Assert-True ($?) 'Second ensure run should exit successfully.'
-    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `
-        'Idempotent rerun must not create another backup.'
+    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 0) `
+        'Idempotent rerun must not create a backup for an unchanged valid block.'
+
+    # A malformed/partial static definition is still unsafe and must be
+    # removed, preserving the original cleanup contract for new installs.
+    $invalidConfig = Join-Path $root 'invalid-config.toml'
+    [IO.File]::WriteAllText(
+        $invalidConfig,
+        "[mcp_servers.codex_app]`ncommand = `"cmd.exe`"`n`n[mcp_servers.open-design]`nurl = `"http://127.0.0.1:7460/mcp`"`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $invalidConfig -Quiet
+    Assert-True ($?) 'Invalid transport cleanup run should exit successfully.'
+    $invalidAfter = [IO.File]::ReadAllText($invalidConfig)
+    Assert-True ($invalidAfter -notmatch '\[mcp_servers\.codex_app(?:\.[^\]]+)?\]') `
+        'An incomplete codex_app block must still be removed.'
+    Assert-True ($invalidAfter -match '\[mcp_servers\.open-design\]') `
+        'Invalid transport cleanup must preserve unrelated MCP configuration.'
 
     # Capability gating: an older/non-pipe-aware bundle must not lose the
     # legacy workaround merely because the helper was updated.
