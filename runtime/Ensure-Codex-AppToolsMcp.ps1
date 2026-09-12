@@ -69,11 +69,22 @@ function Remove-StaticCodexAppServerConfig {
 
     # Only remove static user-level definitions. The Desktop-owned dynamic
     # definition is generated in memory and includes the per-session pipe path.
+    # HOWEVER: legacy threads (pre-MCP-lane) store "dynamic_tools":[{"name":"codex_app"}]
+    # and require a resolvable [mcp_servers.codex_app] block in config.toml to
+    # resume. If the static block already carries a valid command/args/cwd, KEEP it
+    # instead of deleting it, so those threads can load.
     $looksStatic =
         $block -match '(?m)^[ \t]*(command|url|args|cwd|transport|type|enabled)[ \t]*=' -or
         $block -match 'CODEX_APP_TOOLS_PIPE_PATH'
     if (-not $looksStatic) {
         return @{ status = 'skipped'; reason = 'no static transport fields'; path = $Path }
+    }
+    $hasValidTransport =
+        $block -match '(?m)^[ \t]*command[ \t]*=' -and
+        $block -match '(?m)^[ \t]*args[ \t]*=' -and
+        $block -match '(?m)^[ \t]*cwd[ \t]*='
+    if ($hasValidTransport) {
+        return @{ status = 'kept'; reason = 'static block has valid transport for legacy threads'; path = $Path }
     }
 
     $commentStart = $match.Index
