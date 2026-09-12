@@ -94,6 +94,18 @@ These are not ASAR patches, but they are part of a usable release:
   timeout, the live app-tools pipe reports 27 tools including
   `automation_update`. It is bundled into `tools/` by the release workflows because
   everything under `runtime/` is copied and hash-checked.
+- `Repair-CodexSharedAppTools.ps1`: the shared-mode fix. Waits for Electron to create
+  the app-tools pipe, registers it via `Find-CodexAppToolsPipe.ps1 -Apply`, then
+  reloads user config over the running sidecar's own WebSocket with
+  `config/batchWrite { edits: [], reloadUserConfig: true }`. No process restart, no
+  app.asar edit. Verified end to end on 10.11.1.1 in shared `--listen` mode:
+  `mcpServerStatus/list` reports `codex_app` with 27 tools including
+  `automation_update` and `toolsError = null`, and a real
+  `mcpServer/tool/call codex_app/automation_update` returns `isError: false`.
+  Re-running it is a no-op that writes nothing and creates no backup.
+- `Launch-Codex.ps1`: after starting Electron, launches
+  `Repair-CodexSharedAppTools.ps1` hidden in the background so a shared-mode session
+  self-heals app-tools. Set `CODEX_SKIP_APP_TOOLS_REPAIR=1` to disable.
 - `Launch-Codex.ps1`: starts/joins the shared sidecar and writes BOM-free state.
 - `Ensure-Codex-StreamResilience.ps1`: maintains the provider-local retry and
   idle-timeout settings.

@@ -828,6 +828,53 @@ hook is after Electron has booted, not in the pre-spawn path, and
 the session, so wiring this needs a real restructure, not a one-line insertion.
 Recorded as unimplemented; nothing in this section is active on either machine.
 
+### 2026-09-12 - SHARED MODE FIXED AND SHIPPED: app-tools now registers in sidecar
+
+The open question from the previous entry is answered: **the app-tools pipe does
+exist in shared `--listen` mode.** A scan with the shared sidecar running found it
+among four candidates, serving 27 tools. `measured`.
+
+The complete working chain, all measured on 10.11.1.1 with
+`codex.exe app-server --listen ws://127.0.0.1:24567` and no `-c` override:
+
+1. `Find-CodexAppToolsPipe.ps1` locates `\\.\pipe\codex-browser-use-76230fc0-...`.
+   The three other candidates answer `No handler registered for method: tools/list`,
+   which is why a name-based guess was hopeless and probe-based selection is right.
+2. `-Apply` writes that pipe plus `CODEX_MCP_NODE_PATH` into
+   `[mcp_servers.codex_app]` / `[mcp_servers.codex_app.env]`.
+3. `config/read` on the live sidecar already shows the new entry, so the file write is
+   visible without any restart.
+4. `config/batchWrite { edits: [], reloadUserConfig: true }` returns
+   `status: ok` and rebuilds the MCP registry. `mcpServerStatus/list` then reports
+   `codex_app` with `toolCount = 27`, `toolsError = null`,
+   `hasAutomationUpdate = True`.
+5. `mcpServer/tool/call` for `codex_app / automation_update` in **view** mode returns
+   `isError: false`, "Rendered automation card in the app". A **create** through that
+   route had earlier produced `direct-route-test` in Direct mode; in shared mode the
+   tool call itself now succeeds.
+
+Shipped as `Repair-CodexSharedAppTools.ps1`, called from `Launch-Codex.ps1` in the
+background after Electron starts, so a normal launch self-heals. Opt out with
+`CODEX_SKIP_APP_TOOLS_REPAIR=1`. Re-running it is a true no-op: unchanged content
+writes nothing and creates no backup, verified with a backup count of 3 before and
+after a second run. `measured`.
+
+**One honest limit.** Repair rebuilds the sidecar registry, not the tool list of a
+thread that already resumed. Inside a thread opened before the repair, the native
+`mcp__codex_app__automation_update` still returns `unsupported call` for the rest of
+that turn, while the same call succeeds through `mcpServer/tool/call`. A new turn or
+a new thread picks it up. Anyone re-testing must therefore start a fresh turn rather
+than judging the fix from a long-lived thread. That is the last unverified step:
+confirm one `PAUSED` create on a **new** thread on 10.11.1.1, then on a new thread on
+10.11.1.3 after it is updated off `v26.903.61454-patched-automation`.
+
+**Two implementation traps recorded the hard way, both mine.** `Write-Host` goes to
+the information stream, so a caller that greps a child script's stdout sees nothing;
+both scripts now return `PSCustomObject` and the human text is behind `-Quiet`. And
+`ClientWebSocket.ReceiveAsync` takes `(buffer, token)`, not the four-argument form
+that `SendAsync` takes; the wrong overload threw at runtime, not at parse time, so a
+`Parser::ParseInput` clean result proves nothing about WebSocket calls.
+
 ### 2026-09-12 - source settles it: Electron owns the pipe server, config env is the missing piece
 
 Read from the installed `resources/app.asar`, `source-derived`.
