@@ -542,3 +542,27 @@ Two things worth knowing before installing:
   If it still fails with the block disabled, the correct next move is to drop the
   user-level entry entirely and give the 114 legacy threads a resolvable
   transport through the plugin mirror only.
+
+### 2026-09-12 - CI caught a CRLF bug in the first normalization attempt
+
+- Run `34690299642` failed in `test_app_tools_pipe_runtime.ps1`, and the failure
+  was a real defect, not a flaky assertion: the first `enabled = true -> false`
+  rewrite used `(?m)^...true[ \t]*(?:#.*)?$`. In .NET multiline, `$` only sits
+  before `\n`, and `[ \t]` never matches `\r`, so on a CRLF config the pattern
+  matched nothing. `server.mjs` pipe-line stripping still changed the block, so
+  `RemoveStaticCodexAppServerConfig` returned `kept-disabled` while
+  `enabled = true` survived. `measured`.
+  Locally it passed only because this checkout carries LF fixtures. Same trap the
+  repo already hit once in `15b2280`.
+- `1fbf54a` switches to a lookahead form that tolerates trailing spaces, a
+  comment and `\r`, and moves both fixtures onto one
+  `Assert-DisabledLegacyTransport` helper so the CRLF case asserts the same
+  `enabled = false` contract instead of only checking the table header.
+- Reproduced with a local CRLF simulation of the runner (both scripts rewritten
+  to CRLF in a temp tree, then executed): green. `measured`.
+- Do not conclude `kept-disabled` proves the server is disabled. Any future
+  change to this block must assert on parsed TOML or on the normalized section,
+  not on the returned status string.
+- Release lane: run `34691007210` publishes
+  `v26.903.61454-patched-automation-pipe-z2-appdisabled` from base
+  `v26.903.61454-patched-automation-pipe-z2`, preserving that sidecar.
