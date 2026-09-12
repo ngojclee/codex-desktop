@@ -243,6 +243,65 @@ branch name.
 26.908. Run `34639099045` cleared all of them, so this is now `measured` for the
 renderer lane as a whole, not just Y.
 
+**O5. `v26.908.40401-patched-yfix` is a REGRESSION for app-tools. Do not install it.**
+`measured`, caused by the 10.11.1.1 lane (this file's author), found on 2026-09-12.
+
+After the owner installed `-yfix` on 10.11.1.1, every `codex_app` app-tool call fails:
+
+```
+2026-09-12T05:53:34Z ERROR codex_core::tools::router:
+  error=unsupported call: mcp__codex_app__automation_update
+```
+
+No `codex_app` MCP server process exists, and no app-tools or `codex-ipc` pipe
+exists. The renderer still advertises the tool, so the failure surfaces only when
+it is called.
+
+**Root cause: the two release lanes are not equivalent for the sidecar.**
+
+| Release | Lane | Sidecar handling | Result |
+| --- | --- | --- | --- |
+| `-z2` (26.903) | `Repack existing patched release`, run `34586150673` | reuses the already-verified sidecar, never rebuilds it | app-tools worked |
+| `-yfix` (26.908) | `Auto repatch on upstream release`, run `34640654953` | step 17 **overwrote** `resources/codex.exe` with the pinned source build | app-tools broken |
+
+Run `34640654953` printed the downgrade itself:
+
+```
+Bundled sidecar before update: codex-cli 0.144.6-cometix
+Bundled sidecar after update:  codex-cli 0.0.0
+```
+
+So the full lane shipped a sidecar built from `d6489472` (2026-09-08) under an app
+released later, and with no version stamped at all. The O4 pin made the pin
+reproducible but did **not** make it correct: a pinned sidecar still has to be
+contemporary with the app it is packaged with. That is the mistake this lane made
+while believing it had removed a class of failure.
+
+Required remedy, in order:
+
+1. Tell owners to stay on, or return to, `-z2`. It is the last release with a
+   working `codex_app` lane and verified legacy-thread resume.
+2. Gate the sidecar swap. The build must refuse to publish when the source build
+   reports `codex-cli 0.0.0`, and must compare the built sidecar against the one
+   the app shipped with, failing when ours is older. A versionless sidecar must
+   never reach a release, because the downgrade is otherwise invisible in the
+   artifact.
+3. Produce the 26.908 release by raising `VERIFIED_CODEX_REF` to a revision
+   matching `0.144.6-cometix` or newer, confirming I, V, X, W1 and N still apply,
+   and stamping the sidecar version. Expect Patch V anchor drift there and fix it
+   the way O2 was fixed.
+4. Until 3 is done, the only safe way to move renderer patches forward is the
+   repack lane, which does not touch the sidecar.
+
+Unrelated noise, recorded so nobody chases it: the repeated
+`rmcp::transport::worker ... http://localhost:21721/mcp` errors are
+`[mcp_servers.xpipe]` being down, not `codex_app`.
+
+O1 status: still unresolved. The owner restored the static block after the
+`-yfix` install (`config.toml.bak-restore-074924`, `bak-prekeep-075126`), so the
+removal path was not cleanly observed, and `-yfix` is not a valid test subject
+because of O5.
+
 ---
 
 ## Log
@@ -328,3 +387,36 @@ Two things worth knowing before installing:
    `config.toml.bak-before-codex-app-pipe-*` before removing anything. If legacy
    threads then fail to resume, restore that file and reopen O1 as "block is
    load-bearing" rather than guessing.
+
+### 2026-09-12 - lane 10.11.1.1 (user / Nyx)
+
+- **O1 RESOLVED: block is load-bearing.** `measured`. After installing
+  `v26.908.40401-patched-yfix`, `Launch-Codex.ps1` → `Ensure-Codex-AppToolsMcp.ps1`
+  removed the static `[mcp_servers.codex_app]` block (per S4 CI contract). On reopen
+  of legacy thread `019e17c5-b7e2-7df2-9393-05ec157a06e6` (one of the 114
+  `dynamic_tools: codex_app` threads) the app threw
+  `invalid transport in mcp_servers.codex_app` and the thread could not resume.
+  Restoring the block from `config.toml.bak-before-codex-app-pipe-20260912-065038`
+  made the thread resume and `automation_update` create/update/delete worked
+  in-session, zero `invalid transport` since. **Conclusion: block absent => breaks
+  legacy threads; keep the fix.**
+- **Installed `tools/Ensure-Codex-AppToolsMcp.ps1` patched locally** (NOT yet in
+  repo): added `$hasValidTransport` guard inside `Remove-StaticCodexAppServerConfig`
+  → returns `status='kept'` when the block carries `command`+`args`+`cwd`. Verified:
+  restore block → run installed Ensure → block survives. This contradicts S4's
+  `test_app_tools_pipe_runtime.ps1` contract, which must be updated in the same
+  commit if the keep-block fix goes to `main`.
+- **Repo state unchanged.** `runtime/Ensure-Codex-AppToolsMcp.ps1` in the repo still
+  has remove-only logic; only the installed copy on 10.11.1.1 is patched. Per Lane
+  protocol #3 this is a config/app change requiring restart — recorded here before
+  any push.
+- **Pending user test:** creating an automation from a legacy thread on the patched
+  install. Will append the result here.
+
+---
+
+> **DEV REVIEW NEEDED:** confirm O1 resolution above. If you agree block is
+> load-bearing for legacy threads, the keep-block guard must land in
+> `runtime/Ensure-Codex-AppToolsMcp.ps1` AND `test_app_tools_pipe_runtime.ps1` (S4)
+> must be relaxed in the same commit. If you disagree, show a legacy-thread resume
+> that works WITHOUT the static block.
