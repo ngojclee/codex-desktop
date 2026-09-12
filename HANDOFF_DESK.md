@@ -476,3 +476,14 @@ Two things worth knowing before installing:
   create an automation.
 - New CI guard in `b9d0cff` blocks future full-lane releases whose source-built
   sidecar is unstamped or older than the bundled sidecar.
+- Correction after the owner's observation: `codex-cli 0.0.0` is not by itself
+  evidence of a broken or downgraded app sidecar. OpenAI's packaged app may use
+  an unstamped sidecar in normal installs. Revert the version-only CI guard in
+  `b077be3`; future gates must test the app-tools route directly, not the
+  `--version` string.
+- Re-check O5's causal claim. The direct evidence is only the observed full-lane
+  version transition `0.144.6-cometix -> 0.0.0` and the later route failure.
+  It does not prove that replacing the sidecar caused the failure; the missing
+  live `CODEX_APP_TOOLS_PIPE_PATH` is the demonstrated runtime cause. Treat
+  "the 26.908 full-lane sidecar swap broke app-tools" as unproven until the
+  old/new sidecar route comparison is done.
