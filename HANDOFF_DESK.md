@@ -487,3 +487,58 @@ Two things worth knowing before installing:
   live `CODEX_APP_TOOLS_PIPE_PATH` is the demonstrated runtime cause. Treat
   "the 26.908 full-lane sidecar swap broke app-tools" as unproven until the
   old/new sidecar route comparison is done.
+
+---
+
+## Desktop lane -> Dev lane
+
+### 2026-09-12 - app-tools route root-caused; static block normalized to disabled
+
+- `unsupported call: mcp__codex_app__automation_update` comes from the **Rust
+  sidecar**, not the renderer. Evidence: the string is absent from
+  `resources/app.asar` (searched whole file, index `-1`) and present in
+  `resources/codex.exe` next to `unsupported custom tool call:` in
+  `core\src\tools\...`. It means the tool was never registered, i.e. the
+  `codex_app` MCP server failed to start. `measured`.
+- Chain, `source-derived` from the live install:
+  1. `config.toml` line 493 carried a static `[mcp_servers.codex_app]` with
+     `enabled = true` and no `env_vars`.
+  2. The sidecar therefore spawns `server.mjs` itself, without Desktop's
+     per-session `CODEX_APP_TOOLS_PIPE_PATH`.
+  3. `server.mjs` aborts at startup: "Codex did not provide
+     CODEX_APP_TOOLS_PIPE_PATH to the app tools MCP".
+  4. Server never registers, so both the in-app route and the shared-sidecar
+     probe return `unsupported call`.
+- The keep-block guard (`c901574`) was necessary but insufficient: it preserved
+  legacy transport resolution and left `enabled = true` untouched, which is the
+  spawn path. `measured`.
+- Fix: a kept static block is now normalized to `enabled = false`, and any stale
+  `CODEX_APP_TOOLS_PIPE_PATH` assignment inside the block or its child tables is
+  removed. This mirrors the plugin's own `.mcp.json` mirror, which already uses
+  `enabled: false` for exactly this reason ("resolve the transport without
+  launching a duplicate server"). Desktop's `desktop-mcp.json` keeps
+  `enabled: true` plus `env_vars` and owns the live pipe server. `source-derived`.
+- Runtime fix is in `runtime/Ensure-Codex-AppToolsMcp.ps1`, same file as O1, and
+  `patches/test_app_tools_pipe_runtime.ps1` now asserts the contract: kept block
+  survives with command/cwd, is `enabled = false`, loses the stale pipe value,
+  unrelated servers keep `enabled = true`, rewrite backs up exactly once, rerun
+  is a no-op. `measured` (test green; Patch Y/Z tests green).
+- Applied live on 10.11.1.1: `status=kept-disabled`, backup
+  `config.toml.bak-before-codex-app-pipe-20260912-130550`, verified by
+  `tomllib` as `enabled=False`, no `env` child table, `open-design` still
+  `enabled=True`. This is a config/app change requiring restart; it takes effect
+  on the next app-server start, not mid-turn. `measured`.
+- Baseline repro release rebuilt from the last known-good app-tools artifact
+  without touching its sidecar:
+  `v26.903.61454-patched-automation-pipe-z2-repro`, run `34689500863`,
+  digest `sha256:1b92a24da56f1d8a38304297326a4e7bbf04ce58260717140cb9777c2af8b0a3`,
+  size `790357349`. Note the sidecar in `-z2`, `-keepblock-fix2` and `-repro` is
+  the same binary, so `-repro` alone cannot fix the pipe route; the disabled-block
+  normalization is the actual change. `source-derived`.
+- **Unproven / next acceptance:** whether an `enabled = false` user-level entry
+  still lets Desktop's dynamic injection register the tools, or whether the user
+  entry shadowing the injected one is itself the blocker. Needs owner restart and
+  then a real `PAUSED` heartbeat create on a legacy thread plus a new thread.
+  If it still fails with the block disabled, the correct next move is to drop the
+  user-level entry entirely and give the 114 legacy threads a resolvable
+  transport through the plugin mirror only.

@@ -84,7 +84,61 @@ function Remove-StaticCodexAppServerConfig {
         $block -match '(?m)^[ \t]*args[ \t]*=' -and
         $block -match '(?m)^[ \t]*cwd[ \t]*='
     if ($hasValidTransport) {
-        return @{ status = 'kept'; reason = 'static block has valid transport for legacy threads'; path = $Path }
+        # Keep the transport so legacy threads can still resolve `codex_app`, but
+        # never let the sidecar start this server. A user-level block cannot carry
+        # Desktop's per-session CODEX_APP_TOOLS_PIPE_PATH, so a spawn from here
+        # always aborts at startup and leaves the codex_app tools unregistered
+        # ("unsupported call: mcp__codex_app__automation_update"). Desktop's own
+        # plugin descriptor (enabled=true plus env_vars) owns the live server, so
+        # the disabled mirror and this block only have to satisfy config loading.
+        $normalized = $block
+        if ($normalized -match '(?m)^[ \t]*enabled[ \t]*=') {
+            $normalized = [regex]::Replace(
+                $normalized,
+                '(?m)^([ \t]*enabled[ \t]*=[ \t]*)true[ \t]*(?:#.*)?$',
+                '${1}false')
+        } else {
+            # No `enabled` key means the sidecar defaults to enabled, so add one
+            # inside the parent table, before any child table header.
+            $child = [regex]::Match($normalized, '(?m)^[ \t]*\[mcp_servers\.codex_app\.[^\r\n]+\]')
+            if ($child.Success) {
+                $normalized = $normalized.Substring(0, $child.Index) +
+                    ('enabled = false' + $newline) +
+                    $normalized.Substring($child.Index)
+            } else {
+                $trimmed = $normalized.TrimEnd("`r", "`n")
+                $tail = $normalized.Substring($trimmed.Length)
+                $normalized = $trimmed + $newline + 'enabled = false' + $tail
+            }
+        }
+        # A stale pipe path captured in an earlier session is worse than none:
+        # it lets the server start and then talk to a dead pipe.
+        $normalized = [regex]::Replace(
+            $normalized,
+            '(?m)^[ \t]*CODEX_APP_TOOLS_PIPE_PATH[ \t]*=[^\r\n]*\r?\n?',
+            '')
+
+        if ($normalized -ne $block) {
+            $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            $backup = "$Path.bak-before-codex-app-pipe-$stamp"
+            Copy-Item -LiteralPath $Path -Destination $backup -Force
+
+            $replacement = $text.Substring(0, $match.Index) + $normalized + $text.Substring($end)
+            [IO.File]::WriteAllText($Path, $replacement, [Text.UTF8Encoding]::new($false))
+
+            return @{
+                status = 'kept-disabled'
+                reason = 'static block kept for legacy transport, server disabled so Desktop owns the pipe'
+                path = $Path
+                backup = $backup
+            }
+        }
+
+        return @{
+            status = 'kept'
+            reason = 'static block already disabled for legacy transport'
+            path = $Path
+        }
     }
 
     $commentStart = $match.Index
