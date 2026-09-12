@@ -964,3 +964,117 @@ If step 6 works, promote the same discovery into `Launch-Codex.ps1` behind a fla
 entry; a persisted pipe name from a dead Electron session is worse than no entry,
 because the spawned server will hang until the MCP startup timeout instead of
 failing fast.
+
+### 2026-09-12 - owed shared-mode validation is DONE: all four automation modes pass
+
+This closes step 6 of the "Validation still owed" sequence above, on 10.11.1.1, in
+the machine's normal launch mode.
+
+**Live state at test time.** `codex.exe app-server --listen ws://127.0.0.1:24567`
+(PID 5704, started 21:18:22, no `-c` override) plus Electron `ChatGPT.exe` from
+21:18:24. `[mcp_servers.codex_app]` in `config.toml` carried
+`CODEX_APP_TOOLS_PIPE_PATH` as of 21:45:50. `measured`.
+
+**Chain re-verified end to end, no restart, no config edit by hand.**
+
+1. `runtime\Find-CodexAppToolsPipe.ps1` (no args) scanned four
+   `codex-browser-use-*` candidates and returned exactly one `APP-TOOLS` verdict
+   with 27 tools. The stored pipe in `config.toml` matched the live winner, so no
+   stale-pipe hazard was present this session.
+2. `mcpServerStatus/list` on the running sidecar: `codex_app` present,
+   `toolCount = 27`, `toolsError = null`, `automation_update` in the list.
+3. The installed bundle's `automation_update` `inputSchema`, read live off the pipe,
+   is flat: `mode` is a plain `enum ["create","suggested_create"]` /
+   `["update","suggested_update"]` / `const "view"` / `const "delete"` inside
+   `anyOf`/`oneOf` branches. Patch Y is confirmed in the running artifact by
+   behaviour, not by a marker grep.
+
+**The create call itself.** Through `mcpServer/tool/call` with
+`server=codex_app, tool=automation_update`:
+
+| mode | result |
+| --- | --- |
+| `create` (heartbeat, `status=PAUSED`) | `isError: false`, `automationId=shared-mode-automation-verify-2026-09-12` |
+| `view` | `isError: false`, "Rendered automation card in the app." |
+| `update` (name + `INTERVAL=60` to `120`) | `isError: false`, on-disk `updated_at` changed, `created_at` preserved |
+| `delete` | `isError: false`, `deleteStatus=deleted`, directory removed |
+
+`~\.codex\automations\shared-mode-automation-verify-2026-09-12\automation.toml`
+appeared on the create and was gone after the delete, so this is persistence proof,
+not just a tool reply. The `Invalid discriminator value` failure from the earlier
+`agy2api` lane is gone; `mode: create` reaches the app validator in shared mode.
+`measured`.
+
+**Two payload facts the schema summary does not show, both learned from real errors.**
+
+- `mcpServer/tool/call` is thread-scoped: omitting `threadId` returns
+  `Invalid request: missing field 'threadId'` at the JSON-RPC layer, before the tool
+  runs. Any scripted call must name a thread.
+- Heartbeat `create`/`update` additionally require `targetThreadId` (or a
+  `destination` other than `thread`) even though the JSON Schema lists only
+  `name, prompt, rrule, status, kind, mode` as required. The app-level refinement is
+  stricter than the published schema. Response text is
+  `targetThreadId: Missing targetThreadId or destination=thread.`
+
+**Still open: the native tool in a fresh thread.** This thread
+(`01a09727-...`, rollout created 21:45:53) never got `mcp__codex_app__*` in its tool
+namespace, so the whole test above had to run through the sidecar's
+`mcpServer/tool/call`. The config write landed at 21:45:50, three seconds earlier, so
+the documented "thread opened before the repair keeps its old snapshot" limit cannot
+be ruled out from this evidence alone, and this thread is too new to prove it either
+way. `unmeasured`.
+
+Next action for whoever picks this up, and it is cheap: open a genuinely new thread
+now, confirm the native `mcp__codex_app__automation_update` is callable there, and
+then promote the discovery into `Launch-Codex.ps1` and re-test O1's legacy-thread
+claim under Direct. Until that one check is done, the honest statement is "shared
+mode can create, update, view and delete automations over the sidecar RPC", not
+"automation is fixed in the app UI".
+
+Reusable probe left in `tmp_scripts\`: `Invoke-SidecarRpc.ps1` (any method against
+the live sidecar), `dump-automation-schema.mjs` and
+`summarize-automation-schema.mjs` (live tool schema), plus
+`automation-call-params.json` as a working create payload.
+
+### 2026-09-12 - the missing field was `omit_tools_from`, which explains the other thread's result
+
+The lane that tested all four modes over the sidecar RPC reported that its own
+fresh thread never got `mcp__codex_app__*` in the model's tool namespace. That is now
+explained, and it was not the snapshot timing it suspected.
+
+Electron's real injection, captured verbatim from the private sidecar command line,
+carries more than a transport:
+
+```text
+default_tools_approval_mode="approve"
+tools={automation_update={approval_mode="prompt"}, ...}
+startup_timeout_sec=10, tool_timeout_sec=3600,
+omit_tools_from=["deferred"]
+```
+
+`Find-CodexAppToolsPipe.ps1 -Apply` was writing only command, args, cwd, enabled and
+env. That is enough for the sidecar to start the server, so `mcpServerStatus/list`
+shows 27 tools and `mcpServer/tool/call` answers, yet without
+`omit_tools_from = ["deferred"]` the tools stay in the deferred set and are never
+advertised into a thread's own tool namespace. The app therefore keeps returning
+`unsupported call` even though the MCP server is healthy. This is why
+`create/view/update/delete` all passed over RPC while native calls failed, and the
+3-second gap between the repair and that thread's creation was a red herring.
+`source-derived` from the live command line plus the injected field list.
+
+Fix: the block is now built from the bundle's own
+`resources\plugins\openai-bundled\plugins\codex-app-tools\desktop-mcp.json`
+(command, args, approval modes, timeouts, `env_vars`) with `cwd` resolved, `enabled`,
+the live pipe env, per-tool `approval_mode`, and
+`omit_tools_from = ["deferred"]` appended, so upstream can drift the descriptor and we
+follow it instead of hard-coding a shape. A minimal fallback stays for installs with
+no descriptor. Applied and verified on 10.11.1.1: `tomllib` parses the result,
+`omit_tools_from=['deferred']`, five tool entries, both env keys, timeouts 10/3600.
+Runtime tests and the CRLF runner simulation are green. `measured`.
+
+**Not yet claimed.** Whether a brand-new Codex Desktop thread now exposes
+`mcp__codex_app__automation_update` natively. The config side is right; the remaining
+unknown is whether the shared sidecar advertises the repaired server into a thread
+started after the reload. The test is one fresh thread and one `PAUSED` create, which
+is also the point at which the whole fix can be called done rather than "works over
+RPC". `unobserved`.

@@ -203,20 +203,66 @@ if (-not $Apply) {
 $configPath = Join-Path $CodexHome 'config.toml'
 $text = [IO.File]::ReadAllText($configPath)
 $header = '[mcp_servers.codex_app]'
-# TOML literal (single-quoted) strings do no escape processing, so Windows paths go
-# in verbatim; doubling backslashes here would corrupt them.
-$block = @(
-    $header
-    'command = "cmd.exe"'
-    "args = ['/d', '/s', '/c', 'call', './scripts/launch_codex_app_tools_mcp.cmd', './server.mjs']"
-    "cwd = '$pluginDir'"
-    'enabled = true'
-    ''
-    '[mcp_servers.codex_app.env]'
-    "CODEX_APP_TOOLS_PIPE_PATH = '$($winner.pipe)'"
-    "CODEX_MCP_NODE_PATH = '$nodeExe'"
-    ''
-) -join "`r`n"
+
+# Mirror the exact definition Electron injects, not just a working transport. A block
+# that only carries command/args/cwd/enabled lets the sidecar start the server, so the
+# tools appear in mcpServerStatus/list and answer mcpServer/tool/call, yet they are
+# still missing from the model's own tool namespace and the app keeps returning
+# `unsupported call`. Electron avoids that with `omit_tools_from = ["deferred"]` plus
+# the approval-mode and timeout fields, and reads them from the bundle's
+# desktop-mcp.json, so we take the same source instead of hard-coding a shape that
+# upstream can change under us.
+$descriptor = $null
+$descriptorPath = Join-Path $pluginDir 'desktop-mcp.json'
+if (Test-Path -LiteralPath $descriptorPath) {
+    try {
+        $descriptor = (Get-Content -LiteralPath $descriptorPath -Raw |
+            ConvertFrom-Json).mcpServers.codex_app
+    } catch {
+        Write-Note "desktop-mcp.json unreadable, falling back to a minimal mirror: $($_.Exception.Message)"
+    }
+}
+
+$lines = New-Object System.Collections.Generic.List[string]
+$lines.Add($header) | Out-Null
+$lines.Add('command = ' + (@(if ($descriptor) { [string]$descriptor.command } else { 'cmd.exe' }) | ConvertTo-Json -Compress)) | Out-Null
+$lines.Add('args = ' + (@(if ($descriptor) { $descriptor.args } else {
+    @('/d', '/s', '/c', 'call', './scripts/launch_codex_app_tools_mcp.cmd', './server.mjs')
+}) | ConvertTo-Json -Compress)) | Out-Null
+# TOML literal (single-quoted) strings do no escape processing, so Windows paths go in
+# verbatim; doubling the backslashes would corrupt them.
+$lines.Add("cwd = '$pluginDir'") | Out-Null
+$lines.Add('enabled = true') | Out-Null
+if ($descriptor) {
+    if ($descriptor.default_tools_approval_mode) {
+        $lines.Add('default_tools_approval_mode = ' + (ConvertTo-Json -InputObject ([string]$descriptor.default_tools_approval_mode) -Compress)) | Out-Null
+    }
+    if ($null -ne $descriptor.startup_timeout_sec) {
+        $lines.Add("startup_timeout_sec = $($descriptor.startup_timeout_sec)") | Out-Null
+    }
+    if ($null -ne $descriptor.tool_timeout_sec) {
+        $lines.Add("tool_timeout_sec = $($descriptor.tool_timeout_sec)") | Out-Null
+    }
+    if (@($descriptor.env_vars).Count -gt 0) {
+        $lines.Add('env_vars = ' + (@($descriptor.env_vars) | ConvertTo-Json -Compress)) | Out-Null
+    }
+}
+$lines.Add('omit_tools_from = ["deferred"]') | Out-Null
+$lines.Add('') | Out-Null
+$lines.Add('[mcp_servers.codex_app.env]') | Out-Null
+$lines.Add("CODEX_APP_TOOLS_PIPE_PATH = '$($winner.pipe)'") | Out-Null
+$lines.Add("CODEX_MCP_NODE_PATH = '$nodeExe'") | Out-Null
+$lines.Add('') | Out-Null
+if ($descriptor -and $descriptor.tools) {
+    foreach ($tool in $descriptor.tools.PSObject.Properties) {
+        $mode = $tool.Value.approval_mode
+        if (-not $mode) { $mode = 'approve' }
+        $lines.Add("[mcp_servers.codex_app.tools.$($tool.Name)]") | Out-Null
+        $lines.Add('approval_mode = ' + (ConvertTo-Json -InputObject ([string]$mode) -Compress)) | Out-Null
+        $lines.Add('') | Out-Null
+    }
+}
+$block = $lines -join "`r`n"
 
 if ($text -match '(?m)^\[mcp_servers\.codex_app\]') {
     $headerRegex = [regex]::new('(?m)^\[[^\r\n]+\][ \t]*(?:#.*)?(?=\r?\n|$)')
