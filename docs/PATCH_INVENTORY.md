@@ -58,10 +58,13 @@ embedded ASAR header hash after the final `app.asar` bytes are known.
 
 These are not ASAR patches, but they are part of a usable release:
 
-- `Ensure-Codex-AppToolsMcp.ps1`: maintains the sidecar-readable `.mcp.json`
-  mirror for the Desktop `codex_app` transport and quarantines the obsolete
-  static `mcp_servers.codex_app` workaround once the installed Desktop bundle
-  proves it supports the per-session `CODEX_APP_TOOLS_PIPE_PATH` capability.
+- `Ensure-Codex-AppToolsMcp.ps1`: preserves existing static `codex_app` blocks
+  containing `command`, `args`, and `cwd` (O1, commit `c901574`). This is a
+  field-presence guard, not complete TOML, executable, or live-pipe validation.
+  Incomplete static definitions retain the existing cleanup behavior.
+  It maintains the disabled `.mcp.json` mirror for the Desktop `codex_app`
+  transport. The ASAR capability literal gates cleanup; that literal alone
+  does not prove a live per-session pipe exists.
   Patch Z keeps the old dynamic renderer path compatible for threads created
   before that MCP lane was introduced; it does not edit stored transcripts.
 - `Ensure-Codex-WslNative.ps1`: keeps
