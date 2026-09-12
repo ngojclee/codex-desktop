@@ -19,6 +19,9 @@
 #   ... -Pipes '\\.\pipe\codex-ipc'      # probe explicit names instead of scanning
 #   ... -Apply                           # write the discovered pipe into config.toml
 #
+# Callers should read the emitted object, not the console text: Write-Host goes to the
+# information stream, so grepping a child's output silently loses every verdict line.
+#
 # -Apply only rewrites config.toml. The running sidecar reads it on next start, so
 # follow it with runtime\refresh-codex-app-server.ps1, or restart Codex.
 
@@ -29,10 +32,16 @@ param(
     [string[]]$Pipes,
     [int]$TimeoutSec = 8,
     [switch]$Apply,
+    [switch]$Quiet,
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Write-Note {
+    param([string]$Message)
+    if (-not $Quiet) { Write-Host $Message }
+}
 
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA 'CodexFromGithub' }
 if (-not $CodexHome)   { $CodexHome = Join-Path $env:USERPROFILE '.codex' }
@@ -63,10 +72,10 @@ function Get-PrivateSidecar {
 $private = Get-PrivateSidecar
 if ($private.Count -gt 0 -and -not $Force) {
     $pids = ($private | ForEach-Object { $_.ProcessId }) -join ','
-    Write-Host ("Refusing to probe: {0} Electron-owned app-server(s) live (PID {1})." -f $private.Count, $pids)
-    Write-Host 'Pass -Force to probe anyway, which can disturb the active app-tools lane,'
-    Write-Host 'or pass -Pipes with names that are definitely not the app-tools pipe.'
-    return
+    Write-Note ("Refusing to probe: {0} Electron-owned app-server(s) live (PID {1})." -f $private.Count, $pids)
+    Write-Note 'Pass -Force to probe anyway, which can disturb the active app-tools lane,'
+    Write-Note 'or pass -Pipes with names that are definitely not the app-tools pipe.'
+    return [PSCustomObject]@{ guard = 'private-sidecar-live'; privatePids = $pids; pipe = $null }
 }
 
 if (-not $Pipes) {
@@ -75,8 +84,8 @@ if (-not $Pipes) {
         Sort-Object
 }
 if ($Pipes.Count -eq 0) {
-    Write-Host 'No candidate pipes found.'
-    return
+    Write-Note 'No candidate pipes found.'
+    return [PSCustomObject]@{ guard = $null; pipe = $null; candidates = @() }
 }
 
 $probeSource = @'
@@ -164,33 +173,34 @@ try {
         $verdict = if ($parsed.ok -and $parsed.isAppTools) { 'APP-TOOLS' }
                    elseif ($parsed.ok) { 'mcp-but-not-app-tools' }
                    else { "no ($($parsed.reason))" }
-        Write-Host ("{0,-70} {1}" -f $pipe, $verdict)
+        Write-Note ("{0,-70} {1}" -f $pipe, $verdict)
     }
 } finally {
     Remove-Item -LiteralPath $probeFile -Force -EA SilentlyContinue
 }
 
 $winner = @($results | Where-Object { $_.ok -and $_.isAppTools }) | Select-Object -First 1
-""
 if ($null -eq $winner) {
-    Write-Host 'No candidate served automation_update.'
-    Write-Host 'If this ran in shared --listen mode, Electron never created the app-tools pipe and'
-    Write-Host 'no config change can recover it; the app-server has to be Electron-owned.'
-    return
+    Write-Note 'No candidate served automation_update.'
+    Write-Note 'In shared --listen mode this means Electron never created the app-tools pipe,'
+    Write-Note 'so no config change can recover it and the app-server has to be Electron-owned.'
+    return [PSCustomObject]@{
+        guard = $null
+        pipe = $null
+        candidates = @($results | ForEach-Object { [PSCustomObject]@{
+            pipe = $_.pipe; ok = [bool]$_.ok; reason = $_.reason } })
+    }
 }
 
-Write-Host ("Discovered app-tools pipe: {0} ({1} tools)" -f $winner.pipe, $winner.toolCount)
+Write-Note ("Discovered app-tools pipe: {0} ({1} tools)" -f $winner.pipe, $winner.toolCount)
 
 if (-not $Apply) {
-    Write-Host 'Dry run only. Re-run with -Apply to write it into config.toml.'
-    return
+    Write-Note 'Dry run only. Re-run with -Apply to write it into config.toml.'
+    return [PSCustomObject]@{ guard = $null; pipe = $winner.pipe; toolCount = $winner.toolCount;
+        applied = $false; tools = $winner.tools }
 }
 
 $configPath = Join-Path $CodexHome 'config.toml'
-$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$backup = "$configPath.bak-before-app-tools-pipe-$stamp"
-Copy-Item -LiteralPath $configPath -Destination $backup -Force
-
 $text = [IO.File]::ReadAllText($configPath)
 $header = '[mcp_servers.codex_app]'
 # TOML literal (single-quoted) strings do no escape processing, so Windows paths go
@@ -216,11 +226,27 @@ if ($text -match '(?m)^\[mcp_servers\.codex_app\]') {
         $next = $headerRegex.Match($text, $next.Index + $next.Length)
     }
     $end = if ($next.Success) { $next.Index } else { $text.Length }
-    $text = $text.Substring(0, $start.Index) + $block + $text.Substring($end)
+    $updated = $text.Substring(0, $start.Index) + $block + $text.Substring($end)
 } else {
-    $text = $text.TrimEnd("`r", "`n") + "`r`n`r`n" + $block
+    $updated = $text.TrimEnd("`r", "`n") + "`r`n`r`n" + $block
 }
 
-[IO.File]::WriteAllText($configPath, $text, [Text.UTF8Encoding]::new($false))
-Write-Host "Wrote $configPath (backup $backup)"
-Write-Host 'Now restart the sidecar so it picks up the env: runtime\refresh-codex-app-server.ps1'
+# The launcher may call this on every boot and the pipe name changes per Electron
+# session, so compare first: backing up identical bytes would leave one stale config
+# backup per start.
+if ($updated -eq $text) {
+    Write-Note 'config.toml already carries this pipe; nothing to write.'
+    return [PSCustomObject]@{ guard = $null; pipe = $winner.pipe; toolCount = $winner.toolCount;
+        applied = $true; unchanged = $true; configPath = $configPath; backup = $null;
+        tools = $winner.tools }
+}
+
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$backup = "$configPath.bak-before-app-tools-pipe-$stamp"
+Copy-Item -LiteralPath $configPath -Destination $backup -Force
+[IO.File]::WriteAllText($configPath, $updated, [Text.UTF8Encoding]::new($false))
+Write-Note "Wrote $configPath (backup $backup)"
+Write-Note 'Restart the sidecar, or reload user config, so it picks up the env.'
+return [PSCustomObject]@{ guard = $null; pipe = $winner.pipe; toolCount = $winner.toolCount;
+    applied = $true; unchanged = $false; configPath = $configPath; backup = $backup;
+    tools = $winner.tools }
