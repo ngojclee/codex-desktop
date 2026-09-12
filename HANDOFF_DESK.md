@@ -875,6 +875,31 @@ both scripts now return `PSCustomObject` and the human text is behind `-Quiet`. 
 that `SendAsync` takes; the wrong overload threw at runtime, not at parse time, so a
 `Parser::ParseInput` clean result proves nothing about WebSocket calls.
 
+### 2026-09-12 - caught a self-inflicted conflict between two of our own patches
+
+The `enabled = false` normalization from `a6cd2ac` disables **any** block with
+`command` + `args` + `cwd`. The shared-mode repair block has exactly those three
+fields plus the pipe env, so the next launch would have silently disabled the fix
+and put us straight back to `unsupported call`. It only surfaced because the repair
+was written first and the interaction checked afterwards. Run `34712363389` was
+cancelled rather than shipping a build that fights itself.
+
+Resolution: presence of `CODEX_APP_TOOLS_PIPE_PATH` now outranks the disable rule and
+the block is reported `kept`, left enabled, and rewritten by the repair every boot,
+so a stale value cannot outlive a session. The runtime test encodes both shapes:
+a pipeless legacy block must become `enabled = false`, a piped block must survive
+byte-identical with `enabled = true` and no new backup.
+
+Test assertions deliberately read the file, not the returned status object: the
+ensure result nests a hashtable whose serialized shape differs between Windows
+PowerShell 5.1 and pwsh 7, which burned a false failure here. Verified green under
+both engines plus the CRLF runner simulation. `measured`.
+
+General rule worth keeping: before shipping any new rule over
+`[mcp_servers.codex_app]`, re-read every existing rule that touches the same table.
+Three of them (O1 keep, disable normalization, pipe repair) were written in
+separate rounds against the same nine lines of TOML.
+
 ### 2026-09-12 - source settles it: Electron owns the pipe server, config env is the missing piece
 
 Read from the installed `resources/app.asar`, `source-derived`.

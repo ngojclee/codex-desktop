@@ -84,6 +84,18 @@ function Remove-StaticCodexAppServerConfig {
         $block -match '(?m)^[ \t]*args[ \t]*=' -and
         $block -match '(?m)^[ \t]*cwd[ \t]*='
     if ($hasValidTransport) {
+        # A block that carries CODEX_APP_TOOLS_PIPE_PATH is the shared-mode repair
+        # written by Repair-CodexSharedAppTools.ps1, and it is the only state in which
+        # app-tools can register at all when Launch-Codex owns the sidecar. Normalising
+        # that to enabled = false would silently undo the fix on the next launch, so the
+        # pipe presence outranks the disable rule below.
+        if ($block -match '(?m)^[ \t]*CODEX_APP_TOOLS_PIPE_PATH[ \t]*=') {
+            return @{
+                status = 'kept'
+                reason = 'static block carries the app-tools pipe; left enabled'
+                path = $Path
+            }
+        }
         # Keep the transport so legacy threads can still resolve `codex_app`, but
         # never let the sidecar start this server. A user-level block cannot carry
         # Desktop's per-session CODEX_APP_TOOLS_PIPE_PATH, so a spawn from here
