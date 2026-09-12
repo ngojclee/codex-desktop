@@ -67,8 +67,23 @@ enabled = true
         'Kept codex_app block must retain its cwd.'
     Assert-True ($after -match '\[mcp_servers\.open-design\]') `
         'Unrelated MCP configuration must be preserved.'
-    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 0) `
-        'Keeping a valid legacy transport must not create a rewrite backup.'
+    # The kept block must be disabled: an enabled static block makes the sidecar
+    # spawn a server with no per-session pipe, which dies at startup and leaves
+    # codex_app tools unregistered ("unsupported call").
+    $codexAppSection = [regex]::Match(
+        $after,
+        '(?ms)\[mcp_servers\.codex_app\].*?(?=^\[mcp_servers\.open-design\])').Value
+    Assert-True ($codexAppSection -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*false[ \t]*$') `
+        'Kept codex_app transport must be disabled so Desktop owns the pipe server.'
+    Assert-True ($codexAppSection -notmatch 'CODEX_APP_TOOLS_PIPE_PATH[ \t]*=') `
+        'A stale static CODEX_APP_TOOLS_PIPE_PATH must never survive normalization.'
+    Assert-True ($after -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*true[ \t]*$') `
+        'Normalization must not disable unrelated MCP servers such as open-design.'
+    $firstRunBackups = @(
+        Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*'
+    )
+    Assert-True ($firstRunBackups.Count -eq 1) `
+        'Disabling a kept legacy transport must back up the config exactly once.'
 
     $mirror = Join-Path $pluginDir '.mcp.json'
     Assert-True (Test-Path -LiteralPath $mirror) 'Sidecar mirror should be created.'
@@ -94,8 +109,8 @@ enabled = true
 
     & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
     Assert-True ($?) 'Second ensure run should exit successfully.'
-    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 0) `
-        'Idempotent rerun must not create a backup for an unchanged valid block.'
+    Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `
+        'Idempotent rerun must not rewrite an already-disabled legacy transport.'
 
     # A malformed/partial static definition is still unsafe and must be
     # removed, preserving the original cleanup contract for new installs.

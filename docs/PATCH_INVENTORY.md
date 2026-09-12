@@ -62,6 +62,12 @@ These are not ASAR patches, but they are part of a usable release:
   containing `command`, `args`, and `cwd` (O1, commit `c901574`). This is a
   field-presence guard, not complete TOML, executable, or live-pipe validation.
   Incomplete static definitions retain the existing cleanup behavior.
+  A preserved block is normalized to `enabled = false` and loses any stale
+  `CODEX_APP_TOOLS_PIPE_PATH` assignment, so the sidecar can still resolve the
+  legacy transport without spawning a server that has no per-session pipe. That
+  spawn was what made every `codex_app` tool call return `unsupported call`.
+  Desktop's `desktop-mcp.json` (`enabled: true` plus `env_vars`) owns the live
+  server, and the rerun is a no-op once the block is already disabled.
   It maintains the disabled `.mcp.json` mirror for the Desktop `codex_app`
   transport. The ASAR capability literal gates cleanup; that literal alone
   does not prove a live per-session pipe exists.
