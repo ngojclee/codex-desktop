@@ -547,6 +547,28 @@ if ($desktopArgs.Count -gt 0) {
     $desktop = Start-Process -FilePath $DesktopExe -PassThru
 }
 
+# Electron registers the app-tools pipe in its own process and hands the name to the
+# app-server only through a `-c` override on the app-server it spawns itself. This
+# launcher owns the shared sidecar instead, so nothing ever tells that sidecar the
+# pipe name and every codex_app tool fails with the sidecar's `unsupported call`.
+# Repair it in the background once Electron has had a moment to create the pipe.
+function Repair-SharedAppTools {
+    $repairScript = Join-Path $PSScriptRoot 'Repair-CodexSharedAppTools.ps1'
+    if (-not (Test-Path -LiteralPath $repairScript)) { return }
+    if ($env:CODEX_SKIP_APP_TOOLS_REPAIR -eq '1') {
+        Write-Host 'Skipping shared app-tools repair (CODEX_SKIP_APP_TOOLS_REPAIR=1).'
+        return
+    }
+    try {
+        Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $repairScript,
+                           '-Quiet', '-WsUrl', $WsUrl) | Out-Null
+    } catch {
+        Write-Host "WARN: shared app-tools repair could not start: $_"
+    }
+}
+Repair-SharedAppTools
+
 # Wait for Desktop to start spawning child processes, then poll until all gone.
 # Electron is multi-process: the launcher's $desktop.Id may exit before the
 # renderer/GPU children. We watch the selected desktop executable by path.
