@@ -536,6 +536,39 @@ jobs:
           if (-not (Test-Path -LiteralPath $built)) { throw "Built codex.exe not found: $built" }
           $newVersion = (& $built --version).Trim()
           $oldVersion = (& $target --version).Trim()
+
+          # O5 showed that replacing the app's native sidecar with a source build
+          # can silently break the app-tools/MCP route. An unstamped build is never
+          # release-safe. In the future, update the verified ref and prove app-tools
+          # before allowing a newer sidecar to replace the bundled executable.
+          if ($newVersion -notmatch '\d+\.\d+\.\d+' -or $newVersion -match '(^|\s)0\.0\.0(\s|$)') {
+            throw "Sidecar release gate failed: built sidecar reports '$newVersion'; a valid stamped version is required."
+          }
+          $semverPattern = '(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)'
+          $newSemver = [regex]::Match($newVersion, $semverPattern)
+          $oldSemver = [regex]::Match($oldVersion, $semverPattern)
+          if (-not $newSemver.Success) {
+            throw "Sidecar release gate failed: could not parse built version '$newVersion'."
+          }
+          if ($oldSemver.Success) {
+            $newComponents = @(
+              [int]$newSemver.Groups['major'].Value,
+              [int]$newSemver.Groups['minor'].Value,
+              [int]$newSemver.Groups['patch'].Value
+            )
+            $oldComponents = @(
+              [int]$oldSemver.Groups['major'].Value,
+              [int]$oldSemver.Groups['minor'].Value,
+              [int]$oldSemver.Groups['patch'].Value
+            )
+            for ($componentIndex = 0; $componentIndex -lt 3; $componentIndex++) {
+              if ($newComponents[$componentIndex] -gt $oldComponents[$componentIndex]) { break }
+              if ($newComponents[$componentIndex] -lt $oldComponents[$componentIndex]) {
+                throw "Sidecar release gate failed: built '$newVersion' is older than bundled '$oldVersion'."
+              }
+              if ($componentIndex -eq 2) { break }
+            }
+          }
           Copy-Item -Force -LiteralPath $built -Destination $target
           $verifiedVersion = (& $target --version).Trim()
           if ($verifiedVersion -ne $newVersion) {
