@@ -93,9 +93,12 @@ function Remove-StaticCodexAppServerConfig {
         # the disabled mirror and this block only have to satisfy config loading.
         $normalized = $block
         if ($normalized -match '(?m)^[ \t]*enabled[ \t]*=') {
+            # The lookahead keeps the assignment CRLF-safe: `.` and `[ \t]*` never
+            # consume the `\r`, so a `$` anchor alone silently misses on Windows
+            # configs and leaves the server enabled.
             $normalized = [regex]::Replace(
                 $normalized,
-                '(?m)^([ \t]*enabled[ \t]*=[ \t]*)true[ \t]*(?:#.*)?$',
+                '(?m)^([ \t]*enabled[ \t]*=[ \t]*)true(?=[ \t]*(?:#[^\r\n]*)?\r?$)',
                 '${1}false')
         } else {
             # No `enabled` key means the sidecar defaults to enabled, so add one

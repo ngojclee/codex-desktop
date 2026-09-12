@@ -9,6 +9,28 @@ function Assert-True {
     if (-not $Condition) { throw $Message }
 }
 
+# Shared by the LF and CRLF fixtures: a preserved legacy transport must resolve,
+# must not be spawnable, and must not carry a dead pipe path. Every pattern here
+# allows an optional `\r`, because a `$` anchor alone silently stops matching on
+# CRLF configs and let an enabled server through in CI once already.
+function Assert-DisabledLegacyTransport {
+    param(
+        [Parameter(Mandatory=$true)][string]$Content,
+        [Parameter(Mandatory=$true)][string]$Label
+    )
+
+    $section = [regex]::Match(
+        $Content,
+        '(?ms)^[ \t]*\[mcp_servers\.codex_app\][ \t]*\r?\n.*?(?=^[ \t]*\[mcp_servers\.(?!codex_app))').Value
+    Assert-True ($section.Length -gt 0) "$Label : codex_app section must be present."
+    Assert-True ($section -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*false[ \t]*\r?$') `
+        "$Label : kept codex_app transport must be disabled so Desktop owns the pipe server."
+    Assert-True ($section -notmatch 'CODEX_APP_TOOLS_PIPE_PATH[ \t]*=') `
+        "$Label : a stale static CODEX_APP_TOOLS_PIPE_PATH must never survive normalization."
+    Assert-True ($Content -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*true[ \t]*\r?$') `
+        "$Label : normalization must not disable unrelated MCP servers such as open-design."
+}
+
 $root = Join-Path $env:TEMP ("codex-app-tools-pipe-test-" + [guid]::NewGuid().Guid)
 $codexHome = Join-Path $root '.codex'
 $installDir = Join-Path $root 'install'
@@ -67,18 +89,7 @@ enabled = true
         'Kept codex_app block must retain its cwd.'
     Assert-True ($after -match '\[mcp_servers\.open-design\]') `
         'Unrelated MCP configuration must be preserved.'
-    # The kept block must be disabled: an enabled static block makes the sidecar
-    # spawn a server with no per-session pipe, which dies at startup and leaves
-    # codex_app tools unregistered ("unsupported call").
-    $codexAppSection = [regex]::Match(
-        $after,
-        '(?ms)\[mcp_servers\.codex_app\].*?(?=^\[mcp_servers\.open-design\])').Value
-    Assert-True ($codexAppSection -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*false[ \t]*$') `
-        'Kept codex_app transport must be disabled so Desktop owns the pipe server.'
-    Assert-True ($codexAppSection -notmatch 'CODEX_APP_TOOLS_PIPE_PATH[ \t]*=') `
-        'A stale static CODEX_APP_TOOLS_PIPE_PATH must never survive normalization.'
-    Assert-True ($after -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*true[ \t]*$') `
-        'Normalization must not disable unrelated MCP servers such as open-design.'
+    Assert-DisabledLegacyTransport -Content $after -Label 'LF fixture'
     $firstRunBackups = @(
         Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*'
     )
@@ -106,6 +117,7 @@ enabled = true
         'CRLF config must also keep a valid legacy codex_app transport.'
     Assert-True ($crlfAfter -match '\[mcp_servers\.open-design\]') `
         'CRLF cleanup must preserve unrelated MCP configuration.'
+    Assert-DisabledLegacyTransport -Content $crlfAfter -Label 'CRLF fixture'
 
     & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $config -Quiet
     Assert-True ($?) 'Second ensure run should exit successfully.'
