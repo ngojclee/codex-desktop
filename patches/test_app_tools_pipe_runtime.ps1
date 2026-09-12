@@ -67,9 +67,6 @@ args = ["/c", "launch_codex_app_tools_mcp.cmd"]
 cwd = "C:/Users/example/.codex/plugins/cache/openai-bundled/codex-app-tools/0.1.3"
 enabled = true
 
-[mcp_servers.codex_app.env]
-CODEX_APP_TOOLS_PIPE_PATH = "stale-static-value"
-
 [mcp_servers.open-design]
 url = "http://127.0.0.1:7460/mcp"
 enabled = true
@@ -123,6 +120,47 @@ enabled = true
     Assert-True ($?) 'Second ensure run should exit successfully.'
     Assert-True (@(Get-ChildItem -LiteralPath $codexHome -Filter 'config.toml.bak-before-codex-app-pipe-*').Count -eq 1) `
         'Idempotent rerun must not rewrite an already-disabled legacy transport.'
+
+    # A block that carries the app-tools pipe is the shared-mode repair written by
+    # Repair-CodexSharedAppTools.ps1. Keeping it enabled is the only way app-tools can
+    # register while Launch-Codex owns the sidecar, so the disable rule must not touch
+    # it and a rerun must not rewrite or back it up.
+    $pipeConfig = Join-Path $root 'pipe-config.toml'
+    $pipeText = @(
+        'model = "gpt-5.6-sol"'
+        ''
+        '[mcp_servers.codex_app]'
+        'command = "cmd.exe"'
+        "args = ['/d', '/s', '/c', 'call', './scripts/launch_codex_app_tools_mcp.cmd', './server.mjs']"
+        'cwd = "C:/Users/example/.codex/plugins/cache/openai-bundled/codex-app-tools"'
+        'enabled = true'
+        ''
+        '[mcp_servers.codex_app.env]'
+        'CODEX_APP_TOOLS_PIPE_PATH = "pipe-placeholder-value"'
+        'CODEX_MCP_NODE_PATH = "C:/example/resources/cua_node/bin/node.exe"'
+        ''
+        '[mcp_servers.open-design]'
+        'url = "http://127.0.0.1:7460/mcp"'
+        'enabled = true'
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($pipeConfig, $pipeText, [Text.UTF8Encoding]::new($false))
+    & $script -CodexHome $codexHome -InstallDir $installDir -ConfigPath $pipeConfig -Quiet
+    Assert-True ($?) 'Piped codex_app config ensure run should exit successfully.'
+    Assert-True ([IO.File]::ReadAllText($pipeConfig) -eq $pipeText) `
+        'A block carrying the app-tools pipe must survive untouched, or the shared-mode repair is undone.'
+    # Assert on the file rather than the returned status object: an untouched
+    # `enabled = true` is the whole contract, and the result shape is not stable
+    # between Windows PowerShell 5.1 and pwsh 7.
+    $pipeAfter = [IO.File]::ReadAllText($pipeConfig)
+    $pipeSection = [regex]::Match(
+        $pipeAfter,
+        '(?ms)^[ \t]*\[mcp_servers\.codex_app\][ \t]*\r?\n.*?(?=^[ \t]*\[mcp_servers\.(?!codex_app))').Value
+    Assert-True ($pipeSection -match '(?m)^[ \t]*enabled[ \t]*=[ \t]*true[ \t]*\r?$') `
+        'A block carrying the app-tools pipe must stay enabled so the sidecar can start it.'
+    Assert-True ($pipeSection -match 'CODEX_APP_TOOLS_PIPE_PATH[ \t]*=') `
+        'The registered app-tools pipe must not be stripped.'
+    Assert-True (@(Get-ChildItem -LiteralPath $root -Filter 'pipe-config.toml.bak-*').Count -eq 0) `
+        'Leaving the repaired block alone must not create a backup.'
 
     # A malformed/partial static definition is still unsafe and must be
     # removed, preserving the original cleanup contract for new installs.
