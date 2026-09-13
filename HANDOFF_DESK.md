@@ -1116,3 +1116,32 @@ which is **before** the `omit_tools_from` mirror fix in `ee93e67`. That artifact
 therefore not the accepted state: it can start the server but will not advertise the
 tools to a thread. A new repack is required before either machine is updated from it,
 and 10.11.1.3 is still on `v26.903.61454-patched-automation`.
+
+### 2026-09-13 - LEGACY THREADS ALSO WORK; the frozen-snapshot theory was wrong
+
+Retroactive correction. Thread `019e17c5-b7e2-7df2-9393-05ec157a06e6` is the oldest
+legacy thread in this investigation (created 2026-09-12, one of the 114
+`dynamic_tools: codex_app` threads). It called
+`mcp__codex_app__automation_update` `mode=create` natively and got
+`automationId=old-thread-probe`, `status=PAUSED`, persisted at
+`~\.codex\automations\old-thread-probe\automation.toml` with
+`target_thread_id` pointing back at itself. `measured`.
+
+So the `unsupported call` we kept hitting in this thread was never a snapshot that
+froze at resume. It was the missing `omit_tools_from = ["deferred"]` the whole time,
+which is why it failed identically in a brand-new thread until that field landed, and
+succeeded in both kinds of thread immediately afterwards. Drop the
+"thread opened before the repair keeps its old tool list" explanation from any future
+reasoning; it was a plausible story that the evidence now contradicts.
+
+Working rule going forward: `unsupported call` on a `codex_app` tool means "the
+registered definition is incomplete", so check `omit_tools_from` and
+`mcpServerStatus/list` first. It does not mean "restart to refresh this thread".
+
+**Not proven.** Whether a scheduled run actually fires. `automation-self-test`
+disappeared from disk, but it had been set `PAUSED` by me minutes earlier, and the
+owner was deleting cards in the UI at the same time, so deletion by the owner is the
+likely cause and a self-deleting fire is unconfirmed. Target thread
+`01a0992d-ab59-7892-8aa2-e47414f9dff3` shows exactly one completed turn and no wake
+turn. Leave `old-thread-probe` PAUSED, or set it ACTIVE on a one-minute cadence while
+the app is idle, to settle firing separately from tool access. `unobserved`.
