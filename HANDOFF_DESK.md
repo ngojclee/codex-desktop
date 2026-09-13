@@ -1145,3 +1145,35 @@ likely cause and a self-deleting fire is unconfirmed. Target thread
 `01a0992d-ab59-7892-8aa2-e47414f9dff3` shows exactly one completed turn and no wake
 turn. Leave `old-thread-probe` PAUSED, or set it ACTIVE on a one-minute cadence while
 the app is idle, to settle firing separately from tool access. `unobserved`.
+
+### 2026-09-13 - CLOSED on an installed artifact: boot-time repair, fire, create, delete
+
+The owner installed `v26.903.61454-patched-automation-pipe-z2-appshared2`
+(`sha256:0c6b9d53180174297b9d5257739e368f9a95655d62a9cee02a51547d0e48955c`,
+`installedAtUtc` 2026-09-13T06:31:24Z) on 10.11.1.1 and everything that was
+previously hand-applied now happens on its own. `measured`.
+
+- Boot-time repair runs unattended. Shared sidecar started 08:31:31 with
+  `--listen`; by 08:31:48 `config.toml` carried a fresh pipe
+  `\\.\pipe\codex-browser-use-a07f1a26-...` plus `omit_tools_from = ["deferred"]`,
+  and `Launch-Codex.ps1` left a `bak-before-app-tools-pipe-20260913-083148` backup.
+  No manual step was involved.
+- Scheduler firing is finally proven. `firing-proof-test`, created ACTIVE on
+  `FREQ=MINUTELY;INTERVAL=1` in the oldest legacy thread, woke that same thread about
+  81 seconds later and the thread answered from the heartbeat prompt. That retires the
+  "Not proven" note above: firing works, and heartbeats appear to wait for the target
+  thread to be idle, which explains the earlier three-minute non-fire.
+- Full lifecycle through the native tool inside a legacy thread: `create` returned
+  `install-verify`, confirmed on disk with `status = "PAUSED"`, then `delete` returned
+  `deleteStatus=deleted` with a snapshot and the directory disappeared. Only
+  `.run-jitter-salt` remains under `~\.codex\automations`.
+- The stale-pipe hang worry is bounded, not eliminated: the window is the few seconds
+  between the sidecar starting and the boot repair landing. After that the stored name
+  is current again.
+- Both `firing-proof-test` and `old-thread-probe` are gone from disk. Neither was
+  deleted by this lane, and the app reported `Automation does not exist in the app`
+  when an update targeted one of them, so the owner removed them from the UI. Recorded
+  only so a future reader does not mistake the absence for a persistence bug.
+
+Still open: 10.11.1.3 remains on `v26.903.61454-patched-automation` and needs the same
+update plus one launch to confirm the boot-time repair there.
