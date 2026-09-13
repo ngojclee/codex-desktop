@@ -145,6 +145,18 @@ Before treating a release as installable:
 7. Confirm an old chat can invoke `automation_update` through the legacy
    dynamic path and a new chat can invoke the same tool through `codex_app`
    MCP. Patch Z must not re-enable dynamic calls for non-allowlisted tools.
+8. Confirm `tools\Repair-CodexSharedAppTools.ps1` exits with
+   `OK: codex_app is present in the shared sidecar MCP registry` after a normal
+   `Launch-Codex.vbs` start, and that the written block carries
+   `omit_tools_from = ["deferred"]`. Without that field the server runs and answers
+   `mcpServer/tool/call`, but no thread ever sees `mcp__codex_app__*` and the app
+   reports `unsupported call`.
+9. Re-run the repair after every app restart. The pipe name is regenerated per
+   Electron session, so a persisted value from a previous session is dead and the
+   sidecar will hang on it until the MCP startup timeout.
+10. Accepted state, measured 2026-09-13 on `ee93e67` or later: create, view, update
+    and delete all work natively in a new thread under shared mode. Artifacts built
+    before `ee93e67` (including `...-z2-appshared`) do not satisfy item 8.
 8. Do not claim the live Automation call is fixed until steps 6 and 7 succeed on the
    installed artifact.
 9. Confirm `resources/list` can start `codex_app` without a

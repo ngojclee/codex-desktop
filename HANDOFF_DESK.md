@@ -1078,3 +1078,41 @@ unknown is whether the shared sidecar advertises the repaired server into a thre
 started after the reload. The test is one fresh thread and one `PAUSED` create, which
 is also the point at which the whole fix can be called done rather than "works over
 RPC". `unobserved`.
+
+### 2026-09-13 - ACCEPTED: fresh thread created an automation through the native tool
+
+The open item above is closed by observation, on 10.11.1.1, shared `--listen` mode.
+
+New thread `01a0992d-ab59-7892-8aa2-e47414f9dff3` called
+`mcp__codex_app__automation_update` natively, and all four modes behaved:
+
+| mode | result |
+| --- | --- |
+| `create` heartbeat | `automationId=automation-self-test`, persisted to `automation.toml` with the Vietnamese prompt intact |
+| `view` | rendered the card |
+| `update` | status and `notification_policy` written, `rrule` changed, `created_at` held while `updated_at` moved |
+| `delete` | cron probe returned `deleteStatus=deleted` and its directory disappeared |
+
+So `omit_tools_from = ["deferred"]` was the last missing piece, the earlier
+"thread opened before the repair" reading was wrong, and Patch Y is now confirmed
+behaviorally rather than by marker grep. The historical `Invalid discriminator value`
+failure from 2026-09-09 no longer reproduces. `measured`.
+
+**Two payload rules the published schema does not show**, both hit live.
+`mcpServer/tool/call` is thread-scoped and fails at the JSON-RPC layer with
+`Invalid request: missing field 'threadId'` before any tool runs. And heartbeat
+`create`/`update` need `targetThreadId` even though the advertised required list is
+only `name, prompt, rrule, status, kind, mode`; the runtime refinement is stricter
+than the schema. Anyone writing automation drivers should send both.
+
+**Residue left on purpose.** The self-test heartbeat was found `ACTIVE` on
+`FREQ=MINUTELY;INTERVAL=1`, which would wake its own thread every minute, so it was
+set to `PAUSED` on `INTERVAL=60` and left for the owner to delete; it is the only
+entry still under `~\.codex\automations`. My older `direct-route-test` was deleted,
+which also re-confirms delete from a different thread than the one that created it.
+
+**Release state.** The shipped `...-z2-appshared` artifact was built from `f83ec9c`,
+which is **before** the `omit_tools_from` mirror fix in `ee93e67`. That artifact is
+therefore not the accepted state: it can start the server but will not advertise the
+tools to a thread. A new repack is required before either machine is updated from it,
+and 10.11.1.3 is still on `v26.903.61454-patched-automation`.
