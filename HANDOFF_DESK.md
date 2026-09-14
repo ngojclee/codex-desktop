@@ -1177,3 +1177,55 @@ previously hand-applied now happens on its own. `measured`.
 
 Still open: 10.11.1.3 remains on `v26.903.61454-patched-automation` and needs the same
 update plus one launch to confirm the boot-time repair there.
+
+### 2026-09-14 - "Failed to open side chat" root-caused: upstream fork gap, not our config
+
+The owner reported side chat failing while new threads work, and suspected a config
+conflict. It is not one. Reproduced and isolated on 10.11.1.1.
+
+Renderer log, `%LOCALAPPDATA%\Codex\Logs\2026\09\14\codex-desktop-*.log`:
+
+```text
+2026-09-14T08:44:03Z error [electron-message-handler] [Composer] side chat failed
+  errorMessage="Forking is not available for threads using paginated history yet."
+```
+
+Side chat is implemented as a fork, and the renderer refuses to fork a thread whose
+`historyMode` is `paginated`. Direct reproduction through the app tool layer:
+
+| thread | rollout size | `fork_thread` |
+| --- | --- | --- |
+| `019e17c5-b7e2-...-05ec157a06e6` (this lane) | 134 MB, 4 files | `Forking is not available for threads using paginated history yet.` |
+| `01a09727-a225-...-98946d9449ed` | 0.7 MB | created `01a09f29-237a-7e51-8b18-2cedae356161` |
+
+`measured`. The test fork was archived again immediately, so nothing was left behind.
+
+**Not our regression.** The guard is one line in the shipped bundle, and paginated
+history is switched by an upstream Statsig experiment, not by us:
+
+```js
+function ccn(e, t) { if (e === `paginated`) throw Error(`${t} is not available for threads using paginated history yet.`) }
+DS = { paginatedHistory: `codex_app_paginated_thread_history_v1`, ... }
+```
+
+Patch C only touches sidebar `thread/list` pagination and never sets `historyMode`;
+`ThreadHistoryMode { legacy, paginated }` is chosen by the app-server per thread. No
+local gate override exists in the bundle: `gateOverrides`, `statsigOverrides`,
+`debugGates` and friends all return `-1`, so there is nothing to flip in
+`config.toml`. `source-derived`.
+
+**Why the earlier reading was wrong.** Two causes were previously recorded for this
+same message, a broken model catalog and a CLI-created thread that was too old. The
+first is not active now, and 10 model entries still lack both `base_instructions` and
+`model_messages` (`deepseek-v4-*`, `tokenrouter/*`, `deepseek/*`, `z-ai/glm-5.3-flash`)
+without breaking chat, so that rule matters only when such a model is actually
+selected. The real trigger here is simply thread size crossing into paginated
+history.
+
+**Owner-facing consequence.** Side chat works on small/young threads and will not work
+on big long-running ones until upstream supports forking paginated threads. Use New
+task on those. Do not "fix" this by deleting the `ccn` guard: the client guard is the
+only thing preventing a fork request whose server-side behaviour for paginated
+history is unverified, and a partial copy of a long thread is worse than a clear
+error. If we ever want to try it, it needs a dedicated throwaway large thread and a
+comparison of the forked history against the source first.
