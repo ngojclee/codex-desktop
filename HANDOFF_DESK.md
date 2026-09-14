@@ -1287,3 +1287,54 @@ anchored to the current pin (`I`, `N`, `V`, `X`, `W1`) must be re-anchored and r
 against the newer tree, and the earlier evidence that `codex-cli 0.0.0` is normal for
 OpenAI's own packaging no longer excuses an unstamped version here, because the
 renderer treats `0.0.0` as "cannot fork".
+
+### 2026-09-14 - where `0.0.0` actually comes from, and it is ours
+
+The owner reasonably suspected OpenAI's own packaging also uses `0.0.0`, which would make
+the version floor unfixable. Measured, and the opposite is true.
+
+`codex-rs/Cargo.toml` `[workspace.package] version`:
+
+| ref | stamped version |
+| --- | --- |
+| `main` | **`0.0.0`** |
+| `rust-v0.146.0-alpha.7` | `0.146.0-alpha.7` |
+| `rust-v0.154.0` | `0.154.0` |
+
+`codex-rs/cli/Cargo.toml` uses `version.workspace = true` on all three, so the binary
+inherits exactly that. `source-derived`.
+
+Local binaries, `--version` on copies we already hold:
+
+| binary | reported |
+| --- | --- |
+| upstream desktop base 26.730 | `codex-cli 0.144.1-cometix` |
+| upstream desktop base 26.901 | `codex-cli 0.144.3-cometix` |
+| our installed `CodexFromGithub\resources\codex.exe` | `codex-cli 0.0.0` |
+
+`tools\.sidecar-source` confirms the cause: `codex_ref=main`,
+`codex_source_sha=9e868bd9...`. Our CI builds the sidecar from the moving `main`
+branch, and upstream keeps `main` stamped at `0.0.0`; released tags are stamped for
+real. So `0.0.0` is an artifact of our own pin, not of OpenAI packaging. `measured`.
+
+**Cheapest real fix, and it is a one-line pin change:** build the sidecar from a
+release tag at or above the renderer floor instead of `main`. `rust-v0.146.0-alpha.7`
+is exactly `wcn`, so it satisfies `compareSemver(d, wcn) < 0` without margin; prefer a
+tag above it, for example `rust-v0.154.0`. Upstream has shipped
+`codex-rs/thread-store/src/local/paginated_fork.rs`, so the capability the floor tests
+for is genuinely present there. Retracted: the suggestion that no newer app-server is
+available.
+
+**Cost that makes it a lane, not a commit.** Our sidecar patches `I`, `N`, `V`, `X`,
+`W1` are anchored to the September source. Moving to 0.154 needs every anchor
+re-verified, and upstream may already contain equivalents for some of them, which
+would make our patch redundant or conflicting. Before any of that, two cheap
+confirmations are owed: that `getAppServerVersion()` really reflects the binary stamp
+rather than only the `initialize` handshake, and that the floor comparison is
+satisfied by a stable `0.154.0` against an alpha `0.146.0-alpha.7` in their
+`compareSemanticVersions` implementation.
+
+**Also note:** the newest release listed on `Haleclipse/CodexDesktop-Rebuild` is
+`v26.616.81150` from 2026-07-02, while our desktop base tag `v26.903.61454` comes
+from `upstream_rebuild_repo=ngojclee/codex-desktop-rebuild`. Do not conclude the
+desktop feed is stale from Haleclipse alone; the two repos are different sources.
