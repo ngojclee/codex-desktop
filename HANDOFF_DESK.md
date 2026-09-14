@@ -1138,14 +1138,6 @@ Working rule going forward: `unsupported call` on a `codex_app` tool means "the
 registered definition is incomplete", so check `omit_tools_from` and
 `mcpServerStatus/list` first. It does not mean "restart to refresh this thread".
 
-**Not proven.** Whether a scheduled run actually fires. `automation-self-test`
-disappeared from disk, but it had been set `PAUSED` by me minutes earlier, and the
-owner was deleting cards in the UI at the same time, so deletion by the owner is the
-likely cause and a self-deleting fire is unconfirmed. Target thread
-`01a0992d-ab59-7892-8aa2-e47414f9dff3` shows exactly one completed turn and no wake
-turn. Leave `old-thread-probe` PAUSED, or set it ACTIVE on a one-minute cadence while
-the app is idle, to settle firing separately from tool access. `unobserved`.
-
 ### 2026-09-13 - CLOSED on an installed artifact: boot-time repair, fire, create, delete
 
 The owner installed `v26.903.61454-patched-automation-pipe-z2-appshared2`
@@ -1338,3 +1330,59 @@ satisfied by a stable `0.154.0` against an alpha `0.146.0-alpha.7` in their
 `v26.616.81150` from 2026-07-02, while our desktop base tag `v26.903.61454` comes
 from `upstream_rebuild_repo=ngojclee/codex-desktop-rebuild`. Do not conclude the
 desktop feed is stale from Haleclipse alone; the two repos are different sources.
+
+### 2026-09-14 - stamped sidecar shipped: `v26.903.61454-patched-sidecarchat`
+
+The sidecar version stamp landed and is now in a published artifact. First attempt,
+run `34846311194`, failed inside our own new code for the oldest reason in this repo:
+the pattern `(?m)^version = "([^"]+)"[ \t]*$` cannot match a CRLF checkout because
+`[ \t]*` never consumes `\r`, and Windows runners get CRLF working trees. `2b6355c`
+captures the assignment and its line ending instead, asserts exactly one `version` key
+inside `[workspace.package]`, and preserves the original EOL.
+
+Run `34848795198`, built from `2b6355c`, succeeded with the chain recorded in the job
+log:
+
+```text
+Stamped sidecar workspace version: 0.0.0 -> 0.154.0
+Built sidecar version string:      codex-cli 0.154.0
+Bundled sidecar before update:     codex-cli 0.144.3-cometix
+Bundled sidecar after update:      codex-cli 0.154.0
+```
+
+Release:
+
+```text
+tag     v26.903.61454-patched-sidecarchat
+asset   CodexDesktop-Patched-win-x64-v26.903.61454-patched-sidecarchat.zip
+digest  sha256:c501895b8e6e6c1a88f310aad797ac6837fb22d9b14246c13e8df26ef125408b
+size    791915902
+```
+
+Deliberately pinned `upstream_tag=v26.903.61454` for this build even though
+`ngojclee/codex-desktop-rebuild` has moved to `v26.908.40834`, so the sidecar stamp is
+the only variable. Sidecar patches `I`, `N`, `V`, `X`, `W1` applied and their
+regression suites passed against the same verified ref `d648947`, which we confirmed
+contains `codex-rs/thread-store/src/local/paginated_fork.rs`; `rust-v0.144.3` does not.
+The stamp therefore describes a capability that is really in the binary, not an
+invented one.
+
+This is a full-lane artifact, so unlike the `...-z2-*` repacks it carries the
+rebuilt sidecar plus `runtime/` helpers from `2b6355c`, which includes the
+boot-time app-tools repair and `omit_tools_from` mirroring. `...-appshared2` remains
+valid but is superseded for anyone who also wants side chat.
+
+**Still owed, and it is the whole point.** Install it, let `Launch-Codex.vbs` start
+the shared sidecar, and confirm: (1) no boot-time pipe repair regression, (2) side chat
+opens on a long thread, (3) with `codex-cli 0.154.0` the client now reports
+`supportsPaginatedThreadHistory` true, so watch for behavior changes in thread
+loading and history paging, not just for the fork fix. Nothing here is accepted on
+CI green alone.
+
+**Not proven.** Whether a scheduled run actually fires. `automation-self-test`
+disappeared from disk, but it had been set `PAUSED` by me minutes earlier, and the
+owner was deleting cards in the UI at the same time, so deletion by the owner is the
+likely cause and a self-deleting fire is unconfirmed. Target thread
+`01a0992d-ab59-7892-8aa2-e47414f9dff3` shows exactly one completed turn and no wake
+turn. Leave `old-thread-probe` PAUSED, or set it ACTIVE on a one-minute cadence while
+the app is idle, to settle firing separately from tool access. `unobserved`.
