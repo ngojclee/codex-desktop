@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: 'd6489472f3c15e87d2d7763a5fde033545c530f8'
+      sidecar_version:
+        description: 'Version to stamp when the checkout reports 0.0.0 (openai/codex main). Must be >= the renderer floor 0.146.0-alpha.7 so Desktop enables paginated-history forking and side chat.'
+        required: false
+        type: string
+        default: '0.154.0'
 
 concurrency:
   group: auto-repatch-release
@@ -510,12 +515,67 @@ jobs:
           }
 
           Push-Location (Join-Path $codexSrc 'codex-rs')
+
+          # Stamp a real version. openai/codex `main` keeps
+          # `[workspace.package] version = "0.0.0"` and every crate inherits it via
+          # `version.workspace = true`, so a source-built sidecar reports
+          # `codex-cli 0.0.0`. Codex Desktop's renderer treats exactly that string as
+          # "version unknown" and refuses to fork a thread using paginated history,
+          # which surfaces as "Failed to open side chat". The version also gates
+          # supportsPaginatedThreadHistory (>= 0.145.0-alpha.15). Measured on our own
+          # pin: codex-rs/thread-store/src/local/paginated_fork.rs exists at the
+          # 2026-09-09 source and its era matches rust-v0.154.0, so the capability is
+          # genuinely present; only the label was missing.
+          $workspaceManifest = Join-Path (Get-Location) 'Cargo.toml'
+          $manifestText = [IO.File]::ReadAllText($workspaceManifest)
+          # Only the [workspace.package] section, so a `version = "..."` line from any
+          # other table can never be the one we rewrite.
+          $sectionMatch = [regex]::Match($manifestText, '(?ms)^\[workspace\.package\][^\[]*')
+          if (-not $sectionMatch.Success) {
+            throw 'Sidecar version stamp failed: [workspace.package] section not found in codex-rs/Cargo.toml'
+          }
+          $section = $sectionMatch.Value
+          $versionMatch = [regex]::Match($section, '(?m)^version = "([^"]+)"[ \t]*$')
+          if (-not $versionMatch.Success) {
+            throw 'Sidecar version stamp failed: no version key inside [workspace.package]'
+          }
+          $sourceVersion = $versionMatch.Groups[1].Value
+          $stampVersion = ('${{ inputs.sidecar_version }}').Trim()
+          if ($sourceVersion -ne '0.0.0') {
+            Write-Host "Sidecar checkout already carries a real version: $sourceVersion"
+          } else {
+            if (-not $stampVersion) {
+              throw 'Sidecar checkout reports 0.0.0 but no sidecar_version was supplied.'
+            }
+            # Desktop compares with semver; 0.146.0-alpha.7 is its fork floor and
+            # 0.145.0-alpha.15 the paginated-history floor. Reduce to a numeric form so
+            # [version] can compare without a semver library.
+            $floor = [version]'0.146.0.7'
+            $candidate = [version](($stampVersion -replace '-alpha\.', '.' -replace '[^0-9.]', '') -replace '\.+$', '')
+            if ($candidate -lt $floor) {
+              throw "sidecar_version '$stampVersion' is below the Desktop fork floor 0.146.0-alpha.7; side chat would stay blocked."
+            }
+            $stampedSection = $section.Substring(0, $versionMatch.Index) +
+                "version = `"$stampVersion`"" +
+                $section.Substring($versionMatch.Index + $versionMatch.Length)
+            $manifestText = $manifestText.Substring(0, $sectionMatch.Index) +
+                $stampedSection +
+                $manifestText.Substring($sectionMatch.Index + $section.Length)
+            [IO.File]::WriteAllText($workspaceManifest, $manifestText, [Text.UTF8Encoding]::new($false))
+            Write-Host "Stamped sidecar workspace version: 0.0.0 -> $stampVersion"
+          }
+
           Write-Host 'Rust/Cargo versions:'
           rustc --version
           cargo --version
           Write-Host 'Starting cargo build: codex-cli dev-small'
           cargo build --profile dev-small -p codex-cli --bin codex --verbose
           if ($LASTEXITCODE -ne 0) { throw "cargo build codex-cli dev-small failed with exit $LASTEXITCODE" }
+          $stampedCheck = (& (Join-Path 'target' 'dev-small\codex.exe') --version).Trim()
+          Write-Host "Built sidecar version string: $stampedCheck"
+          if ($stampedCheck -match '\b0\.0\.0\b') {
+            throw "Built sidecar still reports 0.0.0; Desktop would treat it as unknown and block side chat."
+          }
           Write-Host 'Running Patch V app-server integration regression test'
           cargo test -p codex-app-server --test all thread_inject_items_adds_raw_response_items_to_thread_history
           if ($LASTEXITCODE -ne 0) { throw "Patch V app-server regression test failed with exit $LASTEXITCODE" }
