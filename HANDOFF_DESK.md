@@ -1229,3 +1229,61 @@ only thing preventing a fork request whose server-side behaviour for paginated
 history is unverified, and a partial copy of a long thread is worse than a clear
 error. If we ever want to try it, it needs a dedicated throwaway large thread and a
 comparison of the forked history against the source first.
+
+### 2026-09-14 - CORRECTION to the entry above: size is not the variable, and short chats fail too
+
+The owner reported that side chat also fails on short chats, so the table above was
+wrong. Re-tested with `fork_thread` called directly through the app tool.
+
+The real gate is a version check in the renderer, not thread size:
+
+```js
+wcn = `0.146.0-alpha.7`            // normal fork
+Tcn = `0.146.0-alpha.8`            // ephemeral / side fork
+
+let d = manager.requestClient.getAppServerVersion();
+(d == null || d === `0.0.0`
+  || (params.ephemeral === true && params.sideConversation !== true)
+  || compareSemver(d, params.ephemeral ? Tcn : wcn) < 0)
+  && ccn(conversation?.historyMode, `Forking`);
+```
+
+`ccn` throws unless the conversation's `historyMode` is something other than
+`paginated`. Two things follow. Our app-server reports `0.0.0`, so the first branch is
+always true and the guard always falls through to the `historyMode` test. And
+`historyMode` is read from the **client-side conversation object**, which is
+undefined for a thread that has never been loaded in this session. So a `notLoaded`
+thread passes by accident, while any thread actually open in the UI is loaded, and a
+loaded long-running thread carries `paginated`.
+
+Measured with `fork_thread`:
+
+| source thread | client state | result |
+| --- | --- | --- |
+| `019e17c5-...-05ec157a06e6` | loaded, this lane | `Forking is not available for threads using paginated history yet.` |
+| `01a09727-...-98946d9449ed` | `notLoaded` | created `01a09f29-...`, archived again |
+| `01a0992d-...-e47414f9dff3` | `notLoaded` | created `01a09f7c-...`, archived again |
+
+Both rollouts store `"history_mode":"paginated"` in `session_meta`, including the two
+that forked, which is why the earlier size theory looked plausible and is actually
+wrong: the fork permission turns on whether the conversation is loaded in the client,
+not on history size. Practical consequence for the owner: side chat is broken for
+every chat currently open in the app, short ones included, and the two successes above
+were a different code path that nobody reaches from the UI. `measured`.
+
+**Do not patch the client guard.** The version floor is real capability. Upstream
+added `codex-rs/thread-store/src/local/paginated_fork.rs`, a dedicated implementation
+for forking paginated threads, which is what `0.146.0-alpha.7` is checking for. Our
+pinned sidecar is 0.144 lineage (only `0.144.` appears in the binary; no `0.146.` or
+`0.145.`), so it does not have that code. Silencing `ccn` would send a
+`thread/fork` for a paginated thread to a server with no support for it, which is the
+partial-history-corruption risk recorded in the previous entry.
+
+**Actual fix, and it is a build-lane change not a renderer patch:** build the sidecar
+from `openai/codex` at or after `rust-v0.146.0-alpha.7` and stamp the real version so
+`getAppServerVersion()` stops returning `0.0.0`. Upstream is at `rust-v0.155.0-alpha.3`
+and `rust-v0.154.0`, so the target is available. Cost to plan for: the sidecar patches
+anchored to the current pin (`I`, `N`, `V`, `X`, `W1`) must be re-anchored and re-run
+against the newer tree, and the earlier evidence that `codex-cli 0.0.0` is normal for
+OpenAI's own packaging no longer excuses an unstamped version here, because the
+renderer treats `0.0.0` as "cannot fork".
