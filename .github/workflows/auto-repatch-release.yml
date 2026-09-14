@@ -535,11 +535,17 @@ jobs:
             throw 'Sidecar version stamp failed: [workspace.package] section not found in codex-rs/Cargo.toml'
           }
           $section = $sectionMatch.Value
-          $versionMatch = [regex]::Match($section, '(?m)^version = "([^"]+)"[ \t]*$')
-          if (-not $versionMatch.Success) {
-            throw 'Sidecar version stamp failed: no version key inside [workspace.package]'
+          # Match the whole assignment and keep the line ending in a capture group.
+          # A bare `$` anchor cannot match a CRLF checkout, because `[ \t]*` never
+          # consumes `\r`, and Windows runners get CRLF working trees from git. That
+          # exact trap failed run 34846311194.
+          $versionPattern = '(?m)^([ \t]*version = ")([^"]+)("[ \t]*)(\r?)$'
+          $versionMatches = [regex]::Matches($section, $versionPattern)
+          if ($versionMatches.Count -ne 1) {
+            throw "Sidecar version stamp failed: expected exactly one version key in [workspace.package], found $($versionMatches.Count)."
           }
-          $sourceVersion = $versionMatch.Groups[1].Value
+          $versionMatch = $versionMatches[0]
+          $sourceVersion = $versionMatch.Groups[2].Value
           $stampVersion = ('${{ inputs.sidecar_version }}').Trim()
           if ($sourceVersion -ne '0.0.0') {
             Write-Host "Sidecar checkout already carries a real version: $sourceVersion"
@@ -556,7 +562,8 @@ jobs:
               throw "sidecar_version '$stampVersion' is below the Desktop fork floor 0.146.0-alpha.7; side chat would stay blocked."
             }
             $stampedSection = $section.Substring(0, $versionMatch.Index) +
-                "version = `"$stampVersion`"" +
+                $versionMatch.Groups[1].Value + $stampVersion +
+                $versionMatch.Groups[3].Value + $versionMatch.Groups[4].Value +
                 $section.Substring($versionMatch.Index + $versionMatch.Length)
             $manifestText = $manifestText.Substring(0, $sectionMatch.Index) +
                 $stampedSection +
