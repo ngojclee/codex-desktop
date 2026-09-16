@@ -223,6 +223,7 @@ jobs:
           & ./patches/test_update_release_state.ps1
           & ./patches/test_repair_project_config.ps1
           & ./patches/test_app_tools_pipe_runtime.ps1
+          & ./patches/test_plugin_cache_skills.ps1
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
