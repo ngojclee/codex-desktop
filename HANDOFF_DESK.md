@@ -1440,3 +1440,17 @@ Two implementation traps worth remembering, both hit while writing this:
 shortcut chain can use it), so the relative path is computed from a known prefix; and
 the new regression test `patches/test_plugin_cache_skills.ps1` is wired into both
 release lanes, verified green under Windows PowerShell 5.1 and pwsh 7.
+
+Shipped as a repack so the sidecar from `...-sidecarchat` is reused rather than rebuilt
+again, and the run `35091021070` log shows both runtime suites passing before packaging:
+`Codex app-tools pipe runtime tests passed` and `Plugin cache skill repair tests passed`.
+
+```text
+tag     v26.903.61454-patched-sidecarchat-pluginskills
+digest  sha256:9c905bb790e9c8be8fca7cfb8d2b7a61065b9861025a3ad978c3f8a0d96ea132
+size    789286190
+```
+
+Owner action: install this build, then fully quit and relaunch so Desktop re-reads the
+plugin skills. `$Chrome` should return without any config change, because nothing about
+the plugin registration was ever broken; only the cached copy of one file was missing.
