@@ -94,6 +94,19 @@ These are not ASAR patches, but they are part of a usable release:
   timeout, the live app-tools pipe reports 27 tools including
   `automation_update`. It is bundled into `tools/` by the release workflows because
   everything under `runtime/` is copied and hash-checked.
+- `Repair-CodexPluginCacheSkills.ps1`: copies plugin skill files that Desktop failed to
+  materialise into `~\.codex\plugins\cache\openai-bundled\<plugin>\<version>`. Desktop
+  copies a bundled plugin once and then logs
+  `bundled_plugin_install_skipped_current pluginName=<plugin>` on every later boot, so a
+  single missing file never comes back on its own. Measured on 10.11.1.1: the cache copy
+  of `chrome` matched the marketplace copy in every subdirectory except `skills` (0 vs
+  1 file), the missing file being `skills/control-chrome/SKILL.md`, which is why
+  `$Chrome` vanished from the plugin and skill list while chrome stayed
+  `enabled = true`. The same run also found `browser` missing
+  `skills/control-in-app-browser/SKILL.md` and its `agents/openai.yaml`. Copy-only, never
+  deletes, skips plugins the app has not materialised yet, and is a no-op when the cache
+  is healthy. Called from `Launch-Codex.ps1` before the sidecar starts, with its own CI
+  regression test `patches/test_plugin_cache_skills.ps1` wired into both release lanes.
 - `Repair-CodexSharedAppTools.ps1`: the shared-mode fix. Waits for Electron to create
   the app-tools pipe, registers it via `Find-CodexAppToolsPipe.ps1 -Apply`, then
   reloads user config over the running sidecar's own WebSocket with

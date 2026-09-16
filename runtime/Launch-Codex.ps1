@@ -142,6 +142,25 @@ function Ensure-WslNative {
     }
 }
 
+# Desktop copies plugin payloads into ~\.codex\plugins\cache once and then reports
+# `bundled_plugin_install_skipped_current` forever after, so a single file that failed to
+# copy never comes back. That is how `$Chrome` disappeared while chrome stayed enabled in
+# config: the cache copy was missing exactly skills\control-chrome\SKILL.md. This helper
+# copies only missing skill files, so it is safe on every launch.
+function Repair-PluginCacheSkills {
+    $repairScript = Join-Path $PSScriptRoot 'Repair-CodexPluginCacheSkills.ps1'
+    if (-not (Test-Path -LiteralPath $repairScript)) { return }
+
+    try {
+        $result = & $repairScript -Quiet
+        if ($result -and $result.restored -gt 0) {
+            Write-Host ("Repaired {0} missing plugin skill file(s)." -f $result.restored)
+        }
+    } catch {
+        Write-Host "WARN: plugin cache skill repair failed: $_"
+    }
+}
+
 function Get-MarketplacePluginNames([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     try {
@@ -408,6 +427,10 @@ if (-not $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE) {
     $env:CODEX_ELECTRON_ENABLE_WINDOWS_COMPUTER_USE = '1'
 }
 $pluginMarketplaceCacheIsStale = Test-StaleComputerUseMarketplaceCache
+
+# Heal any plugin payload the one-shot installer missed, before Desktop starts and reads
+# the plugin/skill list. Copy-only, so a healthy cache is untouched.
+Repair-PluginCacheSkills
 
 # Honor an existing live Desktop instance only when it is already on the shared
 # sidecar. If Desktop was opened directly, it will have spawned a private stdio

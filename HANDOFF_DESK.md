@@ -1170,6 +1170,14 @@ previously hand-applied now happens on its own. `measured`.
 Still open: 10.11.1.3 remains on `v26.903.61454-patched-automation` and needs the same
 update plus one launch to confirm the boot-time repair there.
 
+**Not proven.** Whether a scheduled run actually fires. `automation-self-test`
+disappeared from disk, but it had been set `PAUSED` by me minutes earlier, and the
+owner was deleting cards in the UI at the same time, so deletion by the owner is the
+likely cause and a self-deleting fire is unconfirmed. Target thread
+`01a0992d-ab59-7892-8aa2-e47414f9dff3` shows exactly one completed turn and no wake
+turn. Leave `old-thread-probe` PAUSED, or set it ACTIVE on a one-minute cadence while
+the app is idle, to settle firing separately from tool access. `unobserved`.
+
 ### 2026-09-14 - "Failed to open side chat" root-caused: upstream fork gap, not our config
 
 The owner reported side chat failing while new threads work, and suspected a config
@@ -1379,10 +1387,56 @@ opens on a long thread, (3) with `codex-cli 0.154.0` the client now reports
 loading and history paging, not just for the fork fix. Nothing here is accepted on
 CI green alone.
 
-**Not proven.** Whether a scheduled run actually fires. `automation-self-test`
-disappeared from disk, but it had been set `PAUSED` by me minutes earlier, and the
-owner was deleting cards in the UI at the same time, so deletion by the owner is the
-likely cause and a self-deleting fire is unconfirmed. Target thread
-`01a0992d-ab59-7892-8aa2-e47414f9dff3` shows exactly one completed turn and no wake
-turn. Leave `old-thread-probe` PAUSED, or set it ACTIVE on a one-minute cadence while
-the app is idle, to settle firing separately from tool access. `unobserved`.
+### 2026-09-16 - `$Chrome` disappeared: a single un-copied skill file, and a guard against it
+
+Owner reported `$Chrome` missing from the plugin/skill surface. The plugin itself was
+never gone, and it was never disabled.
+
+State on 10.11.1.1, all measured:
+
+| Check | Result |
+| --- | --- |
+| `config.toml` | `[plugins."chrome@openai-bundled"] enabled = true` (and a `-dev` twin) |
+| install bundle | `resources\plugins\openai-bundled\plugins\chrome` present |
+| runtime marketplace | `.codex\.tmp\bundled-marketplaces\openai-bundled\plugins\chrome` present, manifest lists `chrome`, `skills\control-chrome\SKILL.md` = 12784 bytes |
+| user plugin cache | `~\.codex\plugins\cache\openai-bundled\chrome\26.901.51231` present, **`skills` empty** |
+| app log, 2026-09-16T06:55 | `bundled_plugins_runtime_marketplace_reused pluginCount=10 pluginNames=[... "chrome" ...]` |
+| app log, 2026-09-16T07:04 | `bundled_plugin_install_skipped_current pluginName=chrome` |
+
+The decisive evidence is a file-count diff between the two copies of the plugin, which
+matched everywhere except one directory:
+
+```text
+.codex-plugin 1=1   assets 6=6   docs 28=28   extension-host 1=1
+node_modules 332=332   scripts 13=13
+skills 0 vs 1        <-- only difference
+```
+
+So Desktop materialised the plugin but dropped exactly
+`skills\control-chrome\SKILL.md`. The app's installer then reported
+`install_skipped_current` on every subsequent boot, because the version already matched,
+so it would never have healed itself. That also explains why nothing else looked wrong:
+the plugin card, the manifest and the config all stayed healthy while its only skill was
+missing.
+
+**This is not caused by our patches, and it is not unique to Chrome.** The same scan
+found the sibling `browser` plugin missing `skills/control-in-app-browser/SKILL.md` plus
+`skills/control-in-app-browser/agents/openai.yaml`. Both are the browser-family plugins
+with large `node_modules`, which is consistent with an interrupted or partially blocked
+payload copy rather than anything reading config. Exact root cause of the dropped copy is
+`unobserved`; the launcher does stop processes whose executables live under the plugin
+cache before resetting a stale marketplace, so a copy racing that stop is the leading
+hypothesis, not a proven one.
+
+**Repaired live and made durable.** `runtime\Repair-CodexPluginCacheSkills.ps1` copies
+only missing skill files from the runtime marketplace into the cache, never deletes,
+skips plugins the app has not materialised, and is a no-op when healthy.
+`Launch-Codex.ps1` calls it before the sidecar starts. Immediate result on the real
+machine: 2 files restored, and marketplace/cache parity now matches for `chrome`,
+`browser`, `computer-use`, `deep-research`, `visualize`.
+
+Two implementation traps worth remembering, both hit while writing this:
+`[IO.Path]::GetRelativePath` does not exist in Windows PowerShell 5.1 (the desktop
+shortcut chain can use it), so the relative path is computed from a known prefix; and
+the new regression test `patches/test_plugin_cache_skills.ps1` is wired into both
+release lanes, verified green under Windows PowerShell 5.1 and pwsh 7.

@@ -163,6 +163,7 @@ jobs:
           }
 
           & ./patches/test_app_tools_pipe_runtime.ps1
+          & ./patches/test_plugin_cache_skills.ps1
 
       - name: Repackage artifact
         id: pack
