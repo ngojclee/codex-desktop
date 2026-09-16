@@ -1495,3 +1495,27 @@ Other registered marketplaces, checked for anything newer:
 Conclusion for the owner: no plugin update is required and no plugin is missing because
 of a defect. The only actionable items are optional installs (`sites`, `latex`) and the
 four primary-runtime plugins previously disabled on purpose.
+
+### 2026-09-16 - same defect was present on 10.11.1.3, fixed there too
+
+Both desktops were on `v26.903.61454-patched-sidecarchat`, which predates the repair
+script, so the check was repeated over SSH on 10.11.1.3 and it had the identical fault:
+under `~\.codex\plugins\cache\openai-bundled\chrome\*\skills` the only entries were the
+empty `skills` and `latest\skills` directories, with no `control-chrome` folder at all.
+Its marketplace sources were intact, so the payload just never arrived.
+
+Copied across with `xcopy /E /I /Y`, source from that machine's own runtime marketplace,
+into both the versioned directory and `latest`:
+
+| plugin | files copied |
+| --- | --- |
+| chrome | `skills\control-chrome\SKILL.md` |
+| browser | `skills\control-in-app-browser\SKILL.md`, `agents\openai.yaml` |
+
+Re-checked afterwards: `SKILL.md` present in both `26.901.51231` and `latest` for chrome,
+and the browser skill plus its `agents\openai.yaml` present in both. `measured`.
+
+So the defect hit both machines, not just the one where it was noticed, and it is
+consistent with a partially materialised plugin payload rather than anything machine
+specific. 10.11.1.3 still needs the `...-pluginskills` upgrade so its launcher heals this
+automatically next time; the manual copy only fixes the current state.
