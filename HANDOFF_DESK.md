@@ -1454,3 +1454,44 @@ size    789286190
 Owner action: install this build, then fully quit and relaunch so Desktop re-reads the
 plugin skills. `$Chrome` should return without any config change, because nothing about
 the plugin registration was ever broken; only the cached copy of one file was missing.
+
+### 2026-09-16 - plugin inventory after the repair: nothing to update, two never installed
+
+**The repair is confirmed live.** This session's skill list contains
+`chrome:control-chrome` and `browser:control-in-app-browser` again, loaded from
+`~\.codex\plugins\cache\openai-bundled\...`, which is the same cache the repair fixed.
+
+Inventory across the install bundle, the runtime marketplace and the user cache. All
+three agree on version for every plugin, so there is no stale plugin set to update:
+
+| plugin | version | cached | skill files |
+| --- | --- | --- | --- |
+| chrome | 26.901.51231 | yes | 1 (was 0 before the repair) |
+| browser | 26.901.51231 | yes | 2 (was 0 before the repair) |
+| computer-use | 26.901.51231 | yes | 1 |
+| unified-computer-use | 26.901.51231 | yes | 0 (marketplace has none either) |
+| codex-app-tools | 0.1.3 | yes | 0 (MCP server plugin, no skills) |
+| deep-research | 0.1.1 | yes | 4 |
+| visualize | 1.0.29 | yes | 6 |
+| user-writing | 0.1.2 | yes | 4 |
+| sites | 0.1.57 | **no** | available, never installed |
+| latex | 0.2.6 | **no** | available, never installed |
+
+`sites` and `latex` show up in the app log as
+`bundled_plugin_install_skipped_missing`, which reads alarming but just means they were
+never installed; their payload exists in both the bundle and the runtime marketplace, so
+they can be installed from the Plugins UI at any time. Nothing is hidden by a fault.
+
+Other registered marketplaces, checked for anything newer:
+
+- `openai-primary-runtime` ships `documents`, `pdf`, `spreadsheets`, `presentations`
+  and `template-creator`. The first four are `enabled = false` in `config.toml` by the
+  owner's own choice; `template-creator` is enabled.
+- `openai-codex` (git `openai/codex-plugin-cc`) records `last_revision`
+  `db52e28f4d9ded852ab3942cea316258ae4ef346` dated 2026-07-08, and upstream `main` is
+  still exactly `db52e28f4d9d` on the same date. Nothing to pull. `measured`.
+- `ngojclee-codex-desktop` provides `codex-desktop-relay`, enabled.
+
+Conclusion for the owner: no plugin update is required and no plugin is missing because
+of a defect. The only actionable items are optional installs (`sites`, `latex`) and the
+four primary-runtime plugins previously disabled on purpose.
