@@ -1519,3 +1519,54 @@ So the defect hit both machines, not just the one where it was noticed, and it i
 consistent with a partially materialised plugin payload rather than anything machine
 specific. 10.11.1.3 still needs the `...-pluginskills` upgrade so its launcher heals this
 automatically next time; the manual copy only fixes the current state.
+
+### 2026-09-18 - reasoning_content replay: not a Desktop defect, the provider translator owns it
+
+Routed from the gpt2api planner (`01a0b405-1930-7c61-9fff-67f7855c8772`) after worker
+threads began failing to send their native report message with:
+
+```text
+Error from provider (Console Go): Upstream request failed:
+[invalid_request_error] The `reasoning_content` in the thinking mode must be passed
+back to the API.
+```
+
+Investigation was read-only (`gpt2api` untouched). Codex side, measured on 10.11.1.1:
+
+- Stored reasoning item shape is `type = reasoning { summary[], content|null,
+  encrypted_content|null }`. The serializer emits `content` only when it contains a
+  `ReasoningText` entry (`protocol/src/models.rs:1016-1028`,
+  `should_serialize_reasoning_content` at `1592-1599`); `encrypted_content` has no skip
+  rule, so it is always replayed. Request history never filters reasoning
+  (`core/src/context_manager/history.rs:155-168` filters only contextual user messages).
+- Failing thread `01a0b405` (`deepseek-flash`, effort `max`): 226/226 reasoning items
+  carry `content = null` and no `encrypted_content`, and all 228 streamed items have
+  `raw_content` length 0 while `summary_text` is populated. There was nothing to replay,
+  so the next request can only send `content: null`.
+- The replay path itself is healthy: GPT threads through the same provider carry
+  `encrypted_content` (`01a077d2`: 13 items, 10 with enc; `01a04cf8`: 29 items, 14 with
+  enc) and those are replayed. So the difference is what the provider supplies, not how
+  Codex handles it.
+- Codex has no `reasoning_content` field and no serde alias for it
+  (`ReasoningItemContent` only has `ReasoningText` and `Text`), so a nonstandard inbound
+  field would be silently ignored.
+
+Ownership: the Responses-to-upstream translator in front of Console Go (CLIProxy path).
+`gpt2api` contains no `reasoning_content` or "thinking mode" strings at all. Smallest
+correct fix is translator-side: emit
+`content: [{ "type": "reasoning_text", "text": "..." }]` and/or `encrypted_content` so
+Codex persists it, then map it back to upstream `reasoning_content`; alternatively keep
+the raw reasoning server-side per turn and re-inject it.
+
+Unknown and left open on purpose: whether Console Go emits raw reasoning in a field
+Codex ignores, or never emits raw reasoning at all. Codex does not log response bodies,
+and SSH to the proxy host `10.21.1.101` was refused (publickey/password as root), so one
+captured upstream response body from that layer is still needed. No Desktop patch or
+release is warranted yet, and restarting the app cannot repair a thread whose stored
+reasoning has no content.
+
+Delivery note: `relay_dispatch_local` to the planner returned
+`thread 01a0b405-... already has an active writer` on every attempt, so the full report
+was written to the gpt2api coordination folder instead:
+`.docs/session_handoffs/r2/codex-desktop-reasoning-replay-report.md`, with a summary
+appended to `codex-desktop-provider-replay.md`.
