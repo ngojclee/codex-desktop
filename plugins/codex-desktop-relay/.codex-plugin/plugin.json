@@ -1,6 +1,6 @@
 {
   "name": "codex-desktop-relay",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Receive and dispatch Codex thread messages across machines through the shared Business MCP control plane.",
   "author": {
     "name": "Ngoc Lee"
@@ -28,7 +28,10 @@
       "Show Codex relay status on this machine.",
       "Dispatch a prompt to a local Codex thread.",
       "Send a message to another Codex machine."
-    ]
+    ],
+    "brandColor": "#0F766E",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
   },
   "mcpServers": "./.mcp.json"
 }
