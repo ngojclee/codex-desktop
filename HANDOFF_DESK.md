@@ -1570,3 +1570,43 @@ Delivery note: `relay_dispatch_local` to the planner returned
 was written to the gpt2api coordination folder instead:
 `.docs/session_handoffs/r2/codex-desktop-reasoning-replay-report.md`, with a summary
 appended to `codex-desktop-provider-replay.md`.
+
+### 2026-09-18 - model switch mid-turn does NOT apply to the running turn
+
+Owner report: while using model A and switching to model B, the next message still
+went out with model A and failed when A was out of quota. Measured and source-derived.
+
+**The design, not a bug.** Every turn freezes its model at start.
+`TurnContext::model_info()` returns `initial_settings.model_info`
+(`core/src/session/turn_context.rs:254-258`) and the comment calls it "the frozen
+initial-turn model metadata". `turn.rs` builds each sampling request from
+`turn_context.model_info().slug`, so every attempt inside one turn uses the same
+model. `current_settings` exists alongside (`ArcSwap`) but is only ever written when
+the turn context is constructed; nothing stores a new model into it afterwards.
+`source-derived`.
+
+**Measured on this machine.** Scanning the whole core log store for
+`run_sampling_request{turn_id=..., model=...}`: 169 turns had multi-attempt activity
+(retries included), and **zero** turns showed two distinct model slugs in one turn.
+The most extreme case is the planner thread `01a0b405`, whose turn ran **406 sampling
+requests**, all with `model=hy4-preview:free`. So the behavior is not just that the
+first attempt keeps A; the entire turn keeps A. `measured`.
+
+**What actually happens when the user picks a different model.** The composer runs
+`selectModelAndReasoningEffort`, which goes through the app-server and also shows the
+renderer toast "Changing models mid-conversation will degrade performance" (in the
+installed `app.asar`). Its write resolves into the *next* turn's context, not the
+running one. The turn that was started with model A keeps model A until it ends, so a
+mid-turn retry storm can empty A's quota exactly as the owner described. There is no
+mid-turn hot-swap: switching the picker writes a preference for what comes next, it
+does not rebuild the active turn.
+
+**Practical answer for the owner.** Starting a new turn (new message after the switch,
+or a new thread) uses model B. A running turn cannot be migrated, and neither
+`config.toml`'s `model` key nor retrying the picker will change what that turn sends.
+
+**Not yet decided whether to patch.** Mid-turn model migration is a real upstream gap,
+but it is not a local regression: `initial_settings` is frozen by design, and the
+renderer already warns that changing models mid-conversation degrades performance. A
+safe patch would need a new turn to start rather than mutating the live one, which is
+why this is recorded rather than patched.
