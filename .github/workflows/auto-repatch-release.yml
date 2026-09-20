@@ -2,7 +2,11 @@ name: Auto repatch on upstream release
 
 on:
   schedule:
-    - cron: '17 * * * *'  # hourly polling; unchanged releases skip before toolchain setup
+    # Twice daily (03:17 and 15:17 UTC). Hourly polling burned metered
+    # windows-latest minutes even when the upstream release was unchanged.
+    # The patch set is pinned to VERIFIED_CODEX_REF, so a new upstream tag
+    # still needs a deliberate pin upgrade before a repatch can succeed.
+    - cron: '17 3,15 * * *'
   workflow_dispatch:
     inputs:
       upstream_tag:
