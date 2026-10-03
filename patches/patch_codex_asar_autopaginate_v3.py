@@ -88,6 +88,14 @@ NATIVE_HISTORY_26_820_EVIDENCE = (
 NATIVE_HISTORY_MARKER_ANCHOR = "this.params.onHistoryLoaded?.("
 NATIVE_HISTORY_MARKER_ANCHOR_26_820 = "limit:i?Math.min(a,100):a"
 
+# 26.930's native loader no longer uses the `limit:i?Math.min(a,100):a` form; the same
+# decision point is written as `if(i===0){this.recentHistorySource=`disabled`;return}`.
+# `??50` is the only place that reads the configured recent-thread limit, so it is a
+# stable marker anchor for `__capV3` on these bundles.
+NATIVE_HISTORY_MARKER_ANCHOR_26_930 = (
+    'if(i===0){this.recentHistorySource=`disabled`;return}'
+)
+
 
 def _native_history_evidence_matched(text: str) -> bool:
     return (
@@ -97,7 +105,11 @@ def _native_history_evidence_matched(text: str) -> bool:
 
 
 def _native_history_marker_anchor(text: str):
-    for anchor in (NATIVE_HISTORY_MARKER_ANCHOR, NATIVE_HISTORY_MARKER_ANCHOR_26_820):
+    for anchor in (
+        NATIVE_HISTORY_MARKER_ANCHOR,
+        NATIVE_HISTORY_MARKER_ANCHOR_26_820,
+        NATIVE_HISTORY_MARKER_ANCHOR_26_930,
+    ):
         if anchor in text:
             return anchor
     return None
@@ -149,7 +161,11 @@ def find_target(header, asar_path: Path | None = None, payload_start: int | None
     best = None
     for path, meta in iter_files(header):
         if not (
-            path.startswith("webview/assets/")
+            (
+                path.startswith("webview/assets/")
+                or path.startswith(".vite/")
+                or path.startswith("src/")
+            )
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -158,10 +174,16 @@ def find_target(header, asar_path: Path | None = None, payload_start: int | None
             "app-server-manager-signals-" in path
             or "codex-micro-slot-signals-" in path
         )
-        state_score = 0
         if can_read:
             text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
+            state_score = 0
             if V3_MARKER in text or UNPATCHED_SEARCH in text:
+                state_score = 4
+            elif all(p in text for p in (
+                "c.data.length<o&&c.nextCursor!=null",
+                "c={...c,data:e,nextCursor:n}",
+                "fetchedRecentConversations=!0",
+            )):
                 state_score = 4
             elif any(p in text for p in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text:
                 state_score = 4
@@ -169,11 +191,14 @@ def find_target(header, asar_path: Path | None = None, payload_start: int | None
                 state_score = 4
             elif V1_SEARCH in text or (V2_GUARD in text and "__cap=2000" in text):
                 state_score = 3
-        if state_score == 0 and not named:
-            continue
-        score = state_score * 2 + (1 if named else 0)
-        if best is None or score > best[0]:
-            best = (score, (path, meta))
+            # A named chunk is only a tie-breaker between real candidates; a file that
+            # matches none of the state patterns must never win on name alone, or the
+            # patcher will keep selecting `codex-micro-slot` and missing the actual
+            # native bundle in 26.930.
+            if state_score > 0:
+                score = state_score * 2 + (1 if named else 0)
+                if best is None or score > best[0]:
+                    best = (score, (path, meta))
     if best is None:
         raise RuntimeError("Could not find recent-conversation renderer chunk")
     return best[1]
@@ -194,6 +219,25 @@ def detect_state(text: str) -> str:
         return "v1"
     if UNPATCHED_SEARCH in text:
         return "unpatched"
+    # Upstream 26.930 always paginates natively inside `listRecentThreads`:
+    #   if(c.data.length<o&&c.nextCursor!=null){let e=[...c.data],t=new Set,n=c.nextCursor;
+    #   for(;e.length<o&&n!=null&&!t.has(n)){...}}c={...c,data:e,nextCursor:n}}
+    # The cursor-dedup fragment `for(;e.length<o&&n!=null&&!t.has(n))` sits in the
+    # companion bundle (`app-shared`/`app-initial`), not in the bootstrap owner, so it
+    # cannot be required in this file. The trio `c.data.length<o&&c.nextCursor!=null`,
+    # `c={...c,data:e,nextCursor:n}` and `fetchedRecentConversations=!0` only appears
+    # together in the file that owns the always-paginate loader, so that is enough.
+    if (
+        all(
+            evidence in text
+            for evidence in (
+                "c.data.length<o&&c.nextCursor!=null",
+                "c={...c,data:e,nextCursor:n}",
+                "fetchedRecentConversations=!0",
+            )
+        )
+    ):
+        return "native_expanded_history"
     if any(pattern in text for pattern in NATIVE_HISTORY_PATCHED_PATTERNS) and "useStateDbOnly:n" in text:
         return "native_expanded_history"
     if (

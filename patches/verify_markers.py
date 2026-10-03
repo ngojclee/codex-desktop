@@ -219,7 +219,11 @@ def find_signals(app_dir: Path):
     best = None
     for path, meta in _walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (
+                (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
+                or path.startswith(".vite/")
+                or path.startswith("src/")
+            )
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -333,7 +337,7 @@ def websocket_max_payload_status(app_dir: Path):
 def find_patch_h_bundle(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
     for path, meta in _walk(header):
-        if path.startswith("webview/assets/") and path.endswith(".js"):
+        if (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/")) and path.endswith(".js"):
             text = _extract(asar, payload_start, meta)
             if "__PATCH_H_DIRECTIVE_WINDOWS_PATH__" in text:
                 return path, text
@@ -343,7 +347,7 @@ def find_patch_h_bundle(app_dir: Path):
 def find_patch_k_bundle(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
     for path, meta in _walk(header):
-        if path.startswith("webview/assets/") and path.endswith(".js"):
+        if (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/")) and path.endswith(".js"):
             text = _extract(asar, payload_start, meta)
             if "/*K*/" in text and (
                 "sidebarElectron.codexMobileSetupNavLink" in text
@@ -363,7 +367,7 @@ def model_availability_filter_status(app_dir: Path):
     unpatched_paths = []
     candidate_paths = []
     for path, meta in _walk(header):
-        if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+        if not ((path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/")) and path.endswith(".js") and "offset" in meta):
             continue
         text = _extract(asar, payload_start, meta)
         if (
@@ -427,7 +431,7 @@ def has_statsig_gate_call(app_dir: Path, gate_id: str) -> bool:
     asar, payload_start, header = _read_asar(app_dir)
     pattern = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*\(`" + re.escape(gate_id) + r"`\)")
     for path, meta in _walk(header):
-        if path.startswith("webview/assets/") and path.endswith(".js"):
+        if (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/")) and path.endswith(".js"):
             text = _extract(asar, payload_start, meta)
             if pattern.search(text):
                 return True
@@ -445,7 +449,7 @@ def patch_j_status(app_dir: Path):
     corrupted_paths = []
 
     for path, meta in _walk(header):
-        if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+        if not ((path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/")) and path.endswith(".js") and "offset" in meta):
             continue
         text = _extract(asar, payload_start, meta)
         if PATCH_J_MARKER in text:
@@ -493,7 +497,7 @@ def sol_max_effort_status(app_dir: Path):
     candidate_paths = []
 
     for path, meta in _walk(header):
-        if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+        if not ((path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/")) and path.endswith(".js") and "offset" in meta):
             continue
         text = _extract(asar, payload_start, meta)
         if (
@@ -549,7 +553,7 @@ def gpt_model_label_status(app_dir: Path):
 
     for path, meta in _walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -600,7 +604,7 @@ def custom_provider_fast_mode_status(app_dir: Path):
 
     for path, meta in _walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -646,7 +650,7 @@ def custom_provider_ultra_status(app_dir: Path):
 
     for path, meta in _walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -695,7 +699,7 @@ def automation_mode_union_status(app_dir: Path):
 
     for path, meta in _walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -759,7 +763,7 @@ def voice_paste_shortcut_status(app_dir: Path):
 
     for path, meta in _walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
             and path.endswith(".js")
             and "offset" in meta
         ):
@@ -846,8 +850,18 @@ def main():
     socks5 = socks5_proxy_status(app_dir)
     ws_payload = websocket_max_payload_status(app_dir)
     patch_j = patch_j_status(app_dir)
-    patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
-    patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
+    # The H and K bundles carry their own marker text; an unpatched upstream bundle
+    # legitimately lacks both, and `find_*_bundle` raises instead of returning None.
+    # Catch that so `verify_markers` can report `pattern_not_found` instead of dying
+    # before the rest of the checks run.
+    try:
+        patch_h_path, patch_h_txt = find_patch_h_bundle(app_dir)
+    except SystemExit:
+        patch_h_path, patch_h_txt = "(missing)", ""
+    try:
+        patch_k_path, patch_k_txt = find_patch_k_bundle(app_dir)
+    except SystemExit:
+        patch_k_path, patch_k_txt = "(missing)", ""
     patch_o = model_availability_filter_status(app_dir)
     patch_p = sol_max_effort_status(app_dir)
     patch_q = gpt_model_label_status(app_dir)
@@ -1037,7 +1051,11 @@ def main():
         ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in signals_txt, True),
         ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_txt, True),
         ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
-        ("Patch D — `patch_d_cleared` marker", lambda: "patch_d_cleared" in signals_txt, expect_patch_d),
+        (
+            "Patch D — `patch_d_cleared` marker (legacy) OR `removeConversationStoreEntries` call (26.930+)",
+            lambda: "patch_d_cleared" in signals_txt or "removeConversationStoreEntries(" in signals_txt,
+            expect_patch_d,
+        ),
         (
             "Patch G — local WebSocket bypasses SOCKS (literal absent or upstream loopback guard present)",
             lambda: len(socks5["unsafe_paths"]) == 0,
