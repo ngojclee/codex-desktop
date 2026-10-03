@@ -63,13 +63,23 @@ def find_targets(asar: Path):
     targets = []
     for path, meta in walk(header):
         if not (
-            path.startswith("webview/assets/")
+            (
+                path.startswith("webview/assets/")
+                or path.startswith(".vite/")
+                or path.startswith("src/")
+            )
             and path.endswith(".js")
             and "offset" in meta
         ):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if has_relevant_pattern(text):
+        # An upstream_safe bundle does not contain our patched or unpatched guard, but it
+        # does carry `callDynamicAppTool` plus `dynamicAppTools.canCallTool`, and those
+        # are the exact signals `status()` uses to classify it. Keep that file too so
+        # the verifier can see it instead of reporting "guard not found".
+        if has_relevant_pattern(text) or (
+            "callDynamicAppTool" in text and "dynamicAppTools.canCallTool" in text
+        ):
             targets.append((path, meta, text))
     return header, payload_start, targets
 
@@ -137,6 +147,23 @@ def status(asar: Path):
         for path, _meta, text in targets
         if not any(relevant_match(m) for m in PATCHED_PATTERN.finditer(text))
     ]
+    # Upstream 26.930 dropped the `unsupported call` blocklist entirely: instead of a
+    # hard-coded check on the tool name, `callDynamicAppTool` now asks the webview's
+    # `dynamicAppTools.canCallTool(e)` whether the current app view may invoke it. That
+    # is a different capability model and already supersedes what this patch was meant
+    # to add, so bundles carrying that shape are upstream_safe, not missing the patch.
+    upstream_safe_paths = [
+        path
+        for path, _meta, _text in targets
+        if "callDynamicAppTool" in _text and "dynamicAppTools.canCallTool" in _text
+    ]
+    if upstream_safe_paths and not patched_entries and not unpatched_paths:
+        return {
+            "status": "upstream_safe",
+            "marker_paths": sorted(set(upstream_safe_paths)),
+            "unpatched_paths": [],
+            "syntax_errors": [],
+        }
     if not patched_entries:
         raise SystemExit("Verification failed: Patch Z guard not found")
     if bad_marker_paths:

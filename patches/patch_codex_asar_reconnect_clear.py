@@ -47,7 +47,30 @@ from pathlib import Path
 
 JS_IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 
-UNPATCHED_RE = re.compile(
+# Upstream 26.930 refactored this method to use `this.deps.*`, `restoreStreams` and a
+# foreground-conversation retry path, so the old anchor no longer matches. The defect is
+# unchanged: `markAllConversationsNeedResumeAfterReconnect` still only flips
+# `resumeState` on `this.deps.threadStore.conversations`, it never drops the cached
+# turn data. Insert the same conversation-clear step, but through the store's own
+# `removeConversationStoreEntries` so titles, summaries, and subscriptions are
+# invalidated properly instead of deleting the Map entry directly.
+# Upstream 26.930 refactored this method to use `this.deps.*`, `restoreStreams` and a
+# foreground-conversation retry path, so the old anchor no longer matches. The defect is
+# unchanged: `markAllConversationsNeedResumeAfterReconnect` still only flips
+# `resumeState` on `this.deps.threadStore.conversations`, it never drops the cached
+# turn data. Insert the same conversation-clear step, but through the store's own
+# `removeConversationStoreEntries` so titles, summaries, and subscriptions are
+# invalidated properly instead of deleting the Map entry directly.
+#
+# The two anchors we need are contiguous in the minified source:
+#   this.deps.threadStore.resetAfterReconnect();
+#   let{previousStreamingCount:r,previousRoleCount:i}=this.deps.streamState.resetAfterReconnect(e?.restoreStreams===!0),a=0;
+# We insert the clear between them, preserving the retry machinery that follows.
+# The legacy form used plain `this.*` and no `deps.` / `restoreStreams`, so both
+# shapes are covered: the new 26.930 body and the pre-refactor one. A match on either
+# means this thread cache must still be cleared.
+
+UNPATCHED_LEGACY_RE = re.compile(
     "markAllConversationsNeedResumeAfterReconnect\\(\\)\\{"
     rf"(?P<pag_cancel>this\.pagination\.cancelItemLoads\(\),)?"
     r"(?P<thread_store>this\.threadStore\.resetAfterReconnect\(\);)?"
@@ -60,10 +83,60 @@ UNPATCHED_RE = re.compile(
     r"\}"
 )
 
-MARKER = "__pdIds"  # unique token in patched output
+# The 26.930 form: `this.deps.*`, `restoreStreams`, and the store reset call placed
+# before the streaming counters. We anchor on the contiguous pair
+# `this.deps.threadStore.resetAfterReconnect();let{previousStreamingCount:` and splice
+# the clear between that call and the count loop.
+# The two anchors are contiguous in the minified source:
+#   this.deps.threadStore.resetAfterReconnect();
+#   let{previousStreamingCount:r,previousRoleCount:i}=this.deps.streamState.resetAfterReconnect(e?.restoreStreams===!0),a=0;
+# We capture the contiguous pair and splice the clear between them, preserving the
+# foreground-retry machinery that follows.
+# The contiguous pair we anchor on, verbatim from the upstream minified source:
+#   this.deps.threadStore.resetAfterReconnect();
+#   let{previousStreamingCount:r,previousRoleCount:i}=this.deps.streamState.resetAfterReconnect(e?.restoreStreams===!0),a=0;
+# Capturing only that pair keeps the replacement tied to the method's reset call, not
+# to any incidental earlier lines.
+# The contiguous pair we anchor on, verbatim from the upstream minified source:
+#   this.deps.threadStore.resetAfterReconnect();
+#   let{previousStreamingCount:r,previousRoleCount:i}=this.deps.streamState.resetAfterReconnect(e?.restoreStreams===!0),a=0;
+# Capturing only that pair keeps the replacement tied to the method's reset call, not
+# to any incidental earlier lines.
+# Anchor on the contiguous pair that actually marks the reset call, not the whole
+# method body. `this.deps.threadStore.resetAfterReconnect();let{previousStreamingCount:`
+# is the last reset before the streaming counters, and inserting our clear between the
+# two keeps the retry machinery that follows.
+UNPATCHED_MODERN_RE = re.compile(
+    r"this\.deps\.threadStore\.resetAfterReconnect\(\);"
+    rf"let\{{previousStreamingCount:(?P<stream>{JS_IDENT}),previousRoleCount:(?P<role>{JS_IDENT})\}}=this\.deps\.streamState\.resetAfterReconnect\(e\?\.restoreStreams===!0\),"
+    rf"(?P<count>{JS_IDENT})=0;"
+)
 
+PATCHED_BODY_EXTRA = (
+    "let __pdIds=[];"
+    "for(let[__pdId,__pdConv]of this.deps.threadStore.conversations)__pdIds.push(__pdId);"
+    "for(let __pdId of __pdIds){try{this.deps.threadStore.removeConversationStoreEntries(__pdId)}catch(_){}}"
+    "try{this.fetchedRecentConversations=!1}catch(_){}"
+)
 
-def make_patched_replace(match: re.Match) -> str:
+LEGACY_PATCHED_EXTRA = (
+    "let __pdIds=[...this.conversations.keys()];"
+    "for(let __pdId of __pdIds){try{this.applyConversationState(__pdId,null)}catch(_){}}"
+    "try{this.recentConversationsLoaded=!1}catch(_){}"
+    "try{this.fetchedRecentConversations=!1}catch(_){}"
+)
+
+def make_patched_replace(match: re.Match, modern: bool) -> str:
+    if modern:
+        stream = match.group("stream")
+        role = match.group("role")
+        count = match.group("count")
+        return (
+            "this.deps.threadStore.resetAfterReconnect();"
+            + PATCHED_BODY_EXTRA
+            + f"let{{previousStreamingCount:{stream},previousRoleCount:{role}}}=this.deps.streamState.resetAfterReconnect(e?.restoreStreams===!0),{count}=0;"
+        )
+
     pag_cancel = match.group("pag_cancel") or ""
     thread_store = match.group("thread_store") or ""
     stream = match.group("stream")
@@ -79,14 +152,13 @@ def make_patched_replace(match: re.Match) -> str:
         f"let{{previousStreamingCount:{stream},previousRoleCount:{role}}}=this.streamState.resetAfterReconnect(),{count}=0;"
         f"for(let[{ident},{conv}]of this.conversations)"
         f"{conv}.resumeState!==`needs_resume`&&({count}+=1,this.updateConversationState({ident},{cb}=>{{{cb}.resumeState=`needs_resume`}}));"
-        "let __pdIds=[...this.conversations.keys()];"
-        "for(let __pdId of __pdIds){try{this.applyConversationState(__pdId,null)}catch(_){}}"
-        "try{this.recentConversationsLoaded=!1}catch(_){}"
-        "try{this.fetchedRecentConversations=!1}catch(_){}"
-        f"{logger}.info(`websocket_reconnect_marked_threads_needing_resume`,"
-        f"{{safe:{{conversationCount:this.conversations.size,markedCount:{count},previousStreamingCount:{stream},previousRoleCount:{role},patch_d_cleared:__pdIds.length}},sensitive:{{}}}})"
-        "}"
+        + LEGACY_PATCHED_EXTRA
+        + f"{logger}.info(`websocket_reconnect_marked_threads_needing_resume`,"
+        + f"{{safe:{{conversationCount:this.conversations.size,markedCount:{count},previousStreamingCount:{stream},previousRoleCount:{role},patch_d_cleared:__pdIds.length}},sensitive:{{}}}})"
+        + "}"
     )
+
+MARKER = "__pdIds"  # unique token in patched output
 
 
 def read_header(asar_path: Path):
@@ -124,15 +196,31 @@ def find_target(header, asar_path: Path | None = None, payload_start: int | None
     if asar_path is not None and payload_start is not None:
         candidates = []
         for path, meta in iter_files(header):
-            if not (path.startswith("webview/assets/") and path.endswith(".js") and "offset" in meta):
+            if not (path.endswith(".js") and "offset" in meta):
                 continue
             text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
-            if MARKER in text or "markAllConversationsNeedResumeAfterReconnect(){" in text:
+            # Only the chunk that owns the reconnect method body may be patched, not any
+            # chunk that merely mentions it or carries the marker.
+            if "markAllConversationsNeedResumeAfterReconnect" not in text:
+                continue
+            if (
+                path.startswith("webview/assets/")
+                or path.startswith(".vite/")
+                or path.startswith("src/")
+            ):
                 candidates.append((path, meta))
-        if len(candidates) == 1:
+        # Upstream 26.930 puts the reconnect body in two chunk groups: the Vite
+        # `bootstrap-*.js` loader and the `app-shared-*.js` bundle. The bootstrap chunk is
+        # the owner that actually runs the reconnect path, so prefer it and only fall
+        # back to app-shared if it is the only match.
+        bootstrap = [c for c in candidates if "bootstrap" in c[0]]
+        if bootstrap:
+            if len(bootstrap) > 1:
+                raise RuntimeError(f"Multiple bootstrap reconnect chunks found: {[p for p, _ in bootstrap]}")
+            return bootstrap[0]
+        if candidates:
             return candidates[0]
-        if len(candidates) > 1:
-            raise RuntimeError(f"Multiple reconnect chunks found: {[p for p, _ in candidates]}")
+        raise RuntimeError("Could not find reconnect renderer chunk")
     raise RuntimeError("Could not find reconnect renderer chunk")
 
 
@@ -218,7 +306,10 @@ def apply(app_dir: Path) -> dict:
     if MARKER in original:
         return {"status": "already_patched", "asar": str(asar_path)}
 
-    match = UNPATCHED_RE.search(original)
+    modern_match = UNPATCHED_MODERN_RE.search(original)
+    legacy_match = UNPATCHED_LEGACY_RE.search(original) if modern_match is None else None
+    match = modern_match or legacy_match
+    is_modern = modern_match is not None
 
     if match is None:
         # Try to give a useful hint
@@ -228,7 +319,7 @@ def apply(app_dir: Path) -> dict:
             sample = original[idx:idx+400]
         return {"status": "pattern_not_found", "asar": str(asar_path), "near": sample}
 
-    patched_text = original[: match.start()] + make_patched_replace(match) + original[match.end() :]
+    patched_text = original[: match.start()] + make_patched_replace(match, is_modern) + original[match.end() :]
     if MARKER not in patched_text:
         return {"status": "error", "reason": "marker missing after replace"}
 
