@@ -1610,3 +1610,54 @@ but it is not a local regression: `initial_settings` is frozen by design, and th
 renderer already warns that changing models mid-conversation degrades performance. A
 safe patch would need a new turn to start rather than mutating the live one, which is
 why this is recorded rather than patched.
+
+### 2026-10-03 - upstream v26.930 landed; C/D/Z reworked, and what is still open
+
+`v26.930.31730` is the latest upstream rebuild and its app.asar layout is
+completely different: recent-state code moved out of `webview/assets` into
+`.vite/build/bootstrap-*.js` and `src/webview/assets/app-shared-*.js`, so the old
+`webview/assets/*` anchors were never going to match. That is the whole reason CI was
+failing, not a quota or a flaky patch.
+
+**Measured on the real upstream bundle.**
+
+- `listRecentThreads` is now **native always-paginate**:
+  `if(c.data.length<o&&c.nextCursor!=null){let e=[...c.data],t=new Set,n=c.nextCursor;
+  for(;e.length<o&&n!=null&&!t.has(n)){t.add(n);let r=await this.listRecentThreads(...);
+    e.push(...r.data.slice(0,o-e.length)),n=r.nextCursor}c={...c,data:e,nextCursor:n}}`
+  So Patch C's job is upstream-native; the right verdict is `native_expanded_history`,
+  and `apply_v3` only writes a `__capV3=2000` comment. `measured`.
+- `markAllConversationsNeedResumeAfterReconnect` was refactored to `this.deps.*`
+  (`pagination.resetAfterReconnect()`, `streamState.resetAfterReconnect`,
+  `restoreStreams`, `foregroundConversationId` retry), and it still does NOT clear the
+  cached `threadStore.conversations` Map. Patch D is still needed; the fix now inserts
+  `removeConversationStoreEntries` so summaries, titles and subscriptions are
+  invalidated properly instead of deleting the Map entry. `measured`.
+- Patch Z's guard is gone for a good reason: upstream dropped the `unsupported call`
+  blocklist entirely and now asks `dynamicAppTools.canCallTool(e)` on a per-view basis
+  inside `mge`. So Patch Z should report `upstream_safe` on 26.930+, not "guard not
+  found". `measured`.
+
+**Verified locally, both platforms:**
+
+| check | linux-arm64 (`bootstrap-D3_zvIvQ.js`) | win-x64 (`bootstrap-CZlEGA2m.js`) |
+| --- | --- | --- |
+| `find_target` | correct | correct |
+| Patch C `apply_v3` | `native_expanded_history_marked_v3` | `native_expanded_history_marked_v3` |
+| Patch D `apply` | `patched` (+251) | `patched` (+251) |
+| Patch Z `status` | `upstream_safe` | `upstream_safe` |
+| idempotent | `already_v3` / `already_patched` | `already_v3` / `already_patched` |
+
+**Not yet done / what remains.**
+
+- `verify_markers.py` still reports `Patch Z guard not found` on this unpatched
+  upstream bundle because it checks `signals_txt` for our patch marker, not the
+  upstream `canCallTool` shape. Its `signals` selection now includes `.vite/`/`src/`
+  but its Patch Z expectation needs the same "upstream_safe" class that
+  `patch_codex_asar_legacy_dynamic_app_tools.status` already returns.
+- `Patch B2` (Owl ASAR integrity hash in the exe) is still failing on this run:
+  the patched `app.asar` changed, so `patch_codex_exe_asar_integrity_hash.py` must
+  re-embed the new header SHA256 in `ChatGPT.exe`. That is the same gate that used to
+  pass after a repack.
+- `verify_markers` takes ~8 minutes on a 538MB `app.asar` because it reads every
+  chunk's full text; that is expected on this size, not a hang.

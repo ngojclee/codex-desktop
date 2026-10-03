@@ -25,8 +25,8 @@ embedded ASAR header hash after the final `app.asar` bytes are known.
 | --- | --- | --- | --- |
 | A | `patch_codex_asar_recent_window.py` | Expands recent-thread discovery/history fallback. | Keep for older layouts. |
 | B | `patch_codex_electron_fuse.py` | Disables Electron embedded-ASAR validation when the fuse exists. Owl builds safely no-op. | Keep for Electron compatibility. |
-| C | `patch_codex_asar_autopaginate_v3.py` | Ensures sidebar/recent-thread pagination is complete. Current native cursor layouts may be verify-only. | Keep for older layouts. |
-| D | `patch_codex_asar_reconnect_clear.py` | Clears stale renderer conversation state after sidecar reconnect. | Keep; auto-skip only for known `v26.513.x`. |
+| C | `patch_codex_asar_autopaginate_v3.py` | Ensures sidebar/recent-thread pagination is complete. Current native cursor layouts may be verify-only. | Keep for older layouts. Upstream 26.930 already has the loop natively, so those bundles are marked `native_expanded_history` and only get a `__capV3` comment instead of a rewrite. |
+| D | `patch_codex_asar_reconnect_clear.py` | Clears stale renderer conversation state after sidecar reconnect. | Keep; auto-skip only for known `v26.513.x`. The 26.930 reconnect body lives in `.vite/build/bootstrap-*.js` and uses `this.deps.*` plus `restoreStreams`, so the patch now anchors on that shape and calls `removeConversationStoreEntries` to drop stale conversations instead of deleting the Map entry. |
 | G | `patch_codex_asar_ws_socks_bypass.py` | Keeps loopback shared-sidecar WebSockets out of the SOCKS proxy. Newer bundles may already contain the guard. | Keep as compatibility/no-op. |
 | M | `patch_codex_asar_ws_max_payload.py` | Raises the shared-sidecar WebSocket payload ceiling. | Keep for shared-sidecar deployments. |
 | H | `patch_codex_asar_directive_windows_path.py` | Sanitizes Windows paths in markdown directives. | Keep. |
@@ -41,7 +41,7 @@ embedded ASAR header hash after the final `app.asar` bytes are known.
 | T | `patch_codex_asar_voice_paste_shortcut.py` | Removes the conflicting Windows `Ctrl+Shift+V` Voice Mode binding. Current Windows layouts may be upstream-safe. | Keep as compatibility/no-op. |
 | U | `patch_codex_asar_composer_input_safety.py` | Makes technical Markdown literal and suppresses duplicate paste delivery. | Keep; current bundle still requires it unless verifier says upstream-safe. |
 | Y | `patch_codex_asar_automation_mode_union.py` | Replaces the two fragile outer nested `mode` discriminated unions with plain unions so valid Automation `create`/`update` calls reach the MCP tool. Anchors are structural (the schema's own `view`/`delete` enum literals) and never minified names, so an upstream identifier rename is followed automatically; a bundle that already ships both unions flat reports `upstream_safe`. | Keep; current fix for the embedded-Zod discriminator bug. |
-| Z | `patch_codex_asar_legacy_dynamic_app_tools.py` | Relaxes the renderer guard only for the five legacy dynamic thread/automation tools, so old conversations can keep calling the old dynamic path while new conversations use the `codex_app` MCP lane. | Keep while old chats must remain compatible. |
+| Z | `patch_codex_asar_legacy_dynamic_app_tools.py` | Relaxes the renderer guard only for the five legacy dynamic thread/automation tools, so old conversations can keep calling the old dynamic path while new conversations use the `codex_app` MCP lane. | **Deprecated on 26.930 and later.** Upstream dropped the `unsupported call` blocklist entirely: `callDynamicAppTool` now asks `dynamicAppTools.canCallTool(e)` instead, so the legacy tool path is governed by webview capabilities, not a hard-coded name list. Marked `upstream_safe` for 26.930+. |
 | B2 | `patch_codex_exe_asar_integrity_hash.py` | Updates the Owl executable's embedded ASAR header hash after all renderer patches. | Keep and run last. |
 
 ## Source-Built Sidecar Patches
