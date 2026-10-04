@@ -221,6 +221,7 @@ jobs:
           python patches/test_voice_paste_shortcut.py
           python patches/test_composer_input_safety.py
           python patches/test_reconnect_clear.py
+          python patches/test_ws_socks_bypass.py
           python patches/test_automation_mode_union.py
           python patches/test_legacy_dynamic_app_tools.py
           & ./patches/test_model_catalog_sync.ps1

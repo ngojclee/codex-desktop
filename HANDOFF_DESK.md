@@ -1661,3 +1661,49 @@ failing, not a quota or a flaky patch.
   pass after a repack.
 - `verify_markers` takes ~8 minutes on a 538MB `app.asar` because it reads every
   chunk's full text; that is expected on this size, not a hang.
+
+### 2026-10-04 - Patch G `v26.930` matcher correction and release gate
+
+The twice-daily Actions failures through `2026-10-03T18:43Z` were **not quota
+failures**. They stopped at Patch G because `v26.930.31730` moved its proxy
+decision to `.vite/build/main-C_jM0dPl.js` and expressed the already-safe
+loopback condition as:
+
+`host !== localhost && host !== 127.0.0.1 && host !== [::1]`.
+
+The old Patch G detector recognized only the De Morgan-equivalent
+`!(host === localhost || ...)` spelling, so it falsely classified the upstream
+guard as unsafe. The patcher and `verify_markers.py` now accept both exact
+loopback-only forms. The matcher still fails loudly for a SOCKS literal that
+does not carry either full localhost/IPv4/IPv6 guard; it does not silently
+remove a remote-host proxy.
+
+Measured against the real Windows `v26.930.31730` bundle:
+
+- `patch_codex_asar_ws_socks_bypass.py --no-backup` returned
+  `upstream_loopback_safe` for `.vite/build/main-C_jM0dPl.js`.
+- verifier status contained `unsafe_paths: []`.
+- the focused three-case regression test covers legacy removal, this current
+  upstream-safe spelling, and the unknown-layout fail-loud branch.
+- the B2 integrity utility correctly updated `ChatGPT.exe` from the stale
+  embedded header hash to the final ASAR header hash after test mutation.
+
+The workflow now runs the Patch G regression test before applying any binary
+patches. Full all-patches and marker-verification acceptance on the Windows
+bundle remains the release gate; do not publish a partial artifact.
+
+### 2026-10-04 - v26.930.31730 final local acceptance
+
+The full verifier completed against the final patched Windows
+`v26.930.31730` bundle with **all patch markers verified**, including renderer
+syntax checks and Patch B2's final executable/ASAR-header integrity comparison.
+The only earlier CI blocker was Patch G's narrow recognition of the equivalent
+upstream loopback expression; no patch was omitted.
+
+Focused regression coverage is green for Patch G's legacy, current-safe, and
+fail-loud branches; Patch U's new `NFc` composer layout; and Patch Z's
+upstream-safe dynamic app-tools capability shape. The GitHub release remains
+the next gate: commit only these source, verifier, test, inventory, and
+append-only handoff updates; trigger a distinct
+`v26.930.31730-patched-sidecarchat` release; then verify its artifact and
+digest before telling an operator to run `Update-Codex`.

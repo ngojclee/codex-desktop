@@ -15,6 +15,8 @@ from patch_codex_asar_composer_input_safety import (
     V4_PASTE_PREFIX,
     V4_HTML_RE,
     V4_MARKDOWN,
+    V5_PLUGINS,
+    V5_PASTE_PREFIX,
     patch_text,
 )
 
@@ -118,6 +120,21 @@ SOURCE_V4B = (
     "}});return g}"
 )
 
+SOURCE_V5 = (
+    "function NFc(){let b=y?.plugins,x=y?.pmu.schema()??_gr;"
+    "state:Xne.create({schema:x,plugins:[N.createPlugin(x),"
+    + V5_PLUGINS
+    + "]}),handlePaste(e,t){let n=A.consume(e);if(t.defaultPrevented)return!0;"
+    "let r=t.clipboardData,{files:i,imageFiles:a,otherFiles:s}=jya(r),"
+    "c=r?.getData(`text/plain`),l=r?.getData(`text/html`);"
+    "if(s.length>0||gya(c,l,a))return!0;"
+    + V5_PASTE_PREFIX
+    + "let d=!k&&!n&&l!=null&&l.length>0&&l.length<=1e5&&"
+    "(y==null||c.length>=5e3&&/<(?:a|ol|ul)\\b/i.test(l))?tJe(e,l):null;"
+    "let g=!k&&!n&&l!=null&&l.trim()!==``?Egr(l,c):void 0;"
+    "return y?.pastePreferredHtml(e,l,c)||y?.pasteLiteralText(e,c)?!0:bdr(e,c)}}"
+)
+
 
 def assert_patched(name: str, source: str, upstream_fragments: tuple[str, ...]):
     patched, changed = patch_text(source)
@@ -192,5 +209,19 @@ if "enableRichText:!1/*U:literal-markdown-paste*/" not in v4b_patched:
     raise AssertionError("26.818 re-minified composer: Markdown paste is still rich")
 if ",[]/*U:no-auto-inline-markdown*/" in v4b_patched:
     raise AssertionError("26.818 re-minified composer: empty array left in plugins list")
+
+v5_patched = assert_patched(
+    "26.930 composer",
+    SOURCE_V5,
+    (V5_PLUGINS, V5_PASTE_PREFIX, "pastePreferredHtml(e,l,c)"),
+)
+if "b.inputRules,b.inputRulesHistoryIsolation" in v5_patched:
+    raise AssertionError("26.930 composer: inline Markdown input rules remain")
+if "let d=null/*U:plain-html-paste*/" not in v5_patched:
+    raise AssertionError("26.930 composer: HTML paste is still rich")
+if "let g=void 0/*U:literal-markdown-paste*/;" not in v5_patched:
+    raise AssertionError("26.930 composer: Markdown paste parser remains enabled")
+if "y?.pastePreferredHtml(e,l,c)" in v5_patched:
+    raise AssertionError("26.930 composer: rich paste fallback remains enabled")
 
 print("Patch U composer input safety matcher tests passed.")
