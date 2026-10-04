@@ -58,6 +58,10 @@ def has_relevant_pattern(text: str):
     )
 
 
+def is_upstream_safe(text: str) -> bool:
+    return "callDynamicAppTool" in text and "dynamicAppTools.canCallTool" in text
+
+
 def find_targets(asar: Path):
     header, payload_start = read_header(asar)
     targets = []
@@ -77,9 +81,7 @@ def find_targets(asar: Path):
         # does carry `callDynamicAppTool` plus `dynamicAppTools.canCallTool`, and those
         # are the exact signals `status()` uses to classify it. Keep that file too so
         # the verifier can see it instead of reporting "guard not found".
-        if has_relevant_pattern(text) or (
-            "callDynamicAppTool" in text and "dynamicAppTools.canCallTool" in text
-        ):
+        if has_relevant_pattern(text) or is_upstream_safe(text):
             targets.append((path, meta, text))
     return header, payload_start, targets
 
@@ -87,6 +89,12 @@ def find_targets(asar: Path):
 def patch_text(text: str):
     has_patched = any(relevant_match(m) for m in PATCHED_PATTERN.finditer(text))
     has_upstream = any(relevant_match(m) for m in UPSTREAM_PATTERN.finditer(text))
+    if is_upstream_safe(text):
+        if has_patched or has_upstream:
+            raise RuntimeError(
+                "Patch Z found both the upstream-safe capability check and a legacy guard"
+            )
+        return text, False
     if has_patched:
         if not has_upstream:
             return text, False
@@ -155,7 +163,7 @@ def status(asar: Path):
     upstream_safe_paths = [
         path
         for path, _meta, _text in targets
-        if "callDynamicAppTool" in _text and "dynamicAppTools.canCallTool" in _text
+        if is_upstream_safe(_text)
     ]
     if upstream_safe_paths and not patched_entries and not unpatched_paths:
         return {
@@ -228,7 +236,10 @@ def main():
     print(
         json.dumps(
             {
-                "status": "patched" if patched_by_path else "already_patched",
+                "status": result.get(
+                    "status",
+                    "patched" if patched_by_path else "already_patched",
+                ),
                 "asar": str(asar),
                 "scanned": sorted(set(scanned)),
                 "patched": sorted(patched_by_path),

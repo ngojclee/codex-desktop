@@ -71,6 +71,13 @@ SAFE_SOCKS_LOOPBACK_PATTERN = re.compile(
     r"(?P=host)===`localhost`\|\|(?P=host)===`127\.0\.0\.1`\|\|"
     r"(?P=host)===`\[::1\]`\)\)return\s+[A-Za-z_$][A-Za-z0-9_$]*\}"
 )
+SAFE_SOCKS_LOOPBACK_NEGATED_PATTERN = re.compile(
+    r"function\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\([^)]*\)\{let\s+(?P<host>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"new URL\([^)]*\)\.hostname;if\("
+    r"(?P=host)!==`localhost`&&(?P=host)!==`127\.0\.0\.1`&&"
+    r"(?P=host)!==`\[::1\]`\)return\s+"
+)
 PATCH_M_MARKER = "/*M*/maxPayload:1024*1024*1024"
 PATCH_P_POWER_MARKER = "/*P:sol-max*/"
 PATCH_P_LEGACY_FILTER_MARKER = "/*P:max-filter*/"
@@ -211,12 +218,12 @@ def asar_integrity_manifest_status(app_dir: Path):
     return out
 
 
-def find_signals(app_dir: Path):
+def find_signal_entries(app_dir: Path):
     asar, payload_start, header = _read_asar(app_dir)
     # Upstream renamed the signals chunk between releases (and 26.820 gutted
     # the old one entirely), so rank chunks by recent-state content instead of
     # trusting the filename alone.
-    best = None
+    candidates = []
     for path, meta in _walk(header):
         if not (
             (
@@ -234,11 +241,15 @@ def find_signals(app_dir: Path):
         if hits == 0 and not named:
             continue
         score = hits * 2 + (1 if named else 0)
-        if best is None or score > best[0]:
-            best = (score, path, text)
-    if best is None:
+        candidates.append((score, path, text))
+    if not candidates:
         raise SystemExit("Could not find recent state renderer chunk in app.asar")
-    return best[1], best[2]
+    return [(path, text) for _score, path, text in sorted(candidates, key=lambda item: (-item[0], item[1]))]
+
+
+def find_signals(app_dir: Path):
+    """Return the highest-scoring recent-state chunk for backwards compatibility."""
+    return find_signal_entries(app_dir)[0]
 
 
 def node_chunk_syntax_errors(entries: list[tuple[str, str]], prefix: str = "codex-chunk-syntax-"):
@@ -291,7 +302,10 @@ def socks5_proxy_status(app_dir: Path):
         if SOCKS_LITERAL not in text:
             continue
         literal_paths.append(path)
-        if SAFE_SOCKS_LOOPBACK_PATTERN.search(text):
+        if (
+            SAFE_SOCKS_LOOPBACK_PATTERN.search(text)
+            or SAFE_SOCKS_LOOPBACK_NEGATED_PATTERN.search(text)
+        ):
             safe_paths.append(path)
         else:
             unsafe_paths.append(path)
@@ -844,9 +858,13 @@ def main():
     app_version = version_file.read_text(encoding='utf-8').strip() if version_file.exists() else ''
     expect_patch_d = not args.upstream_tag.startswith('v26.513.')
 
-    signals_path, signals_txt = find_signals(app_dir)
+    signal_entries = find_signal_entries(app_dir)
+    signals_path, signals_txt = signal_entries[0]
+    signals_all_txt = "\n".join(text for _path, text in signal_entries)
     # A, C and D rewrite this same chunk; check the result once, here.
-    signals_syntax_errors = node_chunk_syntax_errors([(signals_path, signals_txt)])
+    # 26.930 separates the A helper from C/D's bootstrap path. Check every
+    # recent-state chunk so a clean split cannot look like missing markers.
+    signals_syntax_errors = node_chunk_syntax_errors(signal_entries)
     socks5 = socks5_proxy_status(app_dir)
     ws_payload = websocket_max_payload_status(app_dir)
     patch_j = patch_j_status(app_dir)
@@ -876,6 +894,10 @@ def main():
 
     print(f"App version   : {app_version or 'unknown'}")
     print(f"Signals chunk : {signals_path}  ({len(signals_txt):,} bytes)")
+    if len(signal_entries) > 1:
+        print("Additional recent-state chunks:")
+        for path, text in signal_entries[1:]:
+            print(f"  - {path}  ({len(text):,} bytes)")
     print(f"Patch G SOCKS occurrences: {len(socks5['literal_paths'])}")
     for path in socks5["literal_paths"]:
         print(f"  - {path}")
@@ -1005,9 +1027,16 @@ def main():
         print("Patch Y syntax errors:")
         for error in patch_y["syntax_errors"]:
             print(f"  - {error}")
+    # `patch_z` is shaped like every other patch status: `marker_paths` holds the
+    # locations it owns (`__pdIds` or the upstream-safe `canCallTool` call sites),
+    # `unpatched_paths` holds still-vulnerable upstream guards, and
+    # `syntax_errors` holds per-chunk errors. `upstream_safe` itself is a
+    # verdict, not a marker, so it gets printed explicitly when present.
     print(f"Patch Z legacy dynamic tool marker paths: {len(patch_z['marker_paths'])}")
     for path in patch_z["marker_paths"]:
         print(f"  - {path}")
+    if patch_z.get("status") == "upstream_safe":
+        print("Patch Z outcome: upstream_safe (upstream dropped the legacy blocklist)")
     if patch_z["unpatched_paths"]:
         print("Patch Z upstream legacy guard still present:")
         for path in patch_z["unpatched_paths"]:
@@ -1029,17 +1058,17 @@ def main():
         (
             "Patch A — expanded history limit bumped to 1000",
             lambda: (
-                "limit:1000" in signals_txt
-                or "getHistoryLimit?.()??1000" in signals_txt
-                or PATCH_A_RUNTIME_HISTORY_MARKER in signals_txt
+                "limit:1000" in signals_all_txt
+                or "getHistoryLimit?.()??1000" in signals_all_txt
+                or PATCH_A_RUNTIME_HISTORY_MARKER in signals_all_txt
             ),
             True,
         ),
         (
             "Patch A — legacy capped recent-window shapes absent",
             lambda: (
-                "limit:50*this.recentConversationPageCount" not in signals_txt
-                and "limit:50,cursor:this.nextRecentConversationCursor" not in signals_txt
+                "limit:50*this.recentConversationPageCount" not in signals_all_txt
+                and "limit:50,cursor:this.nextRecentConversationCursor" not in signals_all_txt
             ),
             True,
         ),
@@ -1048,12 +1077,12 @@ def main():
             lambda: len(signals_syntax_errors) == 0,
             True,
         ),
-        ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in signals_txt, True),
-        ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_txt, True),
-        ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_txt, expect_patch_d),
+        ("Patch C v3 — `__capV3=2000` marker (always-paginate)", lambda: "__capV3=2000" in signals_all_txt, True),
+        ("Patch C v3 — v2 guard `if(!this.fetchedRecentConversations)` ABSENT", lambda: "if(!this.fetchedRecentConversations)" not in signals_all_txt, True),
+        ("Patch D — `__pdIds` marker", lambda: "__pdIds" in signals_all_txt, expect_patch_d),
         (
             "Patch D — `patch_d_cleared` marker (legacy) OR `removeConversationStoreEntries` call (26.930+)",
-            lambda: "patch_d_cleared" in signals_txt or "removeConversationStoreEntries(" in signals_txt,
+            lambda: "patch_d_cleared" in signals_all_txt or "removeConversationStoreEntries(" in signals_all_txt,
             expect_patch_d,
         ),
         (
@@ -1109,7 +1138,11 @@ def main():
         ("Patch Y — nested automation mode unions absent", lambda: len(patch_y["unpatched_paths"]) == 0, True),
         ("Patch Y — automation mode unions classify unambiguously", lambda: len(patch_y["indeterminate_paths"]) == 0, True),
         ("Patch Y — touched renderer chunks pass syntax check", lambda: len(patch_y["syntax_errors"]) == 0, True),
-        ("Patch Z — legacy dynamic app-tool guard relaxed", lambda: len(patch_z["marker_paths"]) > 0, True),
+        (
+            "Patch Z — legacy dynamic app-tool guard relaxed or upstream_safe",
+            lambda: len(patch_z["marker_paths"]) > 0 or patch_z.get("status") == "upstream_safe",
+            True,
+        ),
         ("Patch Z — upstream rejection guard absent", lambda: len(patch_z["unpatched_paths"]) == 0, True),
         ("Patch Z — touched renderer chunks pass syntax check", lambda: len(patch_z["syntax_errors"]) == 0, True),
         (
