@@ -53,6 +53,27 @@ SAFE_LOOPBACK_PATTERN = re.compile(
     r"(?P=host)===`localhost`\|\|(?P=host)===`127\.0\.0\.1`\|\|"
     r"(?P=host)===`\[::1\]`\)\)return\s+[A-Za-z_$][A-Za-z0-9_$]*\}"
 )
+SAFE_LOOPBACK_NEGATED_PATTERN = re.compile(
+    r"function\s+[A-Za-z_$][A-Za-z0-9_$]*"
+    r"\([^)]*\)\{let\s+(?P<host>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"new URL\([^)]*\)\.hostname;if\("
+    r"(?P=host)!==`localhost`&&(?P=host)!==`127\.0\.0\.1`&&"
+    r"(?P=host)!==`\[::1\]`\)return\s+"
+)
+
+
+def is_loopback_safe(text: str) -> bool:
+    """Return whether the bundle deliberately omits SOCKS for every loopback host.
+
+    Upstream 26.715 introduced the first spelling, then 26.930 switched to the
+    De Morgan-equivalent `host !== a && host !== b && host !== c` expression.
+    Both leave `socksProxyUrl` unset for our local shared sidecar. Anything else
+    remains fail-loud so a remote-only proxy expression cannot be misclassified.
+    """
+    return bool(
+        SAFE_LOOPBACK_PATTERN.search(text)
+        or SAFE_LOOPBACK_NEGATED_PATTERN.search(text)
+    )
 
 
 def read_header(asar_path: Path):
@@ -90,7 +111,7 @@ def extract(asar_path, payload_start, meta):
 
 def patch_js(data: bytes):
     text = data.decode("utf-8")
-    if SOCKS_LITERAL in text and SAFE_LOOPBACK_PATTERN.search(text):
+    if SOCKS_LITERAL in text and is_loopback_safe(text):
         return data, {"status": "upstream_loopback_safe", "replaced": 0}
 
     matches = list(SOCKS_PATTERN.finditer(text))
@@ -237,7 +258,7 @@ def main():
     for js_path, js_meta in iter_js_entries(vh):
         vd = extract(asar, vps, js_meta).decode("utf-8", "replace")
         if SOCKS_LITERAL in vd:
-            if SAFE_LOOPBACK_PATTERN.search(vd):
+            if is_loopback_safe(vd):
                 safe_residual.append(js_path)
             else:
                 residual.append(js_path)

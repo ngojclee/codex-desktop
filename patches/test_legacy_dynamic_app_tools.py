@@ -53,4 +53,11 @@ if any(
 ):
     raise AssertionError("Patch Z should only match known plugin/settings guard")
 
+upstream_safe = (
+    "function callDynamicAppTool(e){return dynamicAppTools.canCallTool(e)?1:0}"
+)
+safe_patched, safe_changed = patch_text(upstream_safe)
+if safe_changed or safe_patched != upstream_safe:
+    raise AssertionError("Patch Z must leave the upstream-safe capability layout untouched")
+
 print("Patch Z legacy dynamic app-tool matcher tests passed.")

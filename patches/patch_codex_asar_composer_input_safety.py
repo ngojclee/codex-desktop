@@ -175,6 +175,48 @@ PATCHED_V4_MARKDOWN = (
     "restorePathLinksAsFileMentions:p"
 )
 
+# 26.930 moved the chat composer into NFc. Unlike the 26.818 PMU factory,
+# it constructs the selected rich-text plugins directly and contains the full
+# paste path in the same function. These anchors intentionally retain stable
+# behavior-level names rather than the surrounding minified function names.
+V5_PLUGINS = "b.listInput,b.codeBlockFenceExit,b.inputRules,b.inputRulesHistoryIsolation"
+PATCHED_V5_PLUGINS = (
+    "b.listInput,b.codeBlockFenceExit"
+    f"{PATCH_MARKER_INPUT_RULES}"
+)
+V5_PASTE_PREFIX = "if(c==null)return!1;if((k||n)&&c.length===0)return!0;"
+PATCHED_V5_PASTE_PREFIX = (
+    "if(c==null)return!1;"
+    "let A=Date.now(),B=e.dom.__codexLiteralPaste;"
+    "if(B!=null&&B.text===c&&A-B.at<250)return t.preventDefault(),!0;"
+    f"e.dom.__codexLiteralPaste={{at:A,text:c}};{PATCH_MARKER_DEDUPE}"
+    "if((k||n)&&c.length===0)return!0;"
+)
+V5_HTML_RE = re.compile(
+    r"let (?P<var>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"!(?P<plain>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"!(?P<consumed>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"(?P<html>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
+    r"(?P=html)\.length>0&&(?P=html)\.length<=1e5&&"
+    r"\((?P<markdown>[A-Za-z_$][A-Za-z0-9_$]*)==null\|\|"
+    r"(?P<text>[A-Za-z_$][A-Za-z0-9_$]*)\.length>=5e3&&"
+    r"/<\(\?:a\|ol\|ul\)\\b/i\.test\((?P=html)\)\)"
+    r"\?(?P<parse>[A-Za-z_$][A-Za-z0-9_$]*)\(e,(?P=html)\):null"
+)
+V5_MARKDOWN_RE = re.compile(
+    r"let (?P<var>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"!(?P<plain>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"!(?P<consumed>[A-Za-z_$][A-Za-z0-9_$]*)&&"
+    r"(?P<html>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
+    r"(?P=html)\.trim\(\)!==``\?"
+    r"(?P<parse>[A-Za-z_$][A-Za-z0-9_$]*)\((?P=html),"
+    r"(?P<text>[A-Za-z_$][A-Za-z0-9_$]*)\):void 0;"
+)
+V5_RICH_FALLBACK_RE = re.compile(
+    r"(?P<editor>[A-Za-z_$][A-Za-z0-9_$]*)\?\.pastePreferredHtml\(e,l,c\)"
+    r"\|\|(?P=editor)\?\.pasteLiteralText\(e,c\)\?!0:"
+)
+
 
 def _inline_rules_match(text: str):
     matches = []
@@ -221,6 +263,11 @@ def find_targets(asar: Path):
             or V4_PASTE_PREFIX in text
             or V4_HTML_RE.search(text) is not None
             or V4_MARKDOWN in text
+            or V5_PLUGINS in text
+            or V5_PASTE_PREFIX in text
+            or V5_HTML_RE.search(text) is not None
+            or V5_MARKDOWN_RE.search(text) is not None
+            or V5_RICH_FALLBACK_RE.search(text) is not None
             or _inline_rules_match(text)
         ):
             targets.append((path, meta, text))
@@ -253,12 +300,83 @@ def patch_text(text: str):
         or V4_HTML_RE.search(text) is not None
         or V4_MARKDOWN in text
     )
-    if has_v4 and (has_v1 or has_v2 or has_v3):
+    has_v5 = (
+        V5_PLUGINS in text
+        or V5_PASTE_PREFIX in text
+        or V5_HTML_RE.search(text) is not None
+        or V5_MARKDOWN_RE.search(text) is not None
+        or V5_RICH_FALLBACK_RE.search(text) is not None
+    )
+    if has_v4 and (has_v1 or has_v2 or has_v3 or has_v5):
+        raise RuntimeError("Found multiple composer layouts")
+    if has_v5 and (has_v1 or has_v2 or has_v3):
         raise RuntimeError("Found multiple composer layouts")
     if has_v1 and has_v2:
         raise RuntimeError("Found both legacy and current composer layouts")
     if has_v3 and (has_v1 or has_v2):
         raise RuntimeError("Found multiple composer layouts")
+
+    if has_v5:
+        required = (
+            V5_PLUGINS,
+            V5_PASTE_PREFIX,
+        )
+        missing = [fragment for fragment in required if fragment not in text]
+        if missing:
+            raise RuntimeError(
+                "Incomplete 26.930 composer layout; missing "
+                + ", ".join(repr(fragment[:60]) for fragment in missing)
+            )
+        if text.count(V5_PLUGINS) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.930 input-rules plugin list, "
+                f"found {text.count(V5_PLUGINS)}"
+            )
+        if text.count(V5_PASTE_PREFIX) != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.930 paste-entry prefix, "
+                f"found {text.count(V5_PASTE_PREFIX)}"
+            )
+        html_count = len(V5_HTML_RE.findall(text))
+        if html_count != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.930 rich HTML parse, "
+                f"found {html_count}"
+            )
+        markdown_count = len(V5_MARKDOWN_RE.findall(text))
+        if markdown_count != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.930 rich Markdown parse, "
+                f"found {markdown_count}"
+            )
+        fallback_count = len(V5_RICH_FALLBACK_RE.findall(text))
+        if fallback_count != 1:
+            raise RuntimeError(
+                "Expected exactly one 26.930 rich paste fallback, "
+                f"found {fallback_count}"
+            )
+
+        patched = text.replace(V5_PLUGINS, PATCHED_V5_PLUGINS, 1)
+        patched = patched.replace(V5_PASTE_PREFIX, PATCHED_V5_PASTE_PREFIX, 1)
+        patched = V5_HTML_RE.sub(
+            lambda match: f"let {match.group('var')}=null{PATCH_MARKER_HTML}",
+            patched,
+            count=1,
+        )
+        patched = V5_MARKDOWN_RE.sub(
+            lambda match: f"let {match.group('var')}=void 0{PATCH_MARKER_MARKDOWN};",
+            patched,
+            count=1,
+        )
+        patched = V5_RICH_FALLBACK_RE.sub(
+            lambda match: (
+                f"{match.group('editor')}?.pasteLiteralText(e,c)"
+                f"{PATCH_MARKER_MARKDOWN}?!0:"
+            ),
+            patched,
+            count=1,
+        )
+        return patched, True
 
     if has_v4:
         if text.count(V4_PLUGINS) != 1:
@@ -460,6 +578,11 @@ def status(asar: Path):
             or V4_PASTE_PREFIX in text
             or V4_HTML_RE.search(text) is not None
             or V4_MARKDOWN in text
+            or V5_PLUGINS in text
+            or V5_PASTE_PREFIX in text
+            or V5_HTML_RE.search(text) is not None
+            or V5_MARKDOWN_RE.search(text) is not None
+            or V5_RICH_FALLBACK_RE.search(text) is not None
         )
     ]
     return {

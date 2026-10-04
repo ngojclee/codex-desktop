@@ -585,9 +585,11 @@ The WS app-server transport class hardcodes `agent: new SocksProxyAgent(\`socks5
 
 Codex Desktop 26.715+ now performs this distinction upstream: it returns no
 SOCKS URL for `localhost`, `127.0.0.1`, or `[::1]`, while preserving the proxy
-for genuinely remote WebSocket hosts. Patch G recognizes that loopback guard
-as already safe and leaves the remote proxy behavior intact. CI fails only
-when the SOCKS literal remains in a layout without the loopback guard.
+for genuinely remote WebSocket hosts. `v26.930` spells the same condition as
+`host !== localhost && host !== 127.0.0.1 && host !== [::1]`; Patch G recognizes
+both equivalent forms as already safe and leaves the remote proxy behavior
+intact. CI fails only when the SOCKS literal remains in a layout without a
+recognized loopback guard.
 
 ### Patch M -- Shared WebSocket payload cap
 
