@@ -142,7 +142,7 @@ def update_integrity(meta: dict, data: bytes):
     if isinstance(integrity, dict) and integrity.get("algorithm") == "SHA256":
         integrity["hash"] = sha256_hex(data)
         block = int(integrity.get("blockSize") or 4194304)
-        integrity["blocks"] = [sha256_hex(data[i : i + block]) for i in range(0, len(data), block)]
+        integrity["blocks"] = [sha256_hex(data[i : i + block]) for i in range(0, max(len(data), 1), block)]
 
 
 def packed_entries(header):

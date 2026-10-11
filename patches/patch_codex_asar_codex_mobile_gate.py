@@ -17,14 +17,15 @@ Changes:
 - On 26.707+, accept the new setup-dialog layout where the old sidebar/profile
   condition is gone and remote-control visibility is the remaining UI gate.
 
-All replacements are same-length byte patches inside app.asar. No ASAR repack
-is needed, and reruns are safe.
+Replacements retain their byte length, but changed packed files are repacked
+with refreshed file/block integrity. Reruns are safe.
 """
 import argparse
 import json
 import re
 import shutil
 from pathlib import Path
+from asar_integrity import repack_same_length_changes
 
 
 BT = b"\x60"
@@ -191,7 +192,9 @@ def main():
             backup = asar.with_name("app.asar.bak-before-codex-mobile-gate")
             if not backup.exists():
                 shutil.copy2(asar, backup)
-        asar.write_bytes(patched)
+        changed_paths = repack_same_length_changes(asar, data, patched)
+    else:
+        changed_paths = []
 
     verify = asar.read_bytes()
     if SIDEBAR_GATE_PATTERN.search(verify) or PROFILE_FOOTER_GATE_PATTERN.search(verify):
@@ -205,6 +208,7 @@ def main():
     print(json.dumps({
         "status": "patched" if changed else "already_patched",
         "asar": str(asar),
+        "changed_paths": changed_paths,
         "sidebar_gate": sidebar_result,
         "gates": gate_results,
     }, indent=2))

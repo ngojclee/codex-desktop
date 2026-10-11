@@ -220,6 +220,7 @@ jobs:
           # matcher test raised ImportError for weeks while CI stayed green). Assert
           # every exit code instead of trusting the step to fail on its own.
           $matcherTests = @(
+            'patches/test_asar_integrity.py',
             'patches/test_directive_windows_path.py',
             'patches/test_model_availability_filter.py',
             'patches/test_custom_provider_fast_mode.py',
@@ -839,6 +840,7 @@ jobs:
           Native upstream fixes are verified rather than rewritten. Compatibility branches remain for older builds; see `docs/PATCH_INVENTORY.md` for per-patch ownership and acceptance gates.
           - **Patch A** — widen recent-thread discovery to 1000, including the 26.715+ runtime history helper used by native cursor pagination
           - **Patch B** — flip Electron fuse `EnableEmbeddedAsarIntegrityValidation` where present; Owl builds no-op here and use Patch B2's header integrity check
+          - **ASAR payload integrity gate** — recompute/verify every packed file and block SHA256 independently of B2; J/K now repack touched files with refreshed integrity, preventing delayed Owl validator FATAL crashes
           - **Patch C v3** — always-paginate older `refetchThreadList` layouts, or verify and preserve the native expanded-history cursor loop on current builds
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
             - skipped automatically on upstream `26.513.x` because that lane regressed thread-open hydration in the renderer

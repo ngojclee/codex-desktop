@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from asar_integrity import require_integrity
 
 from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN as PATCH_O_OLD_PATTERN,
@@ -811,6 +812,8 @@ def main():
     args = parser.parse_args()
 
     app_dir = Path(args.app_dir).resolve()
+    # Fail before marker/syntax checks: B2 only authenticates the header, not payloads.
+    require_integrity(app_dir / "resources" / "app.asar")
     version_file = app_dir / 'version'
     app_version = version_file.read_text(encoding='utf-8').strip() if version_file.exists() else ''
     expect_patch_d = not args.upstream_tag.startswith('v26.513.')
