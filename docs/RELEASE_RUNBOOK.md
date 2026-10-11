@@ -81,6 +81,8 @@ python patches/test_legacy_dynamic_app_tools.py
 ./patches/test_update_release_state.ps1
 ./patches/test_repair_project_config.ps1
 ./patches/test_app_tools_pipe_runtime.ps1
+./patches/test_google_mcp_runtime.ps1
+./patches/test_runtime_bundle.ps1
 ```
 
 Add a focused regression test for anything you change, and add it to that list.
@@ -191,6 +193,12 @@ run or superseded tag, before changing patch code.
 `runtime/` scripts in this repo are bundled into the installed `tools/` folder,
 so an installer change only reaches a machine through an install, never by
 editing the repo copy.
+
+Both release workflows delete inherited package `.ps1` helpers before copying
+the current `runtime/` tree, then run `patches/verify_runtime_bundle.ps1`.
+That verifier hashes every runtime file and rejects package-only PowerShell
+helpers. A staged or extracted `tools/` snapshot is evidence only; it is never
+an input source for a new release.
 
 Shortcut: `Start Menu\Programs\Update-Codex.lnk`. Explicit form, and the form to
 use when you must pin a tag:
