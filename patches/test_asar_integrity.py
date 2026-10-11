@@ -245,6 +245,13 @@ class AsarIntegrityTests(unittest.TestCase):
                 self.assertNotRegex(text, r"(?:asar|asar_path)\.write_bytes\(")
                 self.assertTrue("repack(" in text or "repack_same_length_changes(" in text)
 
+    def test_release_tag_targets_the_tested_checkout(self):
+        workflow = (PATCHES.parent / ".github/workflows/auto-repatch-release.yml").read_text(
+            encoding="utf-8")
+        publish = workflow.split("gh release create $tag $asset", 1)[1].split(
+            "\n        env:", 1)[0]
+        self.assertIn("--target $env:GITHUB_SHA", publish)
+
 
 if __name__ == "__main__":
     unittest.main()
