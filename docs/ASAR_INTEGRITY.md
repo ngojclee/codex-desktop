@@ -15,10 +15,31 @@ two mismatches (both file and block hashes):
 - `webview/assets/codex-mobile-setup-dialog-14044b54ea6c.js`
 - `webview/assets/profile-dropdown-items-a9739dde34e4.js`
 
-The same verified clean upstream ZIP scans with zero mismatches. Patch K wrote
-changed payload bytes without updating the entry hashes; Patch J had the same
-unsafe write pattern, although this specific bundle did not show a stale J
-entry. Same-length replacement preserves extents, not SHA256.
+The same verified clean upstream ZIP scans with zero mismatches. Both J and K
+wrote changed payload bytes without updating the entry hashes. Backup scans
+pin down the sequence more precisely than the initial owner attribution to K:
+
+- Before J (`app.asar.bak-before-cu-gate`): zero mismatches.
+- After J, before K (`app.asar.bak-before-codex-mobile-gate`): three mismatches,
+  in `app-shared-737655e1fb23.js` and the two files listed above.
+- After K, before O (`app.asar.bak-before-model-availability-filter`): four
+  mismatches, adding `app-initial-b8e1c8014bb4.js`.
+- After all old patches: two mismatches remain, both introduced by J. Later
+  integrity-aware repacks happened to refresh the other two entries.
+
+The corresponding after-J and after-K backups from the new clean build each
+scan all 20,986 files with zero mismatches. Same-length replacement preserves
+extents, not SHA256. J/K are both fixed regardless of which final entry happens
+to survive downstream repacking.
+
+The new clean full-check completed with exit 0, zero integrity mismatches,
+all marker/layout/syntax gates passing, and the separate B2 manifest matching
+header SHA256
+`f9dfcd7faaebed1df7b686c2d6e4b24ca4ffc04ee6a990114139ca51faff4ffe`.
+Archive length remains 582,263,253 bytes. Comparing streamed payload hashes of
+all 20,986 packed entries in the old/new final scratch archives finds zero
+changed payloads: the integrity fix does not change patched application logic.
+This is source/local-build evidence, not publication, installation or live UI.
 
 Affected release: `v26.1007.30912-patched-compat`, run `38134454941`,
 source `ffb2be99d24a8e7b32c2052e1b9e44dc7024b8c6`.
