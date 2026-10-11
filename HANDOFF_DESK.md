@@ -1957,7 +1957,7 @@ Owner update action remains gated on successful publication and asset checks.
 
 **Correction to the PASS above.** That gate verified markers, syntax and B2's
 header hash, NOT file/block integrity. It was not crash-safe acceptance. The
-new read-only scanner independently reproduces the exact two stale K entries
+new read-only scanner independently reproduces the exact two stale entries
 on the old `tmp_scripts/upstream-261007/full-check` bundle: 20,986 checked,
 two mismatches, exit 1. The updated `verify_markers.py` also exits 1 on that
 same archive, before any marker checks. No incident bytes were repaired.
@@ -1995,3 +1995,40 @@ transcript or database changes. The inherited
 I/V/X/W1/N are unchanged. Owner-reported serialport/native-ABI warnings are
 separate from the established ASAR crash and are not patched here. See
 `docs/ASAR_INTEGRITY.md` for audit, build gates and owner live acceptance.
+
+**Causal correction from backup evidence (same round).** The initial attribution
+of those final two entries to K was too narrow and incorrectly located the
+first mutation. Read-only scans of the old pipeline backups show: before J,
+zero mismatches; after J/before K, three mismatches (app-shared plus mobile
+setup-dialog and profile-dropdown); after K/before O, four mismatches (adds
+app-initial); final old bundle, two remain (the two J entries). Later repackers
+happened to refresh app-shared/app-initial, masking the rest. New pipeline
+after-J and after-K backups both scan 20,986 files with zero mismatches.
+This strengthens the fix for BOTH raw writers rather than changing its scope.
+
+**Committed/pushed and CI dispatched.** Source fix is
+`0c76cba7f34cb09073d31aff54a8c5a7efead5bf`; run `38174156115` uses this exact
+SHA and the distinct `asar-integrity` suffix. The fresh GitHub matcher gate
+has passed. Local clean full-check and subsequent CI/build/package gates are
+still in progress at this entry; none of this is an installed/live UI claim.
+
+**Clean full-check completed (exit 0).** All requested patches applied to the
+new clean upstream extraction. The pre-B2 and final verifier scans both report
+20,986 checked, zero mismatches, zero unpacked and zero without integrity.
+Every applicable marker/layout/syntax check and the separate B2 manifest check
+passes. Final ASAR length: 582,263,253 bytes. Header SHA256:
+`f9dfcd7faaebed1df7b686c2d6e4b24ca4ffc04ee6a990114139ca51faff4ffe`.
+`ChatGPT.exe` embeds that header hash; the launcher has no manifest.
+
+**Behavior-preservation proof.** A read-only streamed digest comparison between
+old final scratch ASAR and the new clean final ASAR reports 20,986 packed
+entries on each side and ZERO changed payloads. Only integrity/header metadata
+and the matching exe manifest differ. Probe:
+`tmp_scripts/upstream-261007/compare-integrity-payloads.py`. This is stronger
+than marker-only claims but still not live UI acceptance.
+
+**CI early gate passed.** Run `38174156115` has passed matcher tests and Apply
+patches, including the mandatory packed integrity gate. It entered source-built
+sidecar compilation at `2026-10-11T21:11:42Z`. Remaining gates: core tests/build,
+final verifier, packaging/publication, downloaded asset scan/fingerprint, and
+owner-coordinated live UI verification. No installed files/processes changed.
