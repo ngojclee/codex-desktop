@@ -6,6 +6,12 @@ Every upstream rebuild must pass the applicable checks below. A patch marked
 repairable; it must not be deleted merely because the current bundle already
 contains the equivalent behavior.
 
+When upstream provides the equivalent behavior, keep its detection/regression
+gate but do not apply the old behavioral rewrite. Such builds report
+`upstream_safe`/a native-layout outcome. C may retain its verification comment
+without rewriting native pagination. Older supported layouts still use the
+compatibility branch; removing those branches is a separate retirement decision.
+
 ## Release Pipeline
 
 Renderer patches run in this order:
@@ -18,6 +24,12 @@ The source-built `resources/codex.exe` lane runs in this order:
 
 `B2` must remain last among ASAR changes because it updates the Owl executable's
 embedded ASAR header hash after the final `app.asar` bytes are known.
+
+The shared release verifier must recognize every supported patcher layout.
+The 26.1007 gates include O's V5 safe/residual filter shape and complete R/U
+modern layouts, not marker presence alone. CI includes executable R/U fixtures
+and O's packed-ASAR verifier regression. Bundle checks are distinct from live
+Desktop/provider acceptance after installation.
 
 ## Renderer Patches
 
@@ -36,10 +48,10 @@ embedded ASAR header hash after the final `app.asar` bytes are known.
 | O | `patch_codex_asar_model_availability_filter.py` | Preserves non-hidden local/catalog models through the renderer allowlist. | Keep for custom catalog providers. `v26.1007` appends an access-program clause inside the allowlist branch, which is why the V5 matcher anchors on the ternary head only and leaves any trailing clause untouched. |
 | P | `patch_codex_asar_sol_max_effort.py` | Adds catalog-supported Sol Max to the compact Power control. | Keep while the custom Sol Max control is desired. |
 | Q | `patch_codex_asar_gpt_model_labels.py` | Preserves visible GPT prefixes in model labels. | Keep. |
-| R | `patch_codex_asar_custom_provider_fast_mode.py` | Allows catalog-declared Fast controls for API-key providers. | Keep while catalog Fast is desired. **Drift unresolved on `v26.1007`**: the anchored gate is gone and upstream replaced it with a capability helper returning `{fast: requirements?.fast_mode !== !1, ultrafast: (supportsIndependentSpeedModes === !0 || fast) && requirements?.ultrafast_mode !== !1}` with no account-type conjunct and default-allow, so R may now be native. Not declared upstream-safe until Fast is confirmed visible for an API-key provider on an unpatched `26.1007` build. |
-| S | `patch_codex_asar_custom_provider_ultra.py` | Allows catalog-declared Ultra for API-key providers without changing ChatGPT entitlement behavior. | Keep while catalog Ultra is desired. Shares R's open question on `v26.1007`: the new helper already defaults `ultrafast` to true when no requirements are loaded, so re-verifying before re-anchoring is required. |
+| R | `patch_codex_asar_custom_provider_fast_mode.py` | Allows catalog-declared Fast controls for API-key providers. | Keep while catalog Fast is desired. `v26.1007` now patches both the selector's speed-capability memo and its request-preparation caller, only for `apikey`. ChatGPT/personal-access-token requirements remain unchanged; catalog tier options are not synthesized. The memo tracks `authMethod`, not just a ChatGPT boolean, so auth transitions cannot reuse stale access. Both modern shapes/markers must be intact or verification fails. |
+| S | `patch_codex_asar_custom_provider_ultra.py` | Allows catalog-declared Ultra for API-key providers without changing ChatGPT entitlement behavior. | Keep while catalog Ultra is desired. Verified `patched` with no residual matched gate and Node syntax check passing on the real `v26.1007` Windows ASAR. This reasoning-effort gate is distinct from the newer service-tier helper's `ultrafast` speed capability. |
 | T | `patch_codex_asar_voice_paste_shortcut.py` | Removes the conflicting Windows `Ctrl+Shift+V` Voice Mode binding. Current Windows layouts may be upstream-safe. | Keep as compatibility/no-op. |
-| U | `patch_codex_asar_composer_input_safety.py` | Makes technical Markdown literal and suppresses duplicate paste delivery. | Keep; `v26.930` moved the composer into the `NFc` factory, and Patch U now validates that exact five-anchor layout before applying. |
+| U | `patch_codex_asar_composer_input_safety.py` | Makes technical Markdown literal and suppresses duplicate paste delivery. | Keep. Retains older composer layouts and adds structural `v26.1007` matching for plugin/input bindings and both normal/oversized HTML fallbacks. Only text paste/input-rule paths change; early file/image/page-reference handling, Codex mentions, code-block paste and explicit formatting remain. Partial/duplicated layouts or residual rich-paste paths fail loudly. |
 | Y | `patch_codex_asar_automation_mode_union.py` | Replaces the two fragile outer nested `mode` discriminated unions with plain unions so valid Automation `create`/`update` calls reach the MCP tool. Anchors are structural (the schema's own `view`/`delete` enum literals) and never minified names, so an upstream identifier rename is followed automatically; a bundle that already ships both unions flat reports `upstream_safe`. | Keep; current fix for the embedded-Zod discriminator bug. |
 | Z | `patch_codex_asar_legacy_dynamic_app_tools.py` | Relaxes the renderer guard only for the five legacy dynamic thread/automation tools, so old conversations can keep calling the old dynamic path while new conversations use the `codex_app` MCP lane. | **Deprecated on 26.930 and later.** Upstream dropped the `unsupported call` blocklist entirely: `callDynamicAppTool` now asks `dynamicAppTools.canCallTool(e)` instead, so the legacy tool path is governed by webview capabilities, not a hard-coded name list. Marked `upstream_safe` for 26.930+. |
 | B2 | `patch_codex_exe_asar_integrity_hash.py` | Updates the Owl executable's embedded ASAR header hash after all renderer patches. | Keep and run last. |

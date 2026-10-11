@@ -29,13 +29,115 @@ from patch_codex_asar_model_availability_filter import (
 
 
 PATCH_MARKER = "/*R:custom-provider-fast*/"
+MODERN_UI_MARKER = "/*R:service-tier-access*/"
+MODERN_REQUEST_MARKER = "/*R:service-tier-request*/"
+IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
 UPSTREAM_PATTERN = re.compile(
-    r"(?P<allowed>[A-Za-z_$][A-Za-z0-9_$]*)="
+    r"(?<![A-Za-z0-9_$])(?P<allowed>[A-Za-z_$][A-Za-z0-9_$]*)="
     r"(?P<chatgpt>[A-Za-z_$][A-Za-z0-9_$]*)&&"
     r"!(?P<loading>[A-Za-z_$][A-Za-z0-9_$]*)&&"
     r"(?P<requirements>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
     r"(?P=requirements)\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1"
 )
+# 26.1007 shares a speed-capability object between the selector and request
+# preparation. Both callers reject API-key auth even though catalog tiers exist.
+MODERN_UI_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_$])(?P<cache>{IDENT})\[(?P<req_slot>\d+)\]!=="
+    rf"(?P<requirements>{IDENT})\|\|(?P=cache)\[(?P<load_slot>\d+)\]!=="
+    rf"(?P<loading>{IDENT})\|\|(?P=cache)\[(?P<auth_slot>\d+)\]!=="
+    rf"(?P<chatgpt>{IDENT})\?\((?P<result>{IDENT})="
+    r"(?P=chatgpt)&&!(?P=loading)&&(?P=requirements)!=null\?"
+    rf"(?P<helper>{IDENT})\((?P=requirements)\):null,"
+    r"(?P=cache)\[(?P=req_slot)\]=(?P=requirements),"
+    r"(?P=cache)\[(?P=load_slot)\]=(?P=loading),"
+    r"(?P=cache)\[(?P=auth_slot)\]=(?P=chatgpt),"
+    r"(?P=cache)\[(?P<result_slot>\d+)\]=(?P=result)\)"
+    r":(?P=result)=(?P=cache)\[(?P=result_slot)\]"
+)
+AUTH_VAR_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_$])(?P<auth>{IDENT})="
+    rf"(?P<host>{IDENT})\?\.authMethod\?\?null"
+)
+MODERN_REQUEST_PATTERN = re.compile(
+    rf"async function (?P<function>{IDENT})\((?P<scope>{IDENT}),(?P<host>{IDENT})\)"
+    rf"\{{let (?P<auth>{IDENT})=await (?P<auth_reader>{IDENT})"
+    r"\((?P=scope),(?P=host)\);"
+    r"if\((?P=auth)!==`chatgpt`&&(?P=auth)!==`personalAccessToken`\)return null;"
+    rf"let (?P<requirements>{IDENT})=await (?P<reader>{IDENT})"
+    r"\((?P=scope),(?P=host),\{priority:`critical`\}\);"
+    rf"return (?P=scope)\.query\.setData\((?P<query>{IDENT}),"
+    r"\{authMethod:(?P=auth),hostId:(?P=host)\},(?P=requirements)\),"
+    rf"(?P<helper>{IDENT})\((?P=requirements)\)\}}"
+)
+PATCHED_MODERN_UI_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9_$])(?P<cache>{IDENT})\[(?P<req_slot>\d+)\]!=="
+    rf"(?P<requirements>{IDENT})\|\|(?P=cache)\[(?P<load_slot>\d+)\]!=="
+    rf"(?P<loading>{IDENT})\|\|(?P=cache)\[(?P<auth_slot>\d+)\]!=="
+    rf"(?P<auth>{IDENT})\?\((?P<result>{IDENT})=!(?P=loading)\?"
+    rf"\((?P<chatgpt>{IDENT})&&(?P=requirements)!=null\?(?P<helper>{IDENT})"
+    r"\((?P=requirements)\):(?P=auth)===`apikey`\?"
+    r"\{fast:!0,ultrafast:!0\}:null\):null"
+    + re.escape(PATCH_MARKER + MODERN_UI_MARKER)
+    + r",(?P=cache)\[(?P=req_slot)\]=(?P=requirements),"
+    r"(?P=cache)\[(?P=load_slot)\]=(?P=loading),"
+    r"(?P=cache)\[(?P=auth_slot)\]=(?P=auth),"
+    r"(?P=cache)\[(?P<result_slot>\d+)\]=(?P=result)\)"
+    r":(?P=result)=(?P=cache)\[(?P=result_slot)\]"
+)
+PATCHED_MODERN_REQUEST_PATTERN = re.compile(
+    MODERN_REQUEST_PATTERN.pattern.replace(
+        r"if\((?P=auth)!==`chatgpt`",
+        r"if\((?P=auth)===`apikey`\)return\{fast:!0,ultrafast:!0\}"
+        + re.escape(MODERN_REQUEST_MARKER)
+        + r";if\((?P=auth)!==`chatgpt`",
+        1,
+    )
+)
+
+
+def has_unpatched_gate(text: str) -> bool:
+    return bool(
+        UPSTREAM_PATTERN.search(text)
+        or MODERN_UI_PATTERN.search(text)
+        or MODERN_REQUEST_PATTERN.search(text)
+    )
+
+
+def _modern_auth_var(text: str, match: re.Match) -> str:
+    prefix = text[max(0, match.start() - 1200):match.start()]
+    candidates = list(AUTH_VAR_PATTERN.finditer(prefix))
+    if len(candidates) != 1:
+        raise RuntimeError("Expected one authMethod binding near the Fast memo gate")
+    binding = candidates[0]
+    host = re.escape(binding.group("host"))
+    flag = re.escape(match.group("chatgpt"))
+    if not re.search(
+        rf"(?<![A-Za-z0-9_$]){flag}={host}\?\.authMethod===`chatgpt`"
+        rf"\|\|{host}\?\.authMethod===`personalAccessToken`",
+        prefix,
+    ):
+        raise RuntimeError("Fast memo auth binding no longer matches its entitlement flag")
+    return binding.group("auth")
+
+
+def _check_modern_markers(text: str):
+    if MODERN_UI_MARKER not in text and MODERN_REQUEST_MARKER not in text:
+        return
+    if any(text.count(marker) != 1 for marker in (
+        PATCH_MARKER, MODERN_UI_MARKER, MODERN_REQUEST_MARKER
+    )):
+        raise RuntimeError("Incomplete or duplicated modern Fast compatibility patch")
+    if has_unpatched_gate(text):
+        raise RuntimeError("Unpatched Fast gate remains beside modern patch markers")
+    ui = list(PATCHED_MODERN_UI_PATTERN.finditer(text))
+    request = list(PATCHED_MODERN_REQUEST_PATTERN.finditer(text))
+    if len(ui) != 1 or len(request) != 1:
+        raise RuntimeError("Modern Fast patched memo/request shape drifted")
+    if (
+        _modern_auth_var(text, ui[0]) != ui[0].group("auth")
+        or ui[0].group("helper") != request[0].group("helper")
+    ):
+        raise RuntimeError("Modern Fast patched auth/helper bindings drifted")
 
 
 def find_targets(asar: Path):
@@ -49,14 +151,71 @@ def find_targets(asar: Path):
         ):
             continue
         text = extract(asar, payload_start, meta).decode("utf-8", "replace")
-        if PATCH_MARKER in text or UPSTREAM_PATTERN.search(text):
+        if PATCH_MARKER in text or (
+            ("fast_mode" in text or "serviceTierAccess:" in text)
+            and has_unpatched_gate(text)
+        ):
             targets.append((path, meta, text))
     return header, payload_start, targets
 
 
 def patch_text(text: str):
     if PATCH_MARKER in text:
+        _check_modern_markers(text)
+        if has_unpatched_gate(text):
+            raise RuntimeError("Unpatched Fast gate remains beside patch marker")
         return text, False
+
+    ui_matches = list(MODERN_UI_PATTERN.finditer(text))
+    request_matches = list(MODERN_REQUEST_PATTERN.finditer(text))
+    if ui_matches or request_matches:
+        if len(ui_matches) != 1 or len(request_matches) != 1:
+            raise RuntimeError(
+                "Expected one modern Fast UI gate and one request gate, "
+                f"found {len(ui_matches)} and {len(request_matches)}"
+            )
+        if UPSTREAM_PATTERN.search(text):
+            raise RuntimeError("Found mixed legacy and modern Fast gates")
+        ui, request = ui_matches[0], request_matches[0]
+        if ui.group("helper") != request.group("helper"):
+            raise RuntimeError("Fast UI and request gates no longer share a capability helper")
+        auth = _modern_auth_var(text, ui)
+        cache, req, loading, flag, result, helper = (
+            ui.group(key) for key in (
+                "cache", "requirements", "loading", "chatgpt", "result", "helper"
+            )
+        )
+        req_slot, load_slot, auth_slot, result_slot = (
+            ui.group(key) for key in ("req_slot", "load_slot", "auth_slot", "result_slot")
+        )
+        # Cache authMethod rather than the ChatGPT boolean: switching between
+        # two non-ChatGPT auth methods must also recompute the capability object.
+        ui_replacement = (
+            f"{cache}[{req_slot}]!=={req}||{cache}[{load_slot}]!=={loading}"
+            f"||{cache}[{auth_slot}]!=={auth}?("
+            f"{result}=!{loading}?({flag}&&{req}!=null?{helper}({req}):"
+            f"{auth}===`apikey`?{{fast:!0,ultrafast:!0}}:null):null"
+            f"{PATCH_MARKER}{MODERN_UI_MARKER},"
+            f"{cache}[{req_slot}]={req},{cache}[{load_slot}]={loading},"
+            f"{cache}[{auth_slot}]={auth},{cache}[{result_slot}]={result})"
+            f":{result}={cache}[{result_slot}]"
+        )
+        request_text = request.group(0)
+        insert_at = request_text.index(";") + 1
+        request_replacement = (
+            request_text[:insert_at]
+            + f"if({request.group('auth')}===`apikey`)"
+            + f"return{{fast:!0,ultrafast:!0}}{MODERN_REQUEST_MARKER};"
+            + request_text[insert_at:]
+        )
+        patched = text
+        for match, replacement in sorted(
+            [(ui, ui_replacement), (request, request_replacement)],
+            key=lambda entry: entry[0].start(), reverse=True,
+        ):
+            patched = patched[:match.start()] + replacement + patched[match.end():]
+        _check_modern_markers(patched)
+        return patched, True
 
     matches = list(UPSTREAM_PATTERN.finditer(text))
     if len(matches) != 1:
@@ -102,33 +261,48 @@ def syntax_errors(entries: list[tuple[str, str]]):
     return errors
 
 
-def verify(asar: Path):
+def status(asar: Path):
     _header, _payload_start, targets = find_targets(asar)
     marker_entries = [
         (path, text) for path, _meta, text in targets if PATCH_MARKER in text
     ]
     unpatched_paths = [
-        path for path, _meta, text in targets if UPSTREAM_PATTERN.search(text)
+        path for path, _meta, text in targets if has_unpatched_gate(text)
     ]
-    if not marker_entries:
-        raise SystemExit("Verification failed: Patch R marker not found")
-    if unpatched_paths:
-        raise SystemExit(
-            "Verification failed: upstream Fast auth gates remain: "
-            f"{sorted(set(unpatched_paths))}"
-        )
-
-    errors = syntax_errors(marker_entries)
-    if errors:
-        raise SystemExit(
-            "Verification failed: Patch R syntax errors:\n"
-            + "\n".join(f"  - {error}" for error in errors)
-        )
+    layout_errors = []
+    for path, text in marker_entries:
+        try:
+            _check_modern_markers(text)
+        except RuntimeError as exc:
+            layout_errors.append(f"{path}: {exc}")
     return {
         "marker_paths": sorted(path for path, _text in marker_entries),
         "unpatched_paths": sorted(set(unpatched_paths)),
-        "syntax_errors": errors,
+        "syntax_errors": syntax_errors(marker_entries),
+        "layout_errors": layout_errors,
     }
+
+
+def verify(asar: Path):
+    result = status(asar)
+    if not result["marker_paths"]:
+        raise SystemExit("Verification failed: Patch R marker not found")
+    if result["unpatched_paths"]:
+        raise SystemExit(
+            "Verification failed: upstream Fast auth gates remain: "
+            f"{result['unpatched_paths']}"
+        )
+    if result["syntax_errors"]:
+        raise SystemExit(
+            "Verification failed: Patch R syntax errors:\n"
+            + "\n".join(f"  - {error}" for error in result["syntax_errors"])
+        )
+    if result["layout_errors"]:
+        raise SystemExit(
+            "Verification failed: Patch R layout errors:\n"
+            + "\n".join(result["layout_errors"])
+        )
+    return result
 
 
 def main():

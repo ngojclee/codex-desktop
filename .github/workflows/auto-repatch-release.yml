@@ -222,9 +222,11 @@ jobs:
           $matcherTests = @(
             'patches/test_directive_windows_path.py',
             'patches/test_model_availability_filter.py',
+            'patches/test_custom_provider_fast_mode.py',
             'patches/test_custom_provider_ultra.py',
             'patches/test_voice_paste_shortcut.py',
             'patches/test_composer_input_safety.py',
+            'patches/test_composer_input_safety_261007.py',
             'patches/test_reconnect_clear.py',
             'patches/test_ws_socks_bypass.py',
             'patches/test_automation_mode_union.py',
@@ -833,9 +835,10 @@ jobs:
           superseded_patched_asset_updated_at=${{ steps.prevrelease.outputs.updated_at }}
           -->
 
-          ## Patches applied
+          ## Patches and compatibility checks
+          Native upstream fixes are verified rather than rewritten. Compatibility branches remain for older builds; see `docs/PATCH_INVENTORY.md` for per-patch ownership and acceptance gates.
           - **Patch A** — widen recent-thread discovery to 1000, including the 26.715+ runtime history helper used by native cursor pagination
-          - **Patch B** — flip Electron fuse `EnableEmbeddedAsarIntegrityValidation` so the modified asar is accepted
+          - **Patch B** — flip Electron fuse `EnableEmbeddedAsarIntegrityValidation` where present; Owl builds no-op here and use Patch B2's header integrity check
           - **Patch C v3** — always-paginate older `refetchThreadList` layouts, or verify and preserve the native expanded-history cursor loop on current builds
           - **Patch D** — clear renderer `conversations` Map on sidecar reconnect so the soft-refresh workflow actually refreshes UI content
             - skipped automatically on upstream `26.513.x` because that lane regressed thread-open hydration in the renderer
@@ -853,13 +856,13 @@ jobs:
           - **Patch O** — keep non-hidden local model catalog entries visible even when the renderer receives a Statsig model allowlist, so custom proxy models and `GPT-5.3 Codex Spark` are not hidden from the picker
           - **Patch P** — add catalog-supported `gpt-5.6-sol:max` to the compact Work power slider while leaving the built-in Available reasoning efforts setting in control of whether Max is visible
           - **Patch Q** — normalize leading `GPT-` model labels to `GPT ` instead of stripping the prefix, so entries such as `GPT-5.5`, `GPT-5.4-Mini`, and `gpt-5.2` remain visibly identified as GPT models
-          - **Patch R** — expose the catalog-declared Standard/Fast service-tier selector for custom API providers without changing the default tier or granting OpenAI Fast credits
+          - **Patch R** — expose catalog-declared speed tiers for custom API providers without changing the default tier or granting OpenAI Fast credits; 26.1007 checks both the selector and request-preparation path, preserving ChatGPT requirements and tracking auth changes in the selector cache
           - **Patch S** — retain catalog-declared Ultra reasoning for API-key providers while preserving the upstream ChatGPT Statsig gate; Codex maps Ultra to provider-compatible Max at the Responses API boundary
-          - **Patch T** — remove the conflicting default `Ctrl+Shift+V` Voice Mode keybinding so Windows paste-as-plain-text has a single input path; Voice Mode remains available from the UI and custom shortcuts
-          - **Patch U** — keep pasted Markdown/HTML and inline `_`/`*` sequences literal in the composer, while suppressing duplicate paste delivery for the same clipboard payload
+          - **Patch T** — remove the conflicting default `Ctrl+Shift+V` Voice Mode keybinding on older Windows layouts; preserve current upstream's platform-scoped default without rewriting it
+          - **Patch U** — keep pasted Markdown/HTML and inline `_`/`*` sequences literal, suppress duplicate text paste, and cover both regular and oversized HTML paths on 26.1007 while retaining files, images and Codex references
           - **Patch Y** — replace the two nested outer `automation_update` mode discriminated unions with plain unions so valid `create` and `update` calls survive the embedded Zod validator
-          - **Patch Z** — relax the renderer's legacy dynamic app-tool rejection only for the old five thread/automation tools, so existing conversations remain compatible while new conversations use the `codex_app` MCP lane
-          - **Codex app-tools pipe repair** — remove the obsolete static `mcp_servers.codex_app` command workaround from `config.toml` on pipe-capable Desktop bundles so Desktop can inject the per-session `CODEX_APP_TOOLS_PIPE_PATH`
+          - **Patch Z** — repair the old five-tool legacy dynamic rejection on older layouts; preserve the native capability-based route on 26.930+ without applying the obsolete rewrite
+          - **Codex app-tools pipe repair** — preserve complete legacy transport mappings, normalize pipeless static entries, and register/reload the live Desktop app-tools pipe for shared-sidecar mode through the bundled runtime helpers
           - **Model features sync** — add verified Max/Ultra metadata to existing GPT 5.6 Sol, Terra, and Luna catalog entries, then mirror the result to `models_cache.json`, without writing `model_catalog_json` into `config.toml`
           - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 

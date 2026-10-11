@@ -30,13 +30,16 @@ from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN_V2 as PATCH_O_OLD_PATTERN_V2,
     FILTER_PATTERN_V3 as PATCH_O_OLD_PATTERN_V3,
     FILTER_PATTERN_V4 as PATCH_O_OLD_PATTERN_V4,
+    FILTER_PATTERN_V5 as PATCH_O_OLD_PATTERN_V5,
     PATCHED_FILTER_PATTERN as PATCH_O_SAFE_PATTERN,
     PATCHED_FILTER_PATTERN_V2 as PATCH_O_SAFE_PATTERN_V2,
     PATCHED_FILTER_PATTERN_V3 as PATCH_O_SAFE_PATTERN_V3,
     PATCHED_FILTER_PATTERN_V4 as PATCH_O_SAFE_PATTERN_V4,
+    PATCHED_FILTER_PATTERN_V5 as PATCH_O_SAFE_PATTERN_V5,
     node_failure_line,
 )
 from patch_codex_asar_composer_input_safety import status as patch_u_status
+from patch_codex_asar_custom_provider_fast_mode import status as patch_r_status
 from patch_codex_asar_voice_paste_shortcut import (
     UPSTREAM_SAFE_PATTERN as PATCH_T_UPSTREAM_SAFE_PATTERN,
 )
@@ -84,14 +87,6 @@ PATCH_P_LEGACY_FILTER_MARKER = "/*P:max-filter*/"
 PATCH_P_SOL_MAX_ID = "id:`gpt-5.6-sol:max`"
 PATCH_Q_MARKER = "/*Q:gpt-label*/"
 PATCH_Q_OLD_PATTERN = re.compile(r"\.replace\(/\^GPT-/iu,(?:``|\"\"|'')\)")
-PATCH_R_MARKER = "/*R:custom-provider-fast*/"
-PATCH_R_UPSTREAM_PATTERN = re.compile(
-    r"(?P<allowed>[A-Za-z_$][A-Za-z0-9_$]*)="
-    r"(?P<chatgpt>[A-Za-z_$][A-Za-z0-9_$]*)&&"
-    r"!(?P<loading>[A-Za-z_$][A-Za-z0-9_$]*)&&"
-    r"(?P<requirements>[A-Za-z_$][A-Za-z0-9_$]*)!=null&&"
-    r"(?P=requirements)\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1"
-)
 PATCH_S_MARKER = "/*S:apikey-ultra*/"
 PATCH_S_UPSTREAM_PATTERN = re.compile(
     r"(?P<result>[A-Za-z_$][A-Za-z0-9_$]*)="
@@ -395,6 +390,8 @@ def model_availability_filter_status(app_dir: Path):
             or PATCH_O_SAFE_PATTERN_V3.search(text)
             or PATCH_O_OLD_PATTERN_V4.search(text)
             or PATCH_O_SAFE_PATTERN_V4.search(text)
+            or PATCH_O_OLD_PATTERN_V5.search(text)
+            or PATCH_O_SAFE_PATTERN_V5.search(text)
         ):
             candidate_paths.append(path)
         if (
@@ -402,6 +399,7 @@ def model_availability_filter_status(app_dir: Path):
             or PATCH_O_SAFE_PATTERN_V2.search(text)
             or PATCH_O_SAFE_PATTERN_V3.search(text)
             or PATCH_O_SAFE_PATTERN_V4.search(text)
+            or PATCH_O_SAFE_PATTERN_V5.search(text)
         ):
             marker_entries.append((path, text))
         if (
@@ -409,6 +407,7 @@ def model_availability_filter_status(app_dir: Path):
             or PATCH_O_OLD_PATTERN_V2.search(text)
             or PATCH_O_OLD_PATTERN_V3.search(text)
             or PATCH_O_OLD_PATTERN_V4.search(text)
+            or PATCH_O_OLD_PATTERN_V5.search(text)
         ):
             unpatched_paths.append(path)
 
@@ -612,49 +611,7 @@ def gpt_model_label_status(app_dir: Path):
 
 
 def custom_provider_fast_mode_status(app_dir: Path):
-    asar, payload_start, header = _read_asar(app_dir)
-    marker_entries = []
-    unpatched_paths = []
-
-    for path, meta in _walk(header):
-        if not (
-            (path.startswith("webview/assets/") or path.startswith(".vite/") or path.startswith("src/"))
-            and path.endswith(".js")
-            and "offset" in meta
-        ):
-            continue
-        text = _extract(asar, payload_start, meta)
-        if PATCH_R_MARKER in text:
-            marker_entries.append((path, text))
-        if PATCH_R_UPSTREAM_PATTERN.search(text):
-            unpatched_paths.append(path)
-
-    syntax_errors = []
-    node = shutil.which("node")
-    if marker_entries and node is None:
-        syntax_errors.append("node executable not found for Patch R syntax verification")
-    elif marker_entries:
-        with tempfile.TemporaryDirectory(prefix="codex-patch-r-syntax-") as temp_dir:
-            for index, (path, text) in enumerate(marker_entries):
-                check_path = Path(temp_dir) / f"chunk-{index}.mjs"
-                check_path.write_text(text, encoding="utf-8")
-                result = subprocess.run(
-                    [node, "--check", str(check_path)],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                    check=False,
-                )
-                if result.returncode != 0:
-                    syntax_errors.append(
-    f"{path}: {node_failure_line(result.stderr or result.stdout)}"
-                    )
-
-    return {
-        "marker_paths": sorted(path for path, _text in marker_entries),
-        "unpatched_paths": sorted(set(unpatched_paths)),
-        "syntax_errors": syntax_errors,
-    }
+    return patch_r_status(app_dir / "resources" / "app.asar")
 
 
 def custom_provider_ultra_status(app_dir: Path):
@@ -1117,6 +1074,7 @@ def main():
         ("Patch Q — touched renderer chunks pass syntax check", lambda: len(patch_q["syntax_errors"]) == 0, True),
         ("Patch R — custom-provider Fast selector marker", lambda: len(patch_r["marker_paths"]) > 0, True),
         ("Patch R — upstream Fast auth gate absent", lambda: len(patch_r["unpatched_paths"]) == 0, True),
+        ("Patch R — UI and request compatibility paths complete", lambda: len(patch_r["layout_errors"]) == 0, True),
         ("Patch R — touched renderer chunks pass syntax check", lambda: len(patch_r["syntax_errors"]) == 0, True),
         ("Patch S — API-key Ultra marker", lambda: len(patch_s["marker_paths"]) > 0, True),
         ("Patch S — upstream model-list Ultra gate absent", lambda: len(patch_s["unpatched_paths"]) == 0, True),
@@ -1133,6 +1091,7 @@ def main():
         ("Patch T — touched renderer chunks pass syntax check", lambda: len(patch_t["syntax_errors"]) == 0, True),
         ("Patch U — composer safety markers present", lambda: len(patch_u["marker_paths"]) > 0, True),
         ("Patch U — inline Markdown/paste layouts replaced", lambda: len(patch_u["unpatched_paths"]) == 0, True),
+        ("Patch U — modern paste compatibility paths complete", lambda: len(patch_u["layout_errors"]) == 0, True),
         ("Patch U — touched renderer chunks pass syntax check", lambda: len(patch_u["syntax_errors"]) == 0, True),
         ("Patch Y — automation mode unions flattened by patch or upstream", lambda: patch_y["marker_count"] == 2 or patch_y["upstream_safe"], True),
         ("Patch Y — nested automation mode unions absent", lambda: len(patch_y["unpatched_paths"]) == 0, True),
@@ -1162,9 +1121,11 @@ def main():
         "Patch P — touched renderer chunks pass syntax check": patch_p["syntax_errors"],
         "Patch Q — touched renderer chunks pass syntax check": patch_q["syntax_errors"],
         "Patch R — touched renderer chunks pass syntax check": patch_r["syntax_errors"],
+        "Patch R — UI and request compatibility paths complete": patch_r["layout_errors"],
         "Patch S — touched renderer chunks pass syntax check": patch_s["syntax_errors"],
         "Patch T — touched renderer chunks pass syntax check": patch_t["syntax_errors"],
         "Patch U — touched renderer chunks pass syntax check": patch_u["syntax_errors"],
+        "Patch U — modern paste compatibility paths complete": patch_u["layout_errors"],
         "Patch Y — touched renderer chunks pass syntax check": patch_y["syntax_errors"],
         "Patch Z — touched renderer chunks pass syntax check": patch_z["syntax_errors"],
         "Patch B2 — exe app.asar integrity manifest matches the asar header hash": integrity["mismatched"],
