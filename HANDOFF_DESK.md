@@ -2100,3 +2100,29 @@ this passes; the integrity/publisher suite now has 21 passing tests (the
 published run tested the original 20 integrity cases). This last change is
 release metadata only, not bundled application/core code, and does not require
 rebuilding the already-verified P0 artifact. Release notes record both refs.
+
+## 2026-10-12 - P0 scratch cleanup inspected, deletion blocked
+
+Owner requested cleanup of task-generated cache/temp files after completion.
+Read-only inspection identified two current-round scratch directories:
+
+- `tmp_scripts/upstream-261007/integrity-clean`: 10,329,205,410 file bytes,
+  3,609 files.
+- `tmp_scripts/upstream-261007/published-asar-integrity/app`:
+  2,315,540,603 file bytes, 3,629 files.
+
+Combined removable file payload is 12,644,746,013 bytes (12.64 GB decimal).
+Both resolved paths are within the intended scratch root, have no reparse
+points, contain no tracked files, and have no executable processes running
+from the scratch root. The guarded native PowerShell `Remove-Item` command
+was rejected by the execution layer BEFORE launch with `blocked by policy`.
+No alternate deletion route was attempted. Both directories were then
+confirmed still present: ZERO files deleted and ZERO reclaimed bytes claimed.
+
+The verified 924,799,033-byte published ZIP remains retained for owner update,
+as do small probe scripts/logs, inherited `full-check` incident evidence,
+`tail-check`, and the upstream ZIP. The historical staged paths documented
+above still exist. Installed CodexFromGithub, its hotfix/rollback backups,
+active processes, user config, transcripts/SQLite and other lanes' files
+were not touched. The Google MCP helper diff remains inherited and unstaged.
+Cleanup is pending an authorized deletion context, not an app/build blocker.
