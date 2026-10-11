@@ -21,30 +21,32 @@ from pathlib import Path
 
 PATCH_MARKER = "/*O*/"
 IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
+# Identifier boundaries avoid retrying a failed match at every suffix of long
+# minified identifiers or embedded payloads. Layout and replacement stay unchanged.
 FILTER_PATTERN = re.compile(
-    rf"(?P<flag>{IDENT})\?"
+    rf"(?<![A-Za-z0-9_$])(?P<flag>{IDENT})\?"
     rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)"
     rf":!(?P=model)\.hidden"
 )
 PATCHED_FILTER_PATTERN = re.compile(
-    rf"(?P<flag>{IDENT})\?\("
+    rf"(?<![A-Za-z0-9_$])(?P<flag>{IDENT})\?\("
     rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)"
     rf"\|\|(?:{re.escape(PATCH_MARKER)})?!(?P=model)\.hidden\)"
     rf":!(?P=model)\.hidden"
 )
 FILTER_PATTERN_V2 = re.compile(
-    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|\("
+    rf"(?<![A-Za-z0-9_$])(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|\("
     rf"(?P<flag>{IDENT})&&(?P<auth>{IDENT})!==`amazonBedrock`\?"
     rf"(?P<available>{IDENT})\.has\((?P=model)\.model\):!(?P=model)\.hidden\)"
 )
 PATCHED_FILTER_PATTERN_V2 = re.compile(
-    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|\("
+    rf"(?<![A-Za-z0-9_$])(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|\("
     rf"(?P<flag>{IDENT})&&(?P<auth>{IDENT})!==`amazonBedrock`\?"
     rf"\((?P<available>{IDENT})\.has\((?P=model)\.model\)\|\|(?:{re.escape(PATCH_MARKER)})?!"
     rf"(?P=model)\.hidden\):!(?P=model)\.hidden\)"
 )
 FILTER_PATTERN_V3 = re.compile(
-    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
+    rf"(?<![A-Za-z0-9_$])(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
     rf"(?P=model)\.model!==`codex-auto-review`&&\("
     rf"(?P<flag>{IDENT})&&!(?P<custom>{IDENT})&&"
     rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
@@ -52,7 +54,7 @@ FILTER_PATTERN_V3 = re.compile(
     rf"!(?P=model)\.hidden\)"
 )
 PATCHED_FILTER_PATTERN_V3 = re.compile(
-    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
+    rf"(?<![A-Za-z0-9_$])(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
     rf"(?P=model)\.model!==`codex-auto-review`&&\("
     rf"(?P<flag>{IDENT})&&!(?P<custom>{IDENT})&&"
     rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
@@ -65,7 +67,7 @@ PATCHED_FILTER_PATTERN_V3 = re.compile(
 # the Statsig allowlist ternary. Keep widening the allowlist branch so models
 # stay visible even when no catalog is configured.
 FILTER_PATTERN_V4 = re.compile(
-    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
+    rf"(?<![A-Za-z0-9_$])(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
     rf"(?P=model)\.model!==`codex-auto-review`&&\("
     rf"(?P<catalog>{IDENT})&&!(?P=model)\.hidden\|\|\("
     rf"(?P<flag>{IDENT})&&!(?P<custom>{IDENT})&&"
@@ -74,7 +76,7 @@ FILTER_PATTERN_V4 = re.compile(
     rf"!(?P=model)\.hidden\)\)"
 )
 PATCHED_FILTER_PATTERN_V4 = re.compile(
-    rf"(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
+    rf"(?<![A-Za-z0-9_$])(?P<extra>{IDENT})\?\.has\((?P<model>{IDENT})\.model\)===!0\|\|"
     rf"(?P=model)\.model!==`codex-auto-review`&&\("
     rf"(?P<catalog>{IDENT})&&!(?P=model)\.hidden\|\|\("
     rf"(?P<flag>{IDENT})&&!(?P<custom>{IDENT})&&"
