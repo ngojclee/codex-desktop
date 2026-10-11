@@ -58,6 +58,13 @@ Staged ASAR scan: 20,986 checked, zero mismatches. Staged exe/header and native
 core version checks pass. Installed/live UI acceptance is pending owner update
 and coordinated restart; see `docs/ASAR_INTEGRITY.md` and `HANDOFF_DESK.md`.
 
+New release tags must point to the workflow's tested `GITHUB_SHA`, not the
+default main branch at publication time. The publisher passes `--target`
+explicitly, and the regression suite guards it. Current `asar-integrity` tag
+ref `91cb1a8...` differs from artifact source `0c76cba7...` only in three
+documentation files; CI and bundled `.sidecar-source` establish exact identity.
+No tag rewrite or mutable-asset replacement is used to hide that distinction.
+
 The shared release verifier must recognize every supported patcher layout.
 The 26.1007 gates include O's V5 safe/residual filter shape and complete R/U
 modern layouts, not marker presence alone. CI includes executable R/U fixtures

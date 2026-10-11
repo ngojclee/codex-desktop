@@ -907,8 +907,10 @@ jobs:
 
           See [HANDOFF.md](https://github.com/ngojclee/codex-desktop/blob/main/docs/HANDOFF.md) and [README.md](https://github.com/ngojclee/codex-desktop/blob/main/README.md) for runtime workflow.
           '@
+          # Pin the tag to the tested checkout, not main after a long sidecar build.
           gh release create $tag $asset `
             --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
             --title "Codex Patched $tag" `
             --notes $notes
         env:
