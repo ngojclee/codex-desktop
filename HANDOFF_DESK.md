@@ -1917,3 +1917,38 @@ the filter replacement. O's 10 tests pass, including a 100 KB nonmatching payloa
 invalid identifier suffix, and the release-verifier regression. No regex gate
 was weakened or skipped. Actual bundle idempotency/full verification remains the
 next acceptance gate.
+
+**Clean full-bundle gate completed.** The clean extraction, complete renderer
+patch application and shared `verify_markers.py --upstream-tag v26.1007.30912`
+all exited 0. Every applicable verifier gate passed, including O V5, complete
+R/U modern layouts, native G/T/Z, native-pagination C, syntax and B2 integrity.
+The final ASAR header SHA256 is
+`e86ffce75ccbf1066524377da5a30dfee566c728f1b2826d0bf22c0b7e6e5a8f`
+and the archive is 582,263,253 bytes. The diagnostic version label printed
+`unknown`; artifact identity is established by the verified release tag/ZIP
+digest and the inspected package version, not that label. Computer Use's
+node_modules are absent in this upstream bundle, so L's package-presence check
+uses its existing conditional no-op; this is not live Computer Use acceptance.
+
+R/U patchers run again against that completed bundle both report
+`already_patched`, no changes, and no syntax/layout/residual-gate errors.
+Executable tests of its actual R selector/request and U paste bodies pass,
+including auth transitions, ChatGPT policy, literal/duplicate/large text paste,
+and file/image/reference/code preservation. Services are stubbed: no claim of
+live Desktop UI or provider acceptance.
+
+**Committed and pushed.** Source/tests/workflow/inventory are on main as
+`ffb2be99d24a8e7b32c2052e1b9e44dc7024b8c6`. The existing release workflow was
+dispatched as run `38134454941`, upstream `v26.1007.30912`, suffix `compat`,
+core pin `d6489472f3c15e87d2d7763a5fde033545c530f8`, stamp `0.154.0`,
+force false. Its exact source SHA was checked. CI was dispatched in parallel
+with the last local verifier stage; local verification has now completed.
+The last observed CI state was in progress at Apply patches, with no failed
+steps. Intended release: `v26.1007.30912-patched-compat`, not yet a published or
+installed artifact at this entry. Keep Rust/build, full verifier, runtime-file
+hash and packaging gates; do not bypass a failure to publish.
+
+No installation/restart, transcript/SQLite/config edits, automation mutations,
+model switch, external repository writes or removal of inherited scratch files
+occurred. X/W1 and the other source-built core patches are unchanged.
+Owner update action remains gated on successful publication and asset checks.
