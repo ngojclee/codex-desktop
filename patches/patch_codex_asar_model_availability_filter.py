@@ -88,16 +88,19 @@ PATCHED_FILTER_PATTERN_V4 = re.compile(
 #   ?r.has(o.model)||n===`apikey`&&t&&!o.hidden&&c?.some(e=>e!==`standard`)===!0:!o.hidden
 # Earlier layouts matched the whole expression, so any clause upstream appends to
 # the true branch breaks the match even though the allowlist check is untouched.
-# V5 anchors only on the ternary head (`auth!==`amazonBedrock`?available.has(...)||`)
+# V5 anchors on the literal `` !==`amazonBedrock`? `` that starts the ternary head
 # and leaves whatever follows in place, so the guard survives further clause
-# additions without ever rewriting a branch it cannot see.
+# additions without ever rewriting a branch it cannot see. The auth identifier is
+# deliberately left outside the match: it sits to the left of the literal prefix,
+# which keeps Python's literal-prefix scan fast across a 580 MB asar instead of
+# retrying a bare identifier pattern at every offset.
 FILTER_PATTERN_V5 = re.compile(
-    rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"!==`amazonBedrock`\?"
     rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)\|\|"
 )
 PATCHED_FILTER_PATTERN_V5 = re.compile(
-    rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
-    rf"\((?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)\|"
+    rf"!==`amazonBedrock`\?\("
+    rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)\|"
     rf"\|(?:{re.escape(PATCH_MARKER)})?!(?P=model)\.hidden\)\|\|"
 )
 
@@ -240,12 +243,11 @@ def patch_filter_text(text: str):
     text, v4_count = FILTER_PATTERN_V4.subn(replace_v4, text)
 
     def replace_v5(match: re.Match):
-        auth = match.group("auth")
         available = match.group("available")
         model = match.group("model")
-        # Keep the trailing clause the anchor deliberately does not capture.
+        # The auth identifier is untouched: the match starts after it.
         return (
-            f"{auth}!==`amazonBedrock`?"
+            f"!==`amazonBedrock`?"
             f"({available}.has({model}.model)||{PATCH_MARKER}!{model}.hidden)||"
         )
 
