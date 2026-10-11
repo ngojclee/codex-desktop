@@ -159,6 +159,7 @@ def make_patched_replace(match: re.Match, modern: bool) -> str:
     )
 
 MARKER = "__pdIds"  # unique token in patched output
+METHOD_NAME = "markAllConversationsNeedResumeAfterReconnect"
 
 
 def read_header(asar_path: Path):
@@ -184,44 +185,67 @@ def iter_files(node, parts=()):
             yield "/".join(cp), meta
 
 
-def find_target(header, asar_path: Path | None = None, payload_start: int | None = None):
+def classify_chunk(text: str) -> str:
+    """Classify a renderer chunk from its own bytes, never from its file name.
+
+    Returns "patched" when our marker is already present, otherwise "modern" or
+    "legacy" for the two reconnect body shapes we can rewrite, or "" when the
+    chunk only mentions the method (a caller) and must be left alone.
+    """
+    if MARKER in text:
+        return "patched"
+    if UNPATCHED_MODERN_RE.search(text):
+        return "modern"
+    if UNPATCHED_LEGACY_RE.search(text):
+        return "legacy"
+    return ""
+
+
+def _renderer_js_chunks(header):
     for path, meta in iter_files(header):
-        if (
+        if not (path.endswith(".js") and "offset" in meta and "size" in meta):
+            continue
+        if not (
             path.startswith("webview/assets/")
-            and path.endswith(".js")
-            and "app-server-manager-signals-" in path
-            and "offset" in meta
+            or path.startswith(".vite/")
+            or path.startswith("src/")
         ):
-            return path, meta
-    if asar_path is not None and payload_start is not None:
-        candidates = []
-        for path, meta in iter_files(header):
-            if not (path.endswith(".js") and "offset" in meta):
-                continue
-            text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
-            # Only the chunk that owns the reconnect method body may be patched, not any
-            # chunk that merely mentions it or carries the marker.
-            if "markAllConversationsNeedResumeAfterReconnect" not in text:
-                continue
-            if (
-                path.startswith("webview/assets/")
-                or path.startswith(".vite/")
-                or path.startswith("src/")
-            ):
-                candidates.append((path, meta))
-        # Upstream 26.930 puts the reconnect body in two chunk groups: the Vite
-        # `bootstrap-*.js` loader and the `app-shared-*.js` bundle. The bootstrap chunk is
-        # the owner that actually runs the reconnect path, so prefer it and only fall
-        # back to app-shared if it is the only match.
-        bootstrap = [c for c in candidates if "bootstrap" in c[0]]
-        if bootstrap:
-            if len(bootstrap) > 1:
-                raise RuntimeError(f"Multiple bootstrap reconnect chunks found: {[p for p, _ in bootstrap]}")
-            return bootstrap[0]
-        if candidates:
-            return candidates[0]
-        raise RuntimeError("Could not find reconnect renderer chunk")
-    raise RuntimeError("Could not find reconnect renderer chunk")
+            continue
+        yield path, meta
+
+
+def find_targets(header, asar_path: Path, payload_start: int):
+    """Every chunk that owns the reconnect method body.
+
+    Upstream 26.1007 ships the same host-manager class twice, once in the Vite
+    `.vite/build/src-*.js` bundle and once in `webview/assets/app-shared-*.js`,
+    while a third chunk (`.vite/build/main-*.js`) only calls the method. The old
+    name-based selection picked whichever candidate came first, so it landed on
+    the caller and reported `pattern_not_found` even though the body was intact.
+    Selecting by content also means a duplicated bundle gets patched in both
+    copies instead of silently keeping one stale.
+    """
+    targets = []
+    for path, meta in _renderer_js_chunks(header):
+        # Cheap substring gate first: running four regexes over every JS chunk in a
+        # 580 MB asar dominated this patcher's runtime once it scanned twice.
+        text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
+        if METHOD_NAME not in text:
+            continue
+        kind = classify_chunk(text)
+        if kind:
+            targets.append({"path": path, "meta": meta, "kind": kind})
+    return targets
+
+
+def _near_sample(asar_path: Path, header, payload_start: int) -> str:
+    """Best-effort hint for a drift report: the first mention of the method."""
+    for path, meta in _renderer_js_chunks(header):
+        text = extract(asar_path, payload_start, meta).decode("utf-8", "replace")
+        idx = text.find(METHOD_NAME)
+        if idx >= 0:
+            return text[idx : idx + 400]
+    return ""
 
 
 def extract(asar_path: Path, payload_start: int, meta: dict) -> bytes:
@@ -300,48 +324,62 @@ def apply(app_dir: Path) -> dict:
         return {"status": "missing", "asar": str(asar_path)}
 
     header, payload_start = read_header(asar_path)
-    target_path, target_meta = find_target(header, asar_path, payload_start)
-    original = extract(asar_path, payload_start, target_meta).decode("utf-8", "replace")
+    found = find_targets(header, asar_path, payload_start)
+    if not found:
+        return {
+            "status": "pattern_not_found",
+            "asar": str(asar_path),
+            "near": _near_sample(asar_path, header, payload_start),
+        }
 
-    if MARKER in original:
-        return {"status": "already_patched", "asar": str(asar_path)}
+    patched_chunks = []
+    # Each repack shifts every later offset, so the header is re-read between
+    # chunks rather than trusting the scan that found them.
+    for _round in range(8):
+        header, payload_start = read_header(asar_path)
+        pending = [t for t in find_targets(header, asar_path, payload_start) if t["kind"] != "patched"]
+        if not pending:
+            break
+        target = pending[0]
+        original = extract(asar_path, payload_start, target["meta"]).decode("utf-8", "replace")
+        is_modern = target["kind"] == "modern"
+        match = (UNPATCHED_MODERN_RE if is_modern else UNPATCHED_LEGACY_RE).search(original)
+        if match is None:
+            return {"status": "error", "reason": f"anchor lost for {target['path']}"}
 
-    modern_match = UNPATCHED_MODERN_RE.search(original)
-    legacy_match = UNPATCHED_LEGACY_RE.search(original) if modern_match is None else None
-    match = modern_match or legacy_match
-    is_modern = modern_match is not None
+        patched_text = original[: match.start()] + make_patched_replace(match, is_modern) + original[match.end():]
+        if MARKER not in patched_text:
+            return {"status": "error", "reason": "marker missing after replace"}
 
-    if match is None:
-        # Try to give a useful hint
-        sample = ""
-        idx = original.find("markAllConversationsNeedResumeAfterReconnect")
-        if idx >= 0:
-            sample = original[idx:idx+400]
-        return {"status": "pattern_not_found", "asar": str(asar_path), "near": sample}
+        bak = asar_path.with_name("app.asar.bak-before-patch-d")
+        if not bak.exists():
+            shutil.copy2(asar_path, bak)
 
-    patched_text = original[: match.start()] + make_patched_replace(match, is_modern) + original[match.end() :]
-    if MARKER not in patched_text:
-        return {"status": "error", "reason": "marker missing after replace"}
+        repack(asar_path, header, payload_start, target["path"], patched_text.encode("utf-8"))
+        patched_chunks.append({
+            "path": target["path"],
+            "layout": target["kind"],
+            "old_size": len(original),
+            "new_size": len(patched_text),
+            "delta_bytes": len(patched_text) - len(original),
+        })
+    else:
+        return {"status": "error", "reason": "reconnect chunks did not converge"}
 
-    bak = asar_path.with_name("app.asar.bak-before-patch-d")
-    if not bak.exists():
-        shutil.copy2(asar_path, bak)
-
-    repack(asar_path, header, payload_start, target_path, patched_text.encode("utf-8"))
-
-    h2, ps2 = read_header(asar_path)
-    tp2, tm2 = find_target(h2, asar_path, ps2)
-    js2 = extract(asar_path, ps2, tm2).decode("utf-8", "replace")
-    if MARKER not in js2:
-        return {"status": "error", "reason": "verify failed"}
+    header, payload_start = read_header(asar_path)
+    verify = find_targets(header, asar_path, payload_start)
+    if not verify or any(t["kind"] != "patched" for t in verify):
+        return {"status": "error", "reason": "verify failed", "chunks": [t["path"] for t in verify]}
 
     return {
-        "status": "patched",
+        "status": "patched" if patched_chunks else "already_patched",
         "asar": str(asar_path),
-        "target": target_path,
-        "old_size": len(original),
-        "new_size": len(patched_text),
-        "delta_bytes": len(patched_text) - len(original),
+        "target": patched_chunks[0]["path"] if patched_chunks else verify[0]["path"],
+        "targets": [t["path"] for t in verify],
+        "patched_chunks": patched_chunks,
+        "old_size": sum(c["old_size"] for c in patched_chunks),
+        "new_size": sum(c["new_size"] for c in patched_chunks),
+        "delta_bytes": sum(c["delta_bytes"] for c in patched_chunks),
     }
 
 

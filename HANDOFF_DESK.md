@@ -1707,3 +1707,88 @@ the next gate: commit only these source, verifier, test, inventory, and
 append-only handoff updates; trigger a distinct
 `v26.930.31730-patched-sidecarchat` release; then verify its artifact and
 digest before telling an operator to run `Update-Codex`.
+
+## 2026-10-11 - 26.930 lane installed, `codex doctor` triage, and 26.1007 drift
+
+**Installed state (measured on 10.11.1.1).** The owner ran the shortcut and the
+install is now `v26.930.31730-patched-sidecarchat`, digest
+`sha256:83d757f334cab1bae08b0c92e53f401ee5ad714e0c1aa5fd57754583cad8d27a`,
+asset updated `2026-10-04T10:51:37Z`, installed `2026-10-11T07:50:58Z`.
+`tools\.sidecar-source` reports the source-built sidecar `codex-cli 0.154.0`
+from `openai/codex@d6489472`. This is the release that was gated on 2026-10-04.
+
+**`codex doctor` findings, answered.**
+
+- "updates 0.162.1 available (current 0.154.0)" is **not a defect**. The sidecar
+  is pinned to a verified Rust ref on purpose: Patch I/N/V/X/W1 anchor on exact
+  upstream snippets, and the workflow comment says a pin bump is a deliberate
+  re-validation act. Upstream `openai/codex` latest stable is `0.162.1`, so the
+  gap is 8 releases and is tracked, not fixed by a restart. The same notice also
+  fires for the separate official CLI at
+  `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe` (`0.155.0`), which is a
+  different lane and is not patched by us.
+- **Hazard worth recording**: that pinned sidecar still exposes a real
+  `codex update` subcommand ("Update Codex to the latest version"). Running it
+  against the patched install overwrites `resources\codex.exe` with an unpatched
+  binary and silently drops Patch I/N/V/X/W1. The only supported update path for
+  this build is the GitHub release plus `Update-Codex`.
+- "Set the missing MCP env vars" for `CODEX_WINDOWS_REGISTERED_CORE` must **not**
+  be added. In `app.asar` the app owns this variable: it sets
+  `process.env.CODEX_WINDOWS_REGISTERED_CORE = 1` only for a registered Windows
+  core and explicitly `delete`s it for packaged/portable launches and again
+  before spawning the app-server unless registered. Our install
+  (`%LOCALAPPDATA%\CodexFromGithub`) is not the registered core, so the value is
+  legitimately absent. `config.toml` already carries the forwarding plumbing
+  (`mcp_servers.node_repl.env_vars = [CODEX_WINDOWS_REGISTERED_CORE]` plus
+  `NODE_REPL_UNTRUSTED_ENV_ALLOWLIST`), and `node_repl` starts fine, so this is
+  an optional advisory. Injecting a fake `1` would tell the runtime it is a
+  registered install, which is wrong.
+
+**Two pipeline defects found while chasing CI red.** The workflow has been failing
+since 2026-10-06 (runs 37449594482 through 38079279408), never quota:
+
+1. `patches/test_reconnect_clear.py` was stale - it imported `UNPATCHED_RE` and
+   called `make_patched_replace(match)` after the module moved to
+   `UNPATCHED_LEGACY_RE` / `UNPATCHED_MODERN_RE` and a required `modern`
+   argument. It raised `ImportError` with exit 1, and the "Test patcher matchers"
+   step ignored it because `shell: pwsh` does not treat a native command's
+   nonzero exit as an error. The step now asserts `$LASTEXITCODE` per python
+   test. The PowerShell test scripts already fail loud through `throw`.
+2. Every release ZIP shipped `ChatGPT.exe.bak-before-exe-hash` (4.5 MB, the exe
+   integrity patcher's own backup). The cleanup step enumerated known names and
+   covered only `Codex.exe.bak-before-fuse-patch` plus `resources\app.asar.bak-*`,
+   so root-level exe backups passed through into the install folder. The step now
+   sweeps `*.bak-before-*` recursively.
+
+**Patch D selection bug (root cause of the 26.1007 failure).** `find_target` kept
+any chunk that merely *contained* the method name and preferred a `bootstrap`
+file name. `v26.1007` renamed the chunk and duplicated the class, so
+`.vite/build/main-BklS_2Y2.js` (caller only) became the candidate and the patcher
+reported `pattern_not_found` even though the body was intact in
+`.vite/build/src-BJv5Mk7n.js` and `webview/assets/app-shared-737655e1fb23.js`.
+Selection is now content-classified (`patched` / `modern` / `legacy` / ignored)
+and every owner chunk is patched, re-reading the ASAR header between repacks
+because each repack shifts later offsets. Measured on the real 26.1007 bundle:
+two chunks patched, and a caller-only chunk is no longer a target.
+
+**Patch O V5.** 26.1007 widened the allowlist branch with
+`|| n===`apikey` && t && !o.hidden && c?.some(e => e !== `standard`) === !0`,
+which broke the whole-expression V1-V4 matchers. V5 anchors on the ternary head
+`auth !== `amazonBedrock` ? available.has(model.model) ||` and leaves the trailing
+clause untouched, so the guard survives further clause additions. Verified against
+the real bundle (`patched`, 1 replacement, verify passes).
+
+**State of the 26.1007 migration (not finished, nothing published).** Against the
+real `v26.1007.30912` Windows bundle (internal app version `26.1007.21434`):
+A, B (no fuse sentinel), C, D, G (`upstream_loopback_safe`), M, H, J, K, L and O
+all apply. It stops at **Patch R**: `Could not find renderer Fast service-tier
+auth gate`, and Patch S shares the same question. Upstream replaced our anchor
+with a capability helper `{fast: requirements?.fast_mode !== !1, ultrafast:
+(supportsIndependentSpeedModes === !0 || fast) && requirements?.ultrafast_mode
+!== !1}` that has no account-type conjunct and defaults to allow, so R and S may
+already be native. **Deliberately not declared `upstream_safe`**: that claim needs
+Fast and Ultra confirmed visible for an API-key provider on an unpatched 26.1007
+build, otherwise the next release silently loses a feature the owner uses today.
+T, U, Y, Z and B2 are unverified on 26.1007 because the run stops at R. No release
+was created this round; `v26.930.31730-patched-sidecarchat` remains the newest
+patched lane and the installed build.
