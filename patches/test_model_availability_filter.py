@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import tempfile
 import unittest
+from pathlib import Path
 
 from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN,
@@ -11,8 +13,10 @@ from patch_codex_asar_model_availability_filter import (
     PATCHED_FILTER_PATTERN_V4,
     PATCHED_FILTER_PATTERN_V5,
     PATCH_MARKER,
+    make_header,
     patch_filter_text,
 )
+from verify_markers import model_availability_filter_status
 
 
 class ModelAvailabilityFilterTests(unittest.TestCase):
@@ -118,6 +122,41 @@ class ModelAvailabilityFilterTests(unittest.TestCase):
         again, second_count = patch_filter_text(patched)
         self.assertEqual(second_count, 0)
         self.assertEqual(again, patched)
+
+    def test_identifier_suffix_is_not_a_filter(self):
+        source = "7flag?allowed.has(item.model):!item.hidden"
+        patched, count = patch_filter_text(source)
+        self.assertEqual((patched, count), (source, 0))
+        self.assertIsNone(FILTER_PATTERN.search(source))
+
+    def test_large_nonmatching_identifier(self):
+        source = "const payload=`" + "a" * 100000 + "`;"
+        self.assertEqual(patch_filter_text(source), (source, 0))
+
+    def test_release_verifier_recognizes_v5_and_residual_gate(self):
+        source = (
+            "function filter(n,r,o){return n!==`amazonBedrock`?"
+            "r.has(o.model)||n===`apikey`&&!o.hidden:!o.hidden}"
+        )
+        path = "webview/assets/filter.js"
+        with tempfile.TemporaryDirectory(prefix="codex-model-filter-test-") as temp:
+            app_dir = Path(temp)
+            resources = app_dir / "resources"
+            resources.mkdir()
+            for text, expected_markers, expected_unpatched in (
+                (source, [], [path]),
+                (patch_filter_text(source)[0], [path], []),
+            ):
+                data = text.encode("utf-8")
+                header = {"files": {"webview": {"files": {"assets": {"files": {
+                    "filter.js": {"offset": "0", "size": len(data)},
+                }}}}}}
+                (resources / "app.asar").write_bytes(make_header(header) + data)
+                status = model_availability_filter_status(app_dir)
+                self.assertEqual(status["marker_paths"], expected_markers)
+                self.assertEqual(status["unpatched_paths"], expected_unpatched)
+                self.assertEqual(status["candidate_paths"], [path])
+                self.assertEqual(status["syntax_errors"], [])
 
 
 if __name__ == "__main__":

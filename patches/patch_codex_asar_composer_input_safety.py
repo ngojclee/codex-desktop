@@ -213,9 +213,137 @@ V5_MARKDOWN_RE = re.compile(
     r"(?P<text>[A-Za-z_$][A-Za-z0-9_$]*)\):void 0;"
 )
 V5_RICH_FALLBACK_RE = re.compile(
-    r"(?P<editor>[A-Za-z_$][A-Za-z0-9_$]*)\?\.pastePreferredHtml\(e,l,c\)"
+    r"(?<![A-Za-z0-9_$])(?P<editor>[A-Za-z_$][A-Za-z0-9_$]*)\?\.pastePreferredHtml\(e,l,c\)"
     r"\|\|(?P=editor)\?\.pasteLiteralText\(e,c\)\?!0:"
 )
+
+IDENT = r"[A-Za-z_$][A-Za-z0-9_$]*"
+V6_MARKER = "/*U:composer-26.1007*/"
+V6_PASTE_BLOCK_RE = re.compile(
+    rf"handlePaste\((?P<view>{IDENT}),(?P<event>{IDENT})\)"
+    r"\{(?P<body>[\s\S]{0,25000}?)\},handleDrop\("
+)
+V6_PLUGINS_RE = re.compile(
+    rf"(?<![A-Za-z0-9_$])(?P<plugins>{IDENT})\.listInput,"
+    r"(?P=plugins)\.codeBlockFenceExit,(?P=plugins)\.inputRules,"
+    r"(?P=plugins)\.inputRulesHistoryIsolation"
+)
+V6_PASTE_ENTRY_RE = re.compile(
+    rf"if\((?P<text>{IDENT})==null\)return!1;"
+    rf"if\(\((?P<plain>{IDENT})\|\|(?P<consumed>{IDENT})\)"
+    r"&&(?P=text)\.length===0\)return!0;"
+    rf"let (?P<large>{IDENT})=(?P<html>{IDENT})!=null&&"
+    r"(?P=html)\.length>1e5;"
+    r"if\((?P=large)&&(?P=text)\.length===0\)return!0;"
+)
+V6_HTML_RE = re.compile(
+    V5_HTML_RE.pattern.replace(
+        r"\(e,(?P=html)\):null", rf"\((?P<view>{IDENT}),(?P=html)\):null"
+    )
+)
+
+
+def _v6_blocks(text: str):
+    return [
+        match for match in V6_PASTE_BLOCK_RE.finditer(text)
+        if V6_PASTE_ENTRY_RE.search(match.group("body"))
+    ]
+
+
+def _patch_v6(text: str, blocks: list[re.Match]) -> str:
+    if len(blocks) != 1:
+        raise RuntimeError(f"Expected one 26.1007 composer paste body, found {len(blocks)}")
+    block = blocks[0]
+    body = block.group("body")
+    plugins = list(V6_PLUGINS_RE.finditer(text))
+    entries = list(V6_PASTE_ENTRY_RE.finditer(body))
+    html_matches = list(V6_HTML_RE.finditer(body))
+    markdown_matches = list(V5_MARKDOWN_RE.finditer(body))
+    if any(len(matches) != 1 for matches in (plugins, entries, html_matches, markdown_matches)):
+        raise RuntimeError(
+            "Incomplete 26.1007 composer layout: expected one plugin list, "
+            "paste entry, HTML parse and Markdown parse; found "
+            f"{len(plugins)}, {len(entries)}, {len(html_matches)}, {len(markdown_matches)}"
+        )
+    entry, html, markdown = entries[0], html_matches[0], markdown_matches[0]
+    view, event = block.group("view"), block.group("event")
+    plain, consumed, raw, text_var, large = (
+        entry.group(key) for key in ("plain", "consumed", "html", "text", "large")
+    )
+    if html.group("view") != view or any(
+        match.group(key) != entry.group(key)
+        for match in (html, markdown)
+        for key in ("plain", "consumed", "html", "text")
+    ):
+        raise RuntimeError("26.1007 paste entry and parsers no longer share their inputs")
+    v, h, c = map(re.escape, (view, raw, text_var))
+    regular_re = re.compile(
+        rf"(?P<editor>{IDENT})\?\.pastePreferredHtml\({v},{h},{c}\)"
+        rf"\|\|(?P=editor)\?\.pasteLiteralText\({v},{c}\)\?!0:"
+    )
+    large_re = re.compile(
+        rf"if\({re.escape(large)}\)return [^;]{{0,300}}?&&"
+        rf"(?P<editor>{IDENT})\?\.pastePreferredHtml\({v},{h}\.trim\(\),{c}\)"
+        rf"\|\|(?P=editor)\?\.pasteLiteralText\({v},{c}\)"
+        rf"\|\|(?P<fallback>{IDENT})\({v},{c}\),!0;"
+    )
+    regular, oversized = list(regular_re.finditer(body)), list(large_re.finditer(body))
+    if len(regular) != 1 or len(oversized) != 1 or body.count(".pastePreferredHtml(") != 2:
+        raise RuntimeError("26.1007 rich paste fallback layout drifted")
+    if regular[0].group("editor") != oversized[0].group("editor"):
+        raise RuntimeError("26.1007 rich paste paths no longer share their editor")
+    if any(name in body for name in ("__codexPasteNow", "__codexPastePrevious")):
+        raise RuntimeError("26.1007 duplicate-paste local names already exist")
+
+    # Only text handling changes. The earlier image/file/page-reference paths,
+    # special Codex mentions, code-block paste and explicit formatting stay intact.
+    null_guard = f"if({text_var}==null)return!1;"
+    guard = (
+        null_guard
+        + f"let __codexPasteNow=Date.now(),__codexPastePrevious={view}.dom.__codexLiteralPaste;"
+        + f"if(__codexPastePrevious!=null&&__codexPastePrevious.text==={text_var}"
+        + "&&__codexPasteNow-__codexPastePrevious.at<250)"
+        + f"return {event}.preventDefault(),!0;"
+        + f"{view}.dom.__codexLiteralPaste={{at:__codexPasteNow,text:{text_var}}};"
+        + PATCH_MARKER_DEDUPE + V6_MARKER
+    )
+    replacements = [
+        (entry, entry.group(0).replace(null_guard, guard, 1)),
+        (html, f"let {html.group('var')}=null{PATCH_MARKER_HTML}"),
+        (markdown, f"let {markdown.group('var')}=void 0{PATCH_MARKER_MARKDOWN};"),
+        (regular[0], f"{regular[0].group('editor')}?.pasteLiteralText({view},{text_var})"
+         + PATCH_MARKER_MARKDOWN + "?!0:"),
+        (oversized[0], f"if({large})return {oversized[0].group('editor')}?"
+         + f".pasteLiteralText({view},{text_var})||"
+         + f"{oversized[0].group('fallback')}({view},{text_var})"
+         + PATCH_MARKER_MARKDOWN + ",!0;"),
+    ]
+    for match, replacement in sorted(replacements, key=lambda item: item[0].start(), reverse=True):
+        body = body[:match.start()] + replacement + body[match.end():]
+    patched = text[:block.start("body")] + body + text[block.end("body"):]
+    plugin = plugins[0]
+    owner = plugin.group("plugins")
+    return patched.replace(
+        plugin.group(0),
+        f"{owner}.listInput,{owner}.codeBlockFenceExit{PATCH_MARKER_INPUT_RULES}",
+        1,
+    )
+
+
+def _v6_layout_errors(text: str):
+    if V6_MARKER not in text:
+        return []
+    bodies = [
+        block.group("body") for block in V6_PASTE_BLOCK_RE.finditer(text)
+        if V6_MARKER in block.group("body")
+    ]
+    if len(bodies) != 1 or text.count(V6_MARKER) != 1:
+        return ["26.1007 composer patch marker does not identify exactly one paste body"]
+    if ".pastePreferredHtml(" in bodies[0] or _v6_blocks(text):
+        return ["26.1007 composer still contains an unpatched rich/duplicate paste path"]
+    if V6_PLUGINS_RE.search(text):
+        return ["26.1007 composer input rules remain enabled"]
+    return []
 
 
 def _inline_rules_match(text: str):
@@ -268,6 +396,7 @@ def find_targets(asar: Path):
             or V5_HTML_RE.search(text) is not None
             or V5_MARKDOWN_RE.search(text) is not None
             or V5_RICH_FALLBACK_RE.search(text) is not None
+            or _v6_blocks(text)
             or _inline_rules_match(text)
         ):
             targets.append((path, meta, text))
@@ -276,7 +405,14 @@ def find_targets(asar: Path):
 
 def patch_text(text: str):
     if all(marker in text for marker in PATCH_MARKERS):
+        errors = _v6_layout_errors(text)
+        if errors:
+            raise RuntimeError("; ".join(errors))
         return text, False
+
+    v6_blocks = _v6_blocks(text)
+    if v6_blocks:
+        return _patch_v6(text, v6_blocks), True
 
     matches = _inline_rules_match(text)
     has_v1 = (
@@ -583,12 +719,17 @@ def status(asar: Path):
             or V5_HTML_RE.search(text) is not None
             or V5_MARKDOWN_RE.search(text) is not None
             or V5_RICH_FALLBACK_RE.search(text) is not None
+            or _v6_blocks(text)
         )
     ]
     return {
         "marker_paths": sorted(path for path, _text in marker_entries),
         "unpatched_paths": sorted(set(upstream_paths)),
         "syntax_errors": syntax_errors(marker_entries),
+        "layout_errors": [
+            f"{path}: {error}" for path, text in marker_entries
+            for error in _v6_layout_errors(text)
+        ],
     }
 
 
@@ -605,6 +746,11 @@ def verify(asar: Path):
         raise SystemExit(
             "Verification failed: Patch U syntax errors:\n"
             + "\n".join(f"  - {error}" for error in result["syntax_errors"])
+        )
+    if result["layout_errors"]:
+        raise SystemExit(
+            "Verification failed: Patch U layout errors:\n"
+            + "\n".join(result["layout_errors"])
         )
     return result
 

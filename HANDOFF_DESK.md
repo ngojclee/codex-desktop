@@ -1792,3 +1792,128 @@ build, otherwise the next release silently loses a feature the owner uses today.
 T, U, Y, Z and B2 are unverified on 26.1007 because the run stops at R. No release
 was created this round; `v26.930.31730-patched-sidecarchat` remains the newest
 patched lane and the installed build.
+
+## 2026-10-11 - Live release recheck and bounded 26.1007 tail investigation
+
+**GitHub and installation (measured, no install/restart).** `main` and GitHub
+`main` are `ab34ebed700706e5d7b6685ad986a912d4211f74`. The latest patched run
+is `38079279408`, failed on `2756cf0`; its logs show both the stale reconnect
+test ImportError and Patch D `pattern_not_found`. No run using `ab34ebe` was
+present at this check. The release workflow is scheduled/manual, not push-triggered.
+The rebuild repository has a successful run `38117724603` on `8f1943d` dated
+2026-10-11, but its latest release remains `v26.1007.30912`. A successful
+unpatched rebuild is not a successful patched release.
+
+The latest patched release is still `v26.930.31730-patched-sidecarchat`,
+published 2026-10-04T10:51:38Z. The local install's `.version-tag` and
+`.release-state.json` agree with that release and its asset digest
+`83d757f334cab1bae08b0c92e53f401ee5ad714e0c1aa5fd57754583cad8d27a`;
+installedAtUtc is 2026-10-11T07:50:58Z. The `.sidecar-source` pin remains
+`d6489472`, stamped `0.154.0`. The other desktop was not checked.
+
+**Exact new upstream artifact (measured).** Downloaded
+`Codex-win-x64-26.1007.21434.zip` from `v26.1007.30912` and checked SHA256
+`824c245f0199c3e6723f72fde020b821ad80f8b13fde6937b86464192c6f5c61`
+against GitHub release metadata. Its ASAR package version is `26.1007.21434`.
+Checks use a separate `tmp_scripts/upstream-261007/tail-check` directory;
+none of these files are installed or launchable acceptance artifacts.
+
+**R hypothesis corrected by source tracing.** The new speed capability helper
+`mjt`, exported as `C3t` from `webview/assets/app-shared-737655e1fb23.js`,
+defaults to allow. However, its actual import `oee` in
+`webview/assets/app-initial-b8e1c8014bb4.js` is called by `KVi` only when
+`authMethod` is ChatGPT/personalAccessToken; API-key auth produces null
+`serviceTierAccess`. Request-preparation function `bga` has the same auth
+restriction. Therefore the helper alone does NOT establish an upstream fix.
+The existing R patcher exits 1 on this verified artifact. No live 26.1007 UI
+acceptance was attempted and no R gate was skipped or weakened.
+
+**Other measured tail results.**
+
+- S: `patched`, one app-initial chunk, no residual matched gate, Node syntax
+  check green. Ultra reasoning is distinct from `ultrafast` service speed.
+- T: `upstream_safe`, no mutation, Windows Voice Mode default binding remains
+  empty.
+- U: exit 1, `Incomplete 26.930 composer layout`; the plugin-list and
+  paste-entry anchors are missing. No U changes were written.
+- Y: `patched`, two automation-union markers in the app-shared chunk; no
+  remaining matched nested outer unions or syntax errors. Upstream has not
+  replaced this fix in the measured bundle.
+
+Matcher tests D, O (7 cases), S, T, U, Y and Z pass, but fixture tests are not
+bundle compatibility acceptance: the real U bundle check still fails.
+`docs/PATCH_INVENTORY.md` now records R/U as blockers and removes the misleading
+suggestion that S may be replaced by the speed helper. Remaining work is to
+revalidate/re-anchor R and U, finish the full verifier plus source/build gates,
+then dispatch a distinct release tag. Do not publish by skipping either gate,
+upgrade the pinned core without revalidating I/V/X/W1/N, or install/restart an
+active desktop as part of this investigation.
+
+**Tail completion (same bounded check).** Z reports `upstream_safe` in
+`.vite/build/main-BklS_2Y2.js`, no mutation and Node syntax check green. B2
+successfully updates the copied `ChatGPT.exe` embedded ASAR-header hash to
+`e458e5de21617ee83011d6d35168f0f170383b12e74c3c04f585d4ceb854db6d`;
+the copied `Codex.exe` launcher has no manifest. This is integrity patcher
+evidence on a partially patched scratch bundle, NOT application launch, full
+release acceptance, or an installed update. The tail-check process completed.
+No workflow was dispatched and no release published in this check; R and U
+remain the measured blockers.
+
+## 2026-10-11 - R/U 26.1007 compatibility implementation and release gates
+
+**Implemented, not installed.** R now recognizes the 26.1007 selector memo and
+async request-preparation caller together. API-key auth receives the same
+speed-capability object shape used by upstream; catalog-declared options still
+determine which tiers exist. ChatGPT/PAT entitlement and loading behavior stays
+unchanged. The selector memo tracks authMethod so transitions between API-key
+and other non-ChatGPT auth cannot reuse stale access. Missing, duplicated,
+partially patched or mismatched modern caller shapes fail loudly.
+
+U now recognizes the 26.1007 composer structurally, including normal and
+oversized HTML fallbacks. It keeps plain Markdown/HTML text literal and adds
+the duplicate-text guard, while preserving the earlier image/file/page-reference
+paths, Codex references, code paste and link handling. Older supported layouts
+remain covered. The shared verifier checks both R/U modern layout completeness.
+New regression scripts and the reduced composer fixture are included in CI.
+
+**Measured tests.** All 11 Python matcher scripts in the release workflow pass,
+including 10 R cases and 8 new U cases. All five PowerShell regression scripts
+also pass: catalog sync, updater fingerprint state, project config repair,
+app-tools pipe runtime and plugin cache skills. These tests use isolated test
+directories and do not modify the owner's config or installed app.
+
+The actual patched tail-check ASAR caller and paste bodies pass executable
+tests with stubbed account/query/editor services. This is bundled-body evidence,
+not live Desktop UI or provider acceptance. The clean full patch application
+and release verifier are still running in
+`tmp_scripts/upstream-261007/full-check`; do not overwrite that evidence.
+
+**Fresh GitHub check.** Run `38130650049` on `ab34ebe` has completed with failure
+at the old R matcher, after D/O succeeded. It does not contain this uncommitted
+R/U implementation. Latest upstream is still `v26.1007.30912`; its Windows ZIP
+digest remains `824c245f0199c3e6723f72fde020b821ad80f8b13fde6937b86464192c6f5c61`.
+The distinct proposed release tag `v26.1007.30912-patched-compat` does not exist.
+Installed/latest patched release is still `v26.930.31730-patched-sidecarchat`.
+
+**Native-fix policy.** Do not apply obsolete behavioral rewrites where upstream
+already implements the equivalent behavior. Keep detection/regression gates and
+older-layout compatibility branches. On this measured bundle G, T and Z use
+native/no-op outcomes; C preserves native pagination with a verification comment;
+B has no applicable fuse and B2 still owns executable/header integrity.
+R/S/Y are still required. Do not conflate Ultra reasoning with ultrafast speed.
+Source-built core remains pinned to `d6489472` with I/V/X/W1/N; this round does
+not upgrade that source pin or change history/request logic.
+
+Next gate: finish the clean full check, execute its actual R/U bundled bodies,
+commit/push only the named source/test/workflow/docs changes, then dispatch the
+existing workflow with the distinct `compat` suffix. Do not install or restart.
+
+**Additional release-gate gap found in this round.** The O patcher supports V5,
+but `verify_markers.py` only imported V1-V4. The shared release verifier now
+recognizes both safe and residual V5 shapes; a tiny packed-ASAR regression proves
+each outcome plus syntax verification. Older O matchers now anchor identifier
+boundaries, avoiding suffix retries on large embedded payloads without changing
+the filter replacement. O's 10 tests pass, including a 100 KB nonmatching payload,
+invalid identifier suffix, and the release-verifier regression. No regex gate
+was weakened or skipped. Actual bundle idempotency/full verification remains the
+next acceptance gate.
