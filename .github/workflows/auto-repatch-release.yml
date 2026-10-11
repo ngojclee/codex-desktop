@@ -215,15 +215,27 @@ jobs:
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         shell: pwsh
         run: |
-          python patches/test_directive_windows_path.py
-          python patches/test_model_availability_filter.py
-          python patches/test_custom_provider_ultra.py
-          python patches/test_voice_paste_shortcut.py
-          python patches/test_composer_input_safety.py
-          python patches/test_reconnect_clear.py
-          python patches/test_ws_socks_bypass.py
-          python patches/test_automation_mode_union.py
-          python patches/test_legacy_dynamic_app_tools.py
+          # pwsh does not treat a native command's nonzero exit as an error, so a
+          # broken matcher test used to sail through this step silently (the Patch D
+          # matcher test raised ImportError for weeks while CI stayed green). Assert
+          # every exit code instead of trusting the step to fail on its own.
+          $matcherTests = @(
+            'patches/test_directive_windows_path.py',
+            'patches/test_model_availability_filter.py',
+            'patches/test_custom_provider_ultra.py',
+            'patches/test_voice_paste_shortcut.py',
+            'patches/test_composer_input_safety.py',
+            'patches/test_reconnect_clear.py',
+            'patches/test_ws_socks_bypass.py',
+            'patches/test_automation_mode_union.py',
+            'patches/test_legacy_dynamic_app_tools.py'
+          )
+          foreach ($t in $matcherTests) {
+            python $t
+            if ($LASTEXITCODE -ne 0) {
+              throw "Matcher test failed: $t (exit $LASTEXITCODE)"
+            }
+          }
           & ./patches/test_model_catalog_sync.ps1
           & ./patches/test_update_release_state.ps1
           & ./patches/test_repair_project_config.ps1
@@ -637,10 +649,14 @@ jobs:
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
-          $backupFiles = @()
-          $backupFiles += Get-Item -LiteralPath (Join-Path $appDir 'Codex.exe.bak-before-fuse-patch') -ErrorAction SilentlyContinue
-          $backupFiles += Get-ChildItem -LiteralPath (Join-Path $appDir 'resources') -File -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -like 'app.asar.bak-before-*' }
+          # Sweep by pattern instead of enumerating known names. The exe integrity
+          # patcher writes `<exe>.bak-before-exe-hash` next to ChatGPT.exe, which the
+          # old explicit list missed, so a 4.5 MB stale executable backup shipped in
+          # every release ZIP and landed in the user's install folder.
+          $backupFiles = @(
+            Get-ChildItem -LiteralPath $appDir -File -Recurse -Force -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -like '*.bak-before-*' }
+          )
 
           if ($backupFiles.Count -eq 0) {
             Write-Host 'No patcher backup artifacts found in package.'

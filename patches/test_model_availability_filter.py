@@ -5,9 +5,11 @@ from patch_codex_asar_model_availability_filter import (
     FILTER_PATTERN,
     FILTER_PATTERN_V3,
     FILTER_PATTERN_V4,
+    FILTER_PATTERN_V5,
     PATCHED_FILTER_PATTERN,
     PATCHED_FILTER_PATTERN_V3,
     PATCHED_FILTER_PATTERN_V4,
+    PATCHED_FILTER_PATTERN_V5,
     PATCH_MARKER,
     patch_filter_text,
 )
@@ -86,6 +88,36 @@ class ModelAvailabilityFilterTests(unittest.TestCase):
         )
         self.assertIsNone(FILTER_PATTERN_V4.search(patched))
         self.assertIsNotNone(PATCHED_FILTER_PATTERN_V4.search(patched))
+
+    def test_26_1007_access_program_clause_layout(self):
+        # Verbatim ternary head from 26.1007, including the access-program clause
+        # that made the whole-expression V1-V4 matchers miss the filter entirely.
+        cyber_clause = (
+            "n===`apikey`&&t&&!o.hidden&&c?.some(e=>e!==`standard`)===!0"
+        )
+        source = (
+            "function ki({additionalAvailableModels:e,authMethod:n,availableModels:r,"
+            "isCustomModelProvider:t,model:o,useHiddenModels:s}){"
+            "let c=o.availableAccessPrograms?.cyber;"
+            "return n===`apikey`&&!t&&c!=null&&c.length>0&&!c.includes(`standard`)?!1:"
+            "e?.has(o.model)===!0||o.model!==`codex-auto-review`&&"
+            f"(i&&!o.hidden||(s&&!a&&n!==`amazonBedrock`?r.has(o.model)||{cyber_clause}:!o.hidden))"
+            "}"
+        )
+        self.assertIsNotNone(FILTER_PATTERN_V5.search(source))
+        patched, count = patch_filter_text(source)
+        self.assertEqual(count, 1)
+        self.assertIn(
+            "n!==`amazonBedrock`?(r.has(o.model)||/*O*/!o.hidden)||" + cyber_clause,
+            patched,
+        )
+        # The clause upstream added must survive untouched.
+        self.assertIn(cyber_clause, patched)
+        self.assertIsNone(FILTER_PATTERN_V5.search(patched))
+        self.assertIsNotNone(PATCHED_FILTER_PATTERN_V5.search(patched))
+        again, second_count = patch_filter_text(patched)
+        self.assertEqual(second_count, 0)
+        self.assertEqual(again, patched)
 
 
 if __name__ == "__main__":

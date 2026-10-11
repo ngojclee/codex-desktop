@@ -84,6 +84,23 @@ PATCHED_FILTER_PATTERN_V4 = re.compile(
     rf"!(?P=model)\.hidden\)\)"
 )
 
+# 26.1007 widened the allowlist branch with a second clause:
+#   ?r.has(o.model)||n===`apikey`&&t&&!o.hidden&&c?.some(e=>e!==`standard`)===!0:!o.hidden
+# Earlier layouts matched the whole expression, so any clause upstream appends to
+# the true branch breaks the match even though the allowlist check is untouched.
+# V5 anchors only on the ternary head (`auth!==`amazonBedrock`?available.has(...)||`)
+# and leaves whatever follows in place, so the guard survives further clause
+# additions without ever rewriting a branch it cannot see.
+FILTER_PATTERN_V5 = re.compile(
+    rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"(?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)\|\|"
+)
+PATCHED_FILTER_PATTERN_V5 = re.compile(
+    rf"(?P<auth>{IDENT})!==`amazonBedrock`\?"
+    rf"\((?P<available>{IDENT})\.has\((?P<model>{IDENT})\.model\)\|"
+    rf"\|(?:{re.escape(PATCH_MARKER)})?!(?P=model)\.hidden\)\|\|"
+)
+
 
 def read_header(asar_path: Path):
     with asar_path.open("rb") as f:
@@ -221,7 +238,19 @@ def patch_filter_text(text: str):
         )
 
     text, v4_count = FILTER_PATTERN_V4.subn(replace_v4, text)
-    return text, v1_count + v2_count + v3_count + v4_count
+
+    def replace_v5(match: re.Match):
+        auth = match.group("auth")
+        available = match.group("available")
+        model = match.group("model")
+        # Keep the trailing clause the anchor deliberately does not capture.
+        return (
+            f"{auth}!==`amazonBedrock`?"
+            f"({available}.has({model}.model)||{PATCH_MARKER}!{model}.hidden)||"
+        )
+
+    text, v5_count = FILTER_PATTERN_V5.subn(replace_v5, text)
+    return text, v1_count + v2_count + v3_count + v4_count + v5_count
 
 
 def repack(asar_path: Path, header: dict, payload_start: int, patched_by_path: dict[str, bytes]):
@@ -281,6 +310,8 @@ def find_targets(asar: Path):
             or PATCHED_FILTER_PATTERN_V3.search(text)
             or FILTER_PATTERN_V4.search(text)
             or PATCHED_FILTER_PATTERN_V4.search(text)
+            or FILTER_PATTERN_V5.search(text)
+            or PATCHED_FILTER_PATTERN_V5.search(text)
         ):
             targets.append((path, meta, text))
     return header, payload_start, targets
@@ -296,6 +327,7 @@ def verify(asar: Path):
             or PATCHED_FILTER_PATTERN_V2.search(text)
             or PATCHED_FILTER_PATTERN_V3.search(text)
             or PATCHED_FILTER_PATTERN_V4.search(text)
+            or PATCHED_FILTER_PATTERN_V5.search(text)
         )
     ]
     unpatched = [
@@ -306,6 +338,7 @@ def verify(asar: Path):
             or FILTER_PATTERN_V2.search(text)
             or FILTER_PATTERN_V3.search(text)
             or FILTER_PATTERN_V4.search(text)
+            or FILTER_PATTERN_V5.search(text)
         )
     ]
     if not marker_paths:
