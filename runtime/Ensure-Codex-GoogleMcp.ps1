@@ -115,7 +115,17 @@ function Ensure-GoogleMcpSection {
     }
 
     $urlIndex = Get-KeyIndex -Lines $Lines -Start $section.Start -End $section.End -Key 'url'
-    if ($urlIndex -ge 0) {
+    $commandIndex = Get-KeyIndex -Lines $Lines -Start $section.Start -End $section.End -Key 'command'
+    if ($commandIndex -ge 0) {
+        # stdio wrapper mode (run-mcp-http-noauth.ps1): a bare `url` key is invalid -
+        # the endpoint lives inside args "-Url". Remove any leftover url line instead of adding one.
+        if ($urlIndex -ge 0) {
+            $Lines.RemoveAt($urlIndex)
+            $section.End--
+            $urlIndex = -1
+            $changed = $true
+        }
+    } elseif ($urlIndex -ge 0) {
         if ($Lines[$urlIndex] -ne $urlLine) {
             $Lines[$urlIndex] = $urlLine
             $changed = $true

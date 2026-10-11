@@ -133,6 +133,17 @@ These are not ASAR patches, but they are part of a usable release:
   before that MCP lane was introduced; it does not edit stored transcripts.
 - `Ensure-Codex-WslNative.ps1`: keeps
   `runCodexInWindowsSubsystemForLinux = false` in the correct `[desktop]` scope.
+- `Ensure-Codex-GoogleMcp.ps1`: is transport-aware. Existing Google MCP
+  sections with `command` are stdio wrappers, so a top-level `url` key is
+  invalid and is removed while `command`, `args` and timeout are preserved.
+  Sections without `command` remain remote transports and receive the shared
+  connector URL. `patches/test_google_mcp_runtime.ps1` covers both modes and
+  idempotence without reading or writing the user's real config.
+- `verify_runtime_bundle.ps1`: enforces the single source of truth for packaged
+  helpers. Both release lanes remove inherited package `.ps1` snapshots, copy
+  `runtime/` fresh, hash-check every source file, and reject any package-only
+  PowerShell helper. This closes the stale `tools/Ensure-Codex-GoogleMcp.ps1`
+  failure that repeatedly reinserted an invalid `url` into stdio sections.
 - `Find-CodexAppToolsPipe.ps1`: identifies which `\\.\pipe\codex-browser-use-*`
   named pipe is actually the app-tools host by running the bundle's own
   `server.mjs` against each candidate and asking it for `tools/list`. Reusing the
@@ -205,26 +216,29 @@ Before treating a release as installable:
 3. Sidecar source tests pass for I, V, X, W1, and N.
 4. The release tag is distinct when the upstream version is unchanged.
 5. The ZIP asset digest is recorded in the release and installer state.
-6. After installation and restart, confirm the bundle has Patch Y and call
+6. `verify_runtime_bundle.ps1` passes after bundling and
+   `test_google_mcp_runtime.ps1` proves stdio sections contain no top-level
+   `url`; package-only `.ps1` files must fail the build.
+7. After installation and restart, confirm the bundle has Patch Y and call
    `automation_update` with `mode=create`; then verify `update` separately.
-7. Confirm an old chat can invoke `automation_update` through the legacy
+8. Confirm an old chat can invoke `automation_update` through the legacy
    dynamic path and a new chat can invoke the same tool through `codex_app`
    MCP. Patch Z must not re-enable dynamic calls for non-allowlisted tools.
-8. Confirm `tools\Repair-CodexSharedAppTools.ps1` exits with
+9. Confirm `tools\Repair-CodexSharedAppTools.ps1` exits with
    `OK: codex_app is present in the shared sidecar MCP registry` after a normal
    `Launch-Codex.vbs` start, and that the written block carries
    `omit_tools_from = ["deferred"]`. Without that field the server runs and answers
    `mcpServer/tool/call`, but no thread ever sees `mcp__codex_app__*` and the app
    reports `unsupported call`.
-9. Re-run the repair after every app restart. The pipe name is regenerated per
+10. Re-run the repair after every app restart. The pipe name is regenerated per
    Electron session, so a persisted value from a previous session is dead and the
    sidecar will hang on it until the MCP startup timeout.
-10. Accepted state, measured 2026-09-13 on `ee93e67` or later: create, view, update
+11. Accepted state, measured 2026-09-13 on `ee93e67` or later: create, view, update
     and delete all work natively in a new thread under shared mode. Artifacts built
     before `ee93e67` (including `...-z2-appshared`) do not satisfy item 8.
-8. Do not claim the live Automation call is fixed until steps 6 and 7 succeed on the
+12. Do not claim the live Automation call is fixed until steps 7 and 8 succeed on the
    installed artifact.
-9. Confirm `resources/list` can start `codex_app` without a
+13. Confirm `resources/list` can start `codex_app` without a
    `CODEX_APP_TOOLS_PIPE_PATH` error. A static user-level `codex_app` command
    block must be absent on pipe-capable Desktop builds; the helper preserves a
    timestamped `config.toml` backup and leaves older non-pipe-aware bundles

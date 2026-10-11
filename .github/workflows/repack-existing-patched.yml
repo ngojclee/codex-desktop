@@ -146,24 +146,17 @@ jobs:
           $appDir = (Resolve-Path build).Path
           $tools = 'build/tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          Get-ChildItem -LiteralPath $tools -File -Recurse -Filter '*.ps1' -ErrorAction SilentlyContinue |
+            Remove-Item -Force
           Copy-Item -Recurse -Force runtime/* $tools
 
           $runtimeRoot = (Resolve-Path 'runtime').Path
-          foreach ($src in Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse) {
-            $rel = [IO.Path]::GetRelativePath($runtimeRoot, $src.FullName)
-            $dst = Join-Path $tools $rel
-            if (-not (Test-Path -LiteralPath $dst)) {
-              throw "Bundled tools verification failed: missing $rel"
-            }
-            $srcHash = (Get-FileHash -LiteralPath $src.FullName -Algorithm SHA256).Hash
-            $dstHash = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
-            if ($srcHash -ne $dstHash) {
-              throw "Bundled tools verification failed: hash mismatch for $rel"
-            }
-          }
+          & ./patches/verify_runtime_bundle.ps1 -RuntimeDir $runtimeRoot -ToolsDir $tools
 
           & ./patches/test_app_tools_pipe_runtime.ps1
           & ./patches/test_plugin_cache_skills.ps1
+          & ./patches/test_google_mcp_runtime.ps1
+          & ./patches/test_runtime_bundle.ps1
 
       - name: Repackage artifact
         id: pack

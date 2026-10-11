@@ -2126,3 +2126,38 @@ above still exist. Installed CodexFromGithub, its hotfix/rollback backups,
 active processes, user config, transcripts/SQLite and other lanes' files
 were not touched. The Google MCP helper diff remains inherited and unstaged.
 Cleanup is pending an authorized deletion context, not an app/build blocker.
+
+## 2026-10-12 - Google MCP runtime/package parity fix in progress
+
+Owner reported that the installed/package copy of
+`tools/Ensure-Codex-GoogleMcp.ps1` was older than the mode-aware source and
+reinserted top-level `url` keys into stdio (`command`/`args`) sections. That
+causes Codex to reject the entire config with `url is not supported for stdio`.
+
+Source inspection confirms the previous ASAR P0 repair remains intact: J/K use
+the shared integrity-aware repacker and the final verifier scans packed file and
+block hashes. The Google failure is a separate runtime packaging issue. The
+mode-aware Google helper existed only as an uncommitted local source change when
+the earlier release was built; the workflow already overlaid runtime files but
+did not reject package-only stale PowerShell helpers.
+
+The bounded fix makes `runtime/Ensure-Codex-GoogleMcp.ps1` authoritative,
+removes invalid `url` keys only when a section has `command`, preserves remote
+URL mode otherwise, and is idempotent. Both release lanes now remove inherited
+package `.ps1` snapshots, copy `runtime/` fresh, hash-check every runtime file,
+and fail on any extra package-only `.ps1` through
+`patches/verify_runtime_bundle.ps1`.
+
+Local isolated tests pass: Google stdio/remote/idempotence, runtime bundle exact
+copy plus mismatch/extra/missing failure cases, and all 21 ASAR integrity tests.
+The actual prior release `tools` snapshot also passes after applying the new
+cleanup/copy sequence (34 runtime files, no stale PowerShell helpers), and its
+ASAR still scans 20,986 packed files with zero mismatches. Eleven other Python
+renderer matcher suites and six in-scope PowerShell suites pass. The unrelated
+`test_model_catalog_sync.ps1` is locally red because another lane currently has
+an uncommitted `runtime/Sync-Codex-ModelCatalog.ps1` envelope change; that file
+is intentionally excluded from this fix and will be tested from the committed
+tree in CI.
+No installed CodexFromGithub files, user config, processes, transcripts or
+SQLite were touched. Commit, CI, artifact staging and installed/live acceptance
+are still pending at this entry.

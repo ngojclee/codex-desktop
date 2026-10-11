@@ -244,6 +244,8 @@ jobs:
           & ./patches/test_repair_project_config.ps1
           & ./patches/test_app_tools_pipe_runtime.ps1
           & ./patches/test_plugin_cache_skills.ps1
+          & ./patches/test_google_mcp_runtime.ps1
+          & ./patches/test_runtime_bundle.ps1
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
@@ -683,29 +685,23 @@ jobs:
           # watchdog, etc.
           $tools = 'build/tools'
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          # A base/upstream package may already contain helpers from an older
+          # source snapshot. Clear only PowerShell helpers before overlaying the
+          # authoritative runtime/ tree, then enforce exact two-way parity.
+          Get-ChildItem -LiteralPath $tools -File -Recurse -Filter '*.ps1' -ErrorAction SilentlyContinue |
+            Remove-Item -Force
           Copy-Item -Recurse -Force runtime/* $tools
 
           $runtimeRoot = (Resolve-Path 'runtime').Path
           $copied = 0
-          foreach ($src in Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse) {
-            $rel = [IO.Path]::GetRelativePath($runtimeRoot, $src.FullName)
-            $dst = Join-Path $tools $rel
-            if (-not (Test-Path -LiteralPath $dst)) {
-              throw "Bundled tools verification failed: missing $rel"
-            }
-            $srcHash = (Get-FileHash -LiteralPath $src.FullName -Algorithm SHA256).Hash
-            $dstHash = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash
-            if ($srcHash -ne $dstHash) {
-              throw "Bundled tools verification failed: hash mismatch for $rel"
-            }
-            $copied++
-          }
+          $copied = @(Get-ChildItem -LiteralPath $runtimeRoot -File -Recurse).Count
+          & ./patches/verify_runtime_bundle.ps1 -RuntimeDir $runtimeRoot -ToolsDir $tools
 
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
             'Launch-Codex.ps1' = 'Ensure-Codex-AppToolsMcp.ps1'
             'Sync-Codex-ModelCatalog.ps1' = 'Existing gpt-5.6 Sol/Terra/Luna entries'
-            'Ensure-Codex-GoogleMcp.ps1' = 'CODEX_GOOGLE_MCP_DISABLE'
+            'Ensure-Codex-GoogleMcp.ps1' = 'commandIndex'
             'Ensure-Codex-AppToolsMcp.ps1' = 'resources\plugins'
             'Ensure-Codex-WslNative.ps1' = 'runCodexInWindowsSubsystemForLinux = false'
             'Update-Codex.ps1' = 'Test-CodexReleaseStateMatch'
