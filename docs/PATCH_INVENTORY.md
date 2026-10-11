@@ -43,7 +43,9 @@ in production ASAR patchers; the regression suite guards this and exercises all
 eight integrity writers. Untouched stale entries are never silently healed.
 
 The earlier `v26.1007.30912-patched-compat` release and the old local full-check
-PASS are affected: the old gate missed two stale K entries. Use the distinct
+PASS are affected: the old gate missed two stale J entries. J introduced three
+stale entries and K introduced one more; later repackers refreshed two of the
+four, leaving the two J entries stale. Use the distinct
 `v26.1007.30912-patched-asar-integrity` replacement after CI/artifact acceptance.
 Publication, installation and live dropdown/mobile-dialog acceptance are
 separate gates. Do not replace an already-hotfixed installed bundle during tests.
