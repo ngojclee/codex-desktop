@@ -2161,3 +2161,12 @@ tree in CI.
 No installed CodexFromGithub files, user config, processes, transcripts or
 SQLite were touched. Commit, CI, artifact staging and installed/live acceptance
 are still pending at this entry.
+
+First CI dispatch `38181561474` at source `be902fa` stopped in the matcher step
+before download/package/release. Every test printed PASS, including the clean
+committed model-catalog test, but `test_runtime_bundle.ps1` leaked the native
+exit code from its final expected-negative child verifier run. GitHub's pwsh
+wrapper therefore ended the otherwise successful step with exit 1. The test
+harness now captures and resets that child exit code after asserting it; no
+production or package behavior changed. No release/tag was created by the
+failed run.

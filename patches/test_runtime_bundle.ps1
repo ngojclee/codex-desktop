@@ -9,8 +9,12 @@ function Invoke-Verifier {
     $shell = (Get-Process -Id $PID).Path
     $output = & $shell -NoProfile -NonInteractive -File $verifier `
         -RuntimeDir $runtimeDir -ToolsDir $toolsDir 2>&1
+    $exitCode = $LASTEXITCODE
+    # Expected-negative child runs must not leak their native exit code into the
+    # GitHub Actions pwsh step after this test has asserted the failure itself.
+    $global:LASTEXITCODE = 0
     return [PSCustomObject]@{
-        ExitCode = $LASTEXITCODE
+        ExitCode = $exitCode
         Output = ($output -join "`n")
     }
 }
