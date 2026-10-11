@@ -49,6 +49,17 @@ It is retained with a warning as a prerelease, excluded from stable updates;
 do not silently replace its asset or reuse its tag. The intended successor is
 `v26.1007.30912-patched-asar-integrity`.
 
+**Successor VERIFIED (2026-10-12 local).** Run `38174156115` succeeded on source
+`0c76cba7f34cb09073d31aff54a8c5a7efead5bf`; the successor was published stable
+at `2026-10-11T22:00:54Z` and is GitHub's latest stable. Downloaded asset ID
+`631915812`, length 924,799,033 bytes, SHA256
+`ab5ce71b346eb4959cc1e7b569d5be1c20d801a463971b1e0e4900ec90973e85`.
+Its ASAR is byte-identical to the locally verified final ASAR and independently
+scans 20,986 files with zero mismatches. Staged exe/header integrity matches;
+native staged core reports `codex-cli 0.154.0`, tools source `0c76cba7...`,
+core source `d6489472...`. Installation and owner-restarted UI acceptance are
+still separate, pending gates. The installed hotfix was not modified.
+
 ## Two Separate Layers
 
 1. Entry integrity: each packed file's `integrity.hash`, `blockSize`, and

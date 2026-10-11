@@ -50,6 +50,14 @@ four, leaving the two J entries stale. Use the distinct
 Publication, installation and live dropdown/mobile-dialog acceptance are
 separate gates. Do not replace an already-hotfixed installed bundle during tests.
 
+On October 12 local time, run `38174156115` / source `0c76cba7...` completed
+successfully and the distinct `asar-integrity` successor was published as stable.
+The downloaded 924,799,033-byte asset matches GitHub SHA256
+`ab5ce71b346eb4959cc1e7b569d5be1c20d801a463971b1e0e4900ec90973e85`.
+Staged ASAR scan: 20,986 checked, zero mismatches. Staged exe/header and native
+core version checks pass. Installed/live UI acceptance is pending owner update
+and coordinated restart; see `docs/ASAR_INTEGRITY.md` and `docs/PATCH_INVENTORY.md`.
+
 The shared release verifier must recognize every supported patcher layout.
 The 26.1007 gates include O's V5 safe/residual filter shape and complete R/U
 modern layouts, not marker presence alone. CI includes executable R/U fixtures
