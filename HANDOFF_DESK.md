@@ -2032,3 +2032,54 @@ patches, including the mandatory packed integrity gate. It entered source-built
 sidecar compilation at `2026-10-11T21:11:42Z`. Remaining gates: core tests/build,
 final verifier, packaging/publication, downloaded asset scan/fingerprint, and
 owner-coordinated live UI verification. No installed files/processes changed.
+
+## 2026-10-12 - P0 integrity fix published and staged, owner restart pending
+
+**CI/release VERIFIED.** Run `38174156115` completed SUCCESS at
+`2026-10-11T22:01:01Z`, exact source
+`0c76cba7f34cb09073d31aff54a8c5a7efead5bf`. Both CI ASAR scans checked
+20,986 files with zero mismatches; B2 matches header
+`f9dfcd7faaebed1df7b686c2d6e4b24ca4ffc04ee6a990114139ca51faff4ffe`.
+V integration tests: two passed; legacy unsafe guard: one passed; X inherited
+recovery: four passed; W1 unit tests: seven passed; W1 client tests: eleven
+passed. These are regression/fixture tests, not live provider acceptance.
+CI verified all 34 runtime files copied into `tools/` from the exact source.
+
+Published stable tag `v26.1007.30912-patched-asar-integrity` at
+`2026-10-11T22:00:54Z` (October 12, 00:00:54 Europe/Paris).
+Asset ID `631915812`, size 924,799,033 bytes, SHA256:
+`ab5ce71b346eb4959cc1e7b569d5be1c20d801a463971b1e0e4900ec90973e85`.
+GitHub latest-stable metadata resolves to this distinct tag. The affected
+`compat` tag/asset remains retained, prerelease/not-latest with a warning.
+No mutable-tag overwrite or release deletion was performed.
+
+**Downloaded/staged VERIFIED, NOT installed.** Downloaded the actual published
+ZIP, checked exact size and SHA256 against release metadata, and extracted to
+`tmp_scripts/upstream-261007/published-asar-integrity/app`.
+Its entire ASAR SHA256 equals the locally full-verified final ASAR. The
+independent staged scanner again reports 20,986 checked and ZERO mismatches.
+Staged `ChatGPT.exe` embeds the matching f9df header hash.
+`tools/.sidecar-source` reports tools SHA `0c76cba7...` and unchanged core
+source SHA `d6489472f3c15e87d2d7763a5fde033545c530f8`.
+Native staged `resources/codex.exe --version` exits 0 with
+`codex-cli 0.154.0`. Probe scripts:
+`tmp_scripts/upstream-261007/verify-release-integrity.ps1` and
+`verify-staged-header.py`. No UI/app-server was launched from staging.
+
+**Owner action / live gate.** Ready for the existing Update-Codex shortcut.
+Finish/pause active lanes first: closing Desktop interrupts them. Then quit
+Desktop, update to the distinct verified tag, and open Codex (GitHub Patched).
+Confirm installed `tools/.version-tag` is the new tag and
+`tools/.sidecar-source` has tools SHA `0c76cba7...`. Check installed ASAR/header
+read-only, wait at least 2-3 minutes, open profile dropdown and Codex mobile
+setup dialog, and confirm the app/sidecar remain alive without a new matching
+Crashpad FATAL. This live UI gate remains PENDING OWNER; static, CI and staged
+acceptance must not be reported as an owner-restarted installation.
+
+**Preserved state.** The already-hotfixed installed bundle and its backup,
+active processes, selected model, user config, automations, transcripts/SQLite,
+external repositories and other lanes were not modified. I/V/X/W1/N and all
+existing behavioral patch payloads are retained. The inherited Google MCP
+helper diff remains unstaged. Incident and clean/staged scratch evidence were
+kept, not cleaned up. Main also contains the separate docs correction
+`91cb1a8`; the published executable/app source remains exactly `0c76cba7...`.
