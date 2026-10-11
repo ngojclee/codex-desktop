@@ -226,7 +226,7 @@ def update_integrity(meta, data):
     if isinstance(integ, dict) and integ.get("algorithm") == "SHA256":
         integ["hash"] = sha256_hex(data)
         bs = int(integ.get("blockSize") or 4194304)
-        integ["blocks"] = [sha256_hex(data[i : i + bs]) for i in range(0, len(data), bs)]
+        integ["blocks"] = [sha256_hex(data[i : i + bs]) for i in range(0, max(len(data), 1), bs)]
 
 def packed_entries(header):
     entries = []

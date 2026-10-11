@@ -1952,3 +1952,46 @@ No installation/restart, transcript/SQLite/config edits, automation mutations,
 model switch, external repository writes or removal of inherited scratch files
 occurred. X/W1 and the other source-built core patches are unchanged.
 Owner update action remains gated on successful publication and asset checks.
+
+## 2026-10-11 - P0 correction: the earlier full-check missed payload integrity
+
+**Correction to the PASS above.** That gate verified markers, syntax and B2's
+header hash, NOT file/block integrity. It was not crash-safe acceptance. The
+new read-only scanner independently reproduces the exact two stale K entries
+on the old `tmp_scripts/upstream-261007/full-check` bundle: 20,986 checked,
+two mismatches, exit 1. The updated `verify_markers.py` also exits 1 on that
+same archive, before any marker checks. No incident bytes were repaired.
+
+**Source changes.** J/K preserve their archive-wide matching but now route
+changed packed entries through O's integrity-aware repacker. All 18 ASAR
+production patchers were audited; the other writers already update hashes.
+Eight integrity writers now consistently emit a SHA256-of-empty block for
+empty files. The scanner is mandatory before B2 in apply-all and first in the
+final release verifier. A durable `full-check.ps1` runs both. Scanner output
+contains only counts, paths and mismatch classes, never payload content.
+
+**Measured tests.** All 12 Python suites and five PowerShell regression scripts
+pass. The new integrity suite has 20 tests including multi-file/multi-block J/K
+round trips, unchanged payloads, byte-for-byte idempotency, empty files,
+unpacked/no-integrity cases, malformed metadata/truncation, stale file/block
+hashes independently, CLI and marker-verifier nonzero exits, and the full patch
+runner failing on a corrupted fixture. The clean upstream ZIP also scans
+20,986 files with zero mismatches. Full clean patch application is in progress
+in `tmp_scripts/upstream-261007/integrity-clean`, with transcript
+`full-check-integrity-261007.log`. It does not target the installed hotfix.
+
+**Published affected asset.** Run `38134454941` completed successfully and
+published `v26.1007.30912-patched-compat` before this new gate existed. Asset
+SHA256: `39671183d551356ab797d2e17363986bef4e1ab3459548c75e9b4e64a66c0e4c`.
+The release is now marked prerelease/not-latest with a P0 warning; its tag and
+asset are retained, not deleted/replaced. A cache-busted `/releases/latest`
+query and release list both select the prior stable
+`v26.930.31730-patched-sidecarchat`. Intended replacement suffix:
+`asar-integrity`. Do not install the affected compat ZIP.
+
+**Boundaries.** No installed bundle, process, model, user config, automation,
+transcript or database changes. The inherited
+`runtime/Ensure-Codex-GoogleMcp.ps1` edit and scratch evidence remain untouched.
+I/V/X/W1/N are unchanged. Owner-reported serialport/native-ABI warnings are
+separate from the established ASAR crash and are not patched here. See
+`docs/ASAR_INTEGRITY.md` for audit, build gates and owner live acceptance.

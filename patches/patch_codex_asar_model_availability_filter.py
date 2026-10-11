@@ -159,7 +159,7 @@ def update_integrity(meta: dict, data: bytes):
     block_size = int(integrity.get("blockSize") or 4194304)
     blocks = [
         hashlib.sha256(data[i : i + block_size]).digest().hex()
-        for i in range(0, len(data), block_size)
+        for i in range(0, max(len(data), 1), block_size)
     ]
     integrity["blocks"] = blocks
     integrity["hash"] = hashlib.sha256(data).digest().hex()

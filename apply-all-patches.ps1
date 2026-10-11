@@ -152,6 +152,9 @@ if (-not $SkipZ) {
     Run-Patch 'patch_codex_asar_legacy_dynamic_app_tools.py' @('--app-dir', $AppDir) 'Patch Z — keep legacy dynamic app-tool calls working for old threads'
 }
 
+# File/block integrity is separate from the header manifest patched by B2.
+Run-Patch 'asar_integrity.py' @($asar) 'ASAR packed file/block integrity gate'
+
 # Patch B2 — rewrite embedded app.asar SHA256 in the exe (Owl Electron builds).
 # Must run AFTER every asar-mutating patch (A..Z) so the hash matches the final asar.
 # On pure Electron builds this is a no-op (no embedded manifest).
