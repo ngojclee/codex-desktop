@@ -60,6 +60,13 @@ native staged core reports `codex-cli 0.154.0`, tools source `0c76cba7...`,
 core source `d6489472...`. Installation and owner-restarted UI acceptance are
 still separate, pending gates. The installed hotfix was not modified.
 
+The current tag ref is `91cb1a8...`, a documentation-only descendant of the
+actual CI/artifact source `0c76cba7...`; use CI and `.sidecar-source` for exact
+build identity. The publisher previously defaulted to main at release time.
+Future releases pass `--target $env:GITHUB_SHA`, regression-tested locally,
+so an advancing main cannot move the tag away from the tested checkout.
+The existing tag and verified asset were not rewritten or repackaged.
+
 ## Two Separate Layers
 
 1. Entry integrity: each packed file's `integrity.hash`, `blockSize`, and

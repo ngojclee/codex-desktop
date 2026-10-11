@@ -2083,3 +2083,20 @@ existing behavioral patch payloads are retained. The inherited Google MCP
 helper diff remains unstaged. Incident and clean/staged scratch evidence were
 kept, not cleaned up. Main also contains the separate docs correction
 `91cb1a8`; the published executable/app source remains exactly `0c76cba7...`.
+
+**Release-tag provenance correction / future safeguard.** Live GitHub ref
+inspection finds this tag points to
+`91cb1a84179c218570d2064e2826b63cf9c11d5d`, while CI/artifact source is
+`0c76cba7...`. `git diff 0c76cba7..91cb1a8 --name-only` proves the delta is
+ONLY HANDOFF_DESK, ASAR_INTEGRITY and PATCH_INVENTORY documentation. The old
+publisher omitted `--target`, so `gh release create` targeted the then-current
+main branch after a long build. This does not invalidate the measured artifact
+or change application code, but using the tag alone as exact build proof is
+incorrect. The current tag/asset are not rewritten.
+
+The publisher now passes `--target $env:GITHUB_SHA`, pinning future new tags to
+the tested checkout even if main advances mid-build. A local regression for
+this passes; the integrity/publisher suite now has 21 passing tests (the
+published run tested the original 20 integrity cases). This last change is
+release metadata only, not bundled application/core code, and does not require
+rebuilding the already-verified P0 artifact. Release notes record both refs.
