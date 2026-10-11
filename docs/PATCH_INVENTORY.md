@@ -25,6 +25,29 @@ The source-built `resources/codex.exe` lane runs in this order:
 `B2` must remain last among ASAR changes because it updates the Owl executable's
 embedded ASAR header hash after the final `app.asar` bytes are known.
 
+**Two independent integrity layers are mandatory (P0, 2026-10-11).**
+`patches/asar_integrity.py` streams every packed file with integrity metadata and
+checks its SHA256 plus every block hash, including the empty-file block. Missing
+metadata and unpacked entries are explicitly counted; malformed metadata,
+truncated extents, stale file hashes or stale blocks fail the gate. The measured
+26.1007 archive has integrity metadata on all 20,986 packed files.
+`apply-all-patches.ps1` runs this gate before B2, so failures stop before core
+compilation. `verify_markers.py` repeats it before marker/syntax checks at the
+final release gate. `full-check.ps1` runs both on a disposable extracted bundle.
+Neither B2 nor marker/syntax checks can substitute for payload integrity.
+
+J/K preserve archive-wide matching, but diff the packed entry extents and use
+the shared integrity-aware repacker for changed files only. A same-length
+content edit still requires new hashes. Raw `asar.write_bytes(...)` is prohibited
+in production ASAR patchers; the regression suite guards this and exercises all
+eight integrity writers. Untouched stale entries are never silently healed.
+
+The earlier `v26.1007.30912-patched-compat` release and the old local full-check
+PASS are affected: the old gate missed two stale K entries. Use the distinct
+`v26.1007.30912-patched-asar-integrity` replacement after CI/artifact acceptance.
+Publication, installation and live dropdown/mobile-dialog acceptance are
+separate gates. Do not replace an already-hotfixed installed bundle during tests.
+
 The shared release verifier must recognize every supported patcher layout.
 The 26.1007 gates include O's V5 safe/residual filter shape and complete R/U
 modern layouts, not marker presence alone. CI includes executable R/U fixtures
@@ -42,8 +65,8 @@ Desktop/provider acceptance after installation.
 | G | `patch_codex_asar_ws_socks_bypass.py` | Keeps loopback shared-sidecar WebSockets out of the SOCKS proxy. `v26.930` uses the equivalent `host !== localhost && host !== 127.0.0.1 && host !== [::1]` guard, so it is verified upstream-safe without changing remote-host proxy behavior. | Keep as compatibility/no-op. |
 | M | `patch_codex_asar_ws_max_payload.py` | Raises the shared-sidecar WebSocket payload ceiling. | Keep for shared-sidecar deployments. |
 | H | `patch_codex_asar_directive_windows_path.py` | Sanitizes Windows paths in markdown directives. | Keep. |
-| J | `patch_codex_asar_computer_use_gate.py` | Exposes Computer Use renderer gates for the patched build. | Keep only while this feature is intentionally enabled. |
-| K | `patch_codex_asar_codex_mobile_gate.py` | Exposes the Codex mobile/remote entrypoint gates. | Keep while the entrypoint is intentionally exposed. |
+| J | `patch_codex_asar_computer_use_gate.py` | Exposes Computer Use renderer gates for the patched build; changed entries are integrity-aware repacked. | Keep only while this feature is intentionally enabled. |
+| K | `patch_codex_asar_codex_mobile_gate.py` | Exposes the Codex mobile/remote entrypoint gates; changed entries are integrity-aware repacked. | Keep while the entrypoint is intentionally exposed. |
 | L | `patch_codex_plugin_scoped_node_modules.py` | Decodes escaped plugin package folders such as `%40`. | Keep for bundles that still ship escaped folders. |
 | O | `patch_codex_asar_model_availability_filter.py` | Preserves non-hidden local/catalog models through the renderer allowlist. | Keep for custom catalog providers. `v26.1007` appends an access-program clause inside the allowlist branch, which is why the V5 matcher anchors on the ternary head only and leaves any trailing clause untouched. |
 | P | `patch_codex_asar_sol_max_effort.py` | Adds catalog-supported Sol Max to the compact Power control. | Keep while the custom Sol Max control is desired. |

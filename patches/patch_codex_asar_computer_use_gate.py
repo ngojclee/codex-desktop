@@ -6,8 +6,8 @@ Gate IDs: 1506311413 (Any App), 410065390 (Chrome), 410262010 (Browser).
 
 This patch uses a flexible regex to match any minified identifier call wrapping
 the gate ID (e.g. c(`ID`), bc(`ID`), l(`ID`), C(`ID`)) and replaces the full
-call expression with !0 (true) padded to the same byte length. No ASAR repack
-needed.
+call expression with !0 (true) padded to the same byte length. Changed packed
+files are repacked with refreshed file/block integrity.
 
 Idempotent: re-running on an already-patched asar is a no-op.
 """
@@ -16,6 +16,7 @@ import json
 import re
 import shutil
 from pathlib import Path
+from asar_integrity import repack_same_length_changes
 
 
 GATES = [
@@ -93,7 +94,9 @@ def main():
             bk = asar.with_name("app.asar.bak-before-cu-gate")
             if not bk.exists():
                 shutil.copy2(asar, bk)
-        asar.write_bytes(patched)
+        changed_paths = repack_same_length_changes(asar, data, patched)
+    else:
+        changed_paths = []
 
     # Verify no raw gate patterns remain
     verify = asar.read_bytes()
@@ -105,7 +108,8 @@ def main():
         if pat.search(verify):
             raise SystemExit(f"Verification failed: gate {gate_id.decode()} still present")
 
-    output = {"status": "patched" if changed else "already_patched", "asar": str(asar), "gates": results}
+    output = {"status": "patched" if changed else "already_patched", "asar": str(asar),
+              "changed_paths": changed_paths, "gates": results}
     print(json.dumps(output, indent=2))
 
 

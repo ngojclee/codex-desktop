@@ -207,7 +207,7 @@ def update_integrity(meta: dict, data: bytes):
         digest = sha256_hex(data)
         integrity["hash"] = digest
         block_size = int(integrity.get("blockSize") or 4194304)
-        integrity["blocks"] = [sha256_hex(data[i : i + block_size]) for i in range(0, len(data), block_size)]
+        integrity["blocks"] = [sha256_hex(data[i : i + block_size]) for i in range(0, max(len(data), 1), block_size)]
 
 
 def packed_entries(header):
