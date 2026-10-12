@@ -704,7 +704,7 @@ jobs:
           $markerChecks = @{
             'Refresh-Codex-SharedSkills.ps1' = 'RelinkExistingSharedSkills'
             'Launch-Codex.ps1' = 'Ensure-Codex-AppToolsMcp.ps1'
-            'Sync-Codex-ModelCatalog.ps1' = 'Existing gpt-5.6 Sol/Terra/Luna entries'
+            'Sync-Codex-ModelCatalog.ps1' = 'ModelsCacheEntry used by newer codex builds'
             'Ensure-Codex-GoogleMcp.ps1' = 'commandIndex'
             'Ensure-Codex-AppToolsMcp.ps1' = 'resources\plugins'
             'Ensure-Codex-WslNative.ps1' = 'runCodexInWindowsSubsystemForLinux = false'
@@ -865,7 +865,7 @@ jobs:
           - **Patch Y** — replace the two nested outer `automation_update` mode discriminated unions with plain unions so valid `create` and `update` calls survive the embedded Zod validator
           - **Patch Z** — repair the old five-tool legacy dynamic rejection on older layouts; preserve the native capability-based route on 26.930+ without applying the obsolete rewrite
           - **Codex app-tools pipe repair** — preserve complete legacy transport mappings, normalize pipeless static entries, and register/reload the live Desktop app-tools pipe for shared-sidecar mode through the bundled runtime helpers
-          - **Model features sync** — add verified Max/Ultra metadata to existing GPT 5.6 Sol, Terra, and Luna catalog entries, then mirror the result to `models_cache.json`, without writing `model_catalog_json` into `config.toml`
+          - **Model features sync** — add verified Max/Ultra metadata to existing GPT 5.6 Sol, Terra, and Luna catalog entries, then write a valid idempotent `ModelsCacheEntry` envelope to `models_cache.json`, without writing `model_catalog_json` into `config.toml`
           - **Same-tag update detection** — store the installed release-asset fingerprint so corrected ZIPs republished under an existing tag are refreshed automatically
 
           ## Bundled Codex CLI sidecar
