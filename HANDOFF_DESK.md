@@ -2127,6 +2127,15 @@ active processes, user config, transcripts/SQLite and other lanes' files
 were not touched. The Google MCP helper diff remains inherited and unstaged.
 Cleanup is pending an authorized deletion context, not an app/build blocker.
 
+**Cleanup resolved later on 2026-10-12.** An approved guarded deletion removed
+the two exact scratch bundles after checking their resolved paths, reparse
+points and active-process ownership:
+`tmp_scripts/upstream-261007/integrity-clean` (10,329,205,410 bytes) and
+`tmp_scripts/upstream-261007/published-asar-integrity/app`
+(2,315,541,159 bytes). Total removed file payload: 12,644,746,569 bytes.
+The verified release ZIP and `full-check` incident evidence remain retained;
+installed CodexFromGithub and rollback backups were not touched.
+
 ## 2026-10-12 - Google MCP runtime/package parity fix in progress
 
 Owner reported that the installed/package copy of
