@@ -9,16 +9,19 @@ try {
     New-Item -ItemType Directory -Force -Path $scratch | Out-Null
     [IO.File]::WriteAllText(
         $metadata,
-        "upstream_tag=v1`ncodex_desktop_tools_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`ncodex_source_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`n",
+        "upstream_tag=v1`r`ncodex_desktop_tools_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`r`ncodex_source_sha=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`r`n",
         [Text.UTF8Encoding]::new($false)
     )
     & $updater -Path $metadata -ToolsSha $sha
     $first = [IO.File]::ReadAllText($metadata)
-    if ($first -notmatch "(?m)^codex_desktop_tools_sha=$sha$") {
+    if ($first -notmatch "(?m)^codex_desktop_tools_sha=$sha\r?$") {
         throw 'Tools SHA was not updated.'
     }
-    if ($first -notmatch '(?m)^codex_source_sha=b{40}$') {
+    if ($first -notmatch '(?m)^codex_source_sha=b{40}\r?$') {
         throw 'Sidecar source SHA was not preserved.'
+    }
+    if ($first -match '(?<!\r)\n') {
+        throw 'CRLF metadata was rewritten with mixed line endings.'
     }
     if ([IO.File]::ReadAllBytes($metadata)[0] -eq 0xEF) {
         throw 'Metadata writer introduced a UTF-8 BOM.'
