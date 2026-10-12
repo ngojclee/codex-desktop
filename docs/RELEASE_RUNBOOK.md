@@ -206,6 +206,10 @@ the current `runtime/` tree, then run `patches/verify_runtime_bundle.ps1`.
 That verifier hashes every runtime file and rejects package-only PowerShell
 helpers. A staged or extracted `tools/` snapshot is evidence only; it is never
 an input source for a new release.
+The repack lane must then update `tools/.sidecar-source` so
+`codex_desktop_tools_sha` identifies the repack commit; retaining the base
+artifact's tools SHA is a provenance failure even when the copied scripts are
+functionally correct.
 
 Shortcut: `Start Menu\Programs\Update-Codex.lnk`. Explicit form, and the form to
 use when you must pin a tag:

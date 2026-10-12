@@ -152,11 +152,19 @@ jobs:
 
           $runtimeRoot = (Resolve-Path 'runtime').Path
           & ./patches/verify_runtime_bundle.ps1 -RuntimeDir $runtimeRoot -ToolsDir $tools
+          & ./patches/update_sidecar_tools_sha.ps1 `
+            -Path (Join-Path $tools '.sidecar-source') `
+            -ToolsSha $env:GITHUB_SHA
+          $sidecarMetadata = Get-Content -LiteralPath (Join-Path $tools '.sidecar-source') -Raw
+          if ($sidecarMetadata -notmatch "(?m)^codex_desktop_tools_sha=$env:GITHUB_SHA$") {
+            throw 'Bundled tools provenance verification failed: current GITHUB_SHA is missing.'
+          }
 
           & ./patches/test_app_tools_pipe_runtime.ps1
           & ./patches/test_plugin_cache_skills.ps1
           & ./patches/test_google_mcp_runtime.ps1
           & ./patches/test_runtime_bundle.ps1
+          & ./patches/test_sidecar_tools_sha.ps1
 
       - name: Repackage artifact
         id: pack
@@ -183,6 +191,8 @@ jobs:
           Renderer-only repack derived from verified patched release `${{ steps.base.outputs.base_tag }}`.
 
           Base asset digest: `${{ steps.base.outputs.base_digest }}`
+
+          Runtime tools source: `${{ github.sha }}`
 
           This artifact preserves the verified source-built sidecar containing
           Patch X and Patch W1. It adds renderer Patch Y for the
