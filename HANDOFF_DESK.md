@@ -2185,3 +2185,21 @@ release path is the existing repack lane using the already verified
 verified ASAR and source-built sidecar, refreshes runtime helpers from current
 source, reruns marker/integrity and runtime parity gates, and publishes a new
 distinct tag. The repack publisher now also pins `--target $env:GITHUB_SHA`.
+
+Repack run `38218788962` at source `be63f7b` completed SUCCESS. The distinct
+tag `v26.1007.30912-patched-googlemcp-parity` points to that exact SHA; asset
+ID `633084043`, size 924,799,190 bytes, SHA256
+`13083ecbbac6843f56f98ae5caa94ede84fccf541e59a0fc4cf31726154ee439`.
+Downloaded ZIP checks confirmed the mode-aware Google helper, normalized-text
+identity for all runtime files except the unrelated local dirty model-catalog
+file, 20,986 ASAR entries with zero mismatch, and matching exe/header hash
+`f9dfcd7faaebed1df7b686c2d6e4b24ca4ffc04ee6a990114139ca51faff4ffe`.
+
+That artifact is functionally correct but NOT approved for install: its
+preserved `tools/.sidecar-source` still reports the base release tools SHA
+`0c76cba7...` instead of repack source `be63f7b...`. The release is superseded
+and must be marked prerelease/not-latest; do not mutate its asset. Repack now
+updates exactly one `codex_desktop_tools_sha` entry to `GITHUB_SHA`, preserves
+the native `codex_source_sha`, verifies the result, and has focused tests for
+replacement, missing/duplicate failure, idempotence and BOM-free output. A new
+distinct successor tag is required before owner installation.

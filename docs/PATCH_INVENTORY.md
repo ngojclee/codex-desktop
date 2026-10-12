@@ -144,6 +144,9 @@ These are not ASAR patches, but they are part of a usable release:
   `runtime/` fresh, hash-check every source file, and reject any package-only
   PowerShell helper. This closes the stale `tools/Ensure-Codex-GoogleMcp.ps1`
   failure that repeatedly reinserted an invalid `url` into stdio sections.
+  Repack builds also rewrite exactly one `codex_desktop_tools_sha` entry in
+  `tools/.sidecar-source` to the current workflow SHA while preserving the
+  verified native sidecar source SHA.
 - `Find-CodexAppToolsPipe.ps1`: identifies which `\\.\pipe\codex-browser-use-*`
   named pipe is actually the app-tools host by running the bundle's own
   `server.mjs` against each candidate and asking it for `tools/list`. Reusing the
