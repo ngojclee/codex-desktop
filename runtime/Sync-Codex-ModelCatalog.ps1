@@ -3,7 +3,7 @@
 # Keep Codex's local model catalog files parseable and in sync.
 # Source of truth:
 #   ~/.codex/model_catalog.json  - manually curated model catalog
-#   ~/.codex/models_cache.json   - mirror used by some local flows
+#   ~/.codex/models_cache.json   - ModelsCacheEntry used by newer codex builds
 #
 # Existing gpt-5.6 Sol/Terra/Luna entries receive the verified Max and Ultra
 # effort metadata used by Settings > Agent > Model features. This script does
@@ -72,6 +72,98 @@ function Read-Catalog([string]$Path) {
     }
 
     return $catalog
+}
+
+function Test-Rfc3339Timestamp([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value) -or
+        $Value -notmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$') {
+        return $false
+    }
+
+    $parsed = [DateTimeOffset]::MinValue
+    return [DateTimeOffset]::TryParse(
+        [string]$Value,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$parsed
+    )
+}
+
+function ConvertFrom-JsonPreservingDates([string]$Text) {
+    # PowerShell 7.5+ otherwise turns RFC3339 strings into DateTime objects.
+    # Windows PowerShell 5.1 keeps them as strings and has no -DateKind switch.
+    if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+        return $Text | ConvertFrom-Json -DateKind String
+    }
+    return $Text | ConvertFrom-Json
+}
+
+function Get-Rfc3339TimestampString([object]$Value) {
+    if ($Value -is [string]) {
+        return [string]$Value
+    }
+    if ($Value -is [DateTimeOffset]) {
+        return ([DateTimeOffset]$Value).ToUniversalTime().ToString('o')
+    }
+    if ($Value -is [DateTime]) {
+        return ([DateTime]$Value).ToUniversalTime().ToString('o')
+    }
+    return $null
+}
+
+function Test-JsonEquivalent($Left, $Right) {
+    return (
+        (ConvertTo-Json -InputObject @($Left) -Depth 96 -Compress) -ceq
+        (ConvertTo-Json -InputObject @($Right) -Depth 96 -Compress)
+    )
+}
+
+function New-ModelsCacheEntry([string]$Path, $Models) {
+    $existing = $null
+    $existingFetchedAt = $null
+    if (Test-Path -LiteralPath $Path) {
+        try {
+            $existingText = Read-Utf8Text -Path $Path
+            $existing = ConvertFrom-JsonPreservingDates $existingText
+            if ($existing.PSObject.Properties.Name -contains 'fetched_at') {
+                $existingFetchedAt = Get-Rfc3339TimestampString $existing.fetched_at
+            }
+        } catch {
+            # A malformed or legacy cache is repaired from the curated catalog.
+            $existing = $null
+        }
+    }
+
+    $requiredProperties = @('fetched_at', 'etag', 'client_version', 'identity', 'models')
+    $hasEnvelope = $null -ne $existing
+    foreach ($property in $requiredProperties) {
+        if ($null -eq $existing -or -not ($existing.PSObject.Properties.Name -contains $property)) {
+            $hasEnvelope = $false
+            break
+        }
+    }
+
+    $canPreserve = $hasEnvelope -and
+        (Test-Rfc3339Timestamp $existingFetchedAt) -and
+        (Test-JsonEquivalent -Left $existing.models -Right $Models)
+
+    if ($canPreserve) {
+        return [ordered]@{
+            fetched_at = $existingFetchedAt
+            etag = $existing.etag
+            client_version = $existing.client_version
+            identity = $existing.identity
+            models = $Models
+        }
+    }
+
+    return [ordered]@{
+        fetched_at = (Get-Date).ToUniversalTime().ToString('o')
+        etag = $null
+        client_version = $null
+        identity = $null
+        models = $Models
+    }
 }
 
 function Test-Truthy([string]$Value) {
@@ -184,9 +276,15 @@ $cachePath = Join-Path $CodexHome 'models_cache.json'
 
 $catalog = Read-Catalog -Path $catalogPath
 $featureChanges = @(Ensure-KnownModelFeatures -Catalog $catalog)
+
+# models_cache.json is read by newer codex builds as a ModelsCacheEntry
+# envelope { fetched_at, etag, client_version, identity, models }. A bare
+# {"models": [...]} mirror makes the models manager fail with
+# "missing field `fetched_at`" and the Desktop model list comes up empty.
+$cacheEntry = New-ModelsCacheEntry -Path $cachePath -Models @($catalog.models)
 $catalogResults = @(
     (Write-CatalogIfChanged -Path $catalogPath -Catalog $catalog),
-    (Write-CatalogIfChanged -Path $cachePath -Catalog $catalog)
+    (Write-CatalogIfChanged -Path $cachePath -Catalog ([pscustomobject]$cacheEntry))
 )
 
 $changed = [bool](@($catalogResults | Where-Object { $_.changed }).Count -gt 0)

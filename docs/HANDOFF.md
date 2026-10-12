@@ -308,7 +308,12 @@ variable names, adds the `/*O*/` marker, and syntax-checks the touched chunk.
 
 The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` before sidecar startup
 to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
-needed, and mirror it to `~\.codex\models_cache.json`. It does not create
+needed, and write its models into a `ModelsCacheEntry` envelope at
+`~\.codex\models_cache.json`. Newer Codex builds require top-level
+`fetched_at`, `etag`, `client_version`, `identity`, and `models`; mirroring the
+bare catalog makes model-cache loading fail. The helper migrates that legacy
+shape once, preserves a valid unchanged envelope, and refreshes cache metadata
+only when models actually change. It does not create
 model-catalog backup files. The sync tool
 intentionally does not read `tray_config.json`, add model entries, or write
 `model_catalog_json` into `~\.codex\config.toml`; that startup opt-in stays
@@ -344,7 +349,8 @@ catalog entries whose provider path has passed a real Max request.
 every launch and after an update. If `gpt-5.6-sol`, `gpt-5.6-terra`, or
 `gpt-5.6-luna` already exists in the manually curated catalog, the tool adds
 missing Max/Ultra effort entries and mirrors the catalog to
-`models_cache.json`. It does not create models and never inserts
+the `models` field of a valid `ModelsCacheEntry` in `models_cache.json`. It does
+not create models and never inserts
 `model_catalog_json` into `config.toml`, so removing the manual catalog opt-in
 still prevents Desktop from loading it. Use
 `CODEX_MODEL_FEATURE_SYNC_DISABLE=1` to disable this normalization.

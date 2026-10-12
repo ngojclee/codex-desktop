@@ -140,7 +140,7 @@ jobs:
             Remove-Item -LiteralPath $backup.FullName -Force
           }
 
-      - name: Bundle current runtime helpers and verify app-tools pipe repair
+      - name: Bundle and verify current runtime helpers
         shell: pwsh
         run: |
           $appDir = (Resolve-Path build).Path
@@ -163,6 +163,7 @@ jobs:
           & ./patches/test_app_tools_pipe_runtime.ps1
           & ./patches/test_plugin_cache_skills.ps1
           & ./patches/test_google_mcp_runtime.ps1
+          & ./patches/test_model_catalog_sync.ps1
           & ./patches/test_runtime_bundle.ps1
           & ./patches/test_sidecar_tools_sha.ps1
 
@@ -201,9 +202,12 @@ jobs:
           Patch B2's Owl ASAR integrity hash. It also bundles the current
           runtime helpers, including the codex_app app-tools pipe repair that
           preserves existing command/args/cwd static transport definitions for
-          legacy threads. Runtime tests cover preservation, incomplete-definition
-          cleanup, CRLF handling and idempotence. Native old/new-thread automation
-          acceptance must still be verified after the owner restarts the app.
+          legacy threads, the transport-aware Google MCP repair, and the
+          idempotent `ModelsCacheEntry` envelope required by Codex 0.162.1.
+          Runtime tests cover preservation, incomplete-definition cleanup, CRLF
+          handling, cache migration and idempotence. Native old/new-thread
+          automation and model-list acceptance must still be verified after the
+          owner restarts the app.
 
           Patch inventory and future update rules:
           `docs/PATCH_INVENTORY.md`
