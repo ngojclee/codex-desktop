@@ -415,7 +415,10 @@ jobs:
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
         id: sidecar
         shell: pwsh
-        timeout-minutes: 45
+        # A known-good cold Windows build took 38 minutes, while run
+        # 38181706317 was still compiling codex-api when the old 45-minute cap
+        # killed it. Keep a finite bound with enough margin for cold runners.
+        timeout-minutes: 75
         run: |
           $appDir = (Resolve-Path build).Path
           $target = Join-Path $appDir 'resources\codex.exe'
