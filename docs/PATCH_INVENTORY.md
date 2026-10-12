@@ -147,6 +147,12 @@ These are not ASAR patches, but they are part of a usable release:
   Repack builds also rewrite exactly one `codex_desktop_tools_sha` entry in
   `tools/.sidecar-source` to the current workflow SHA while preserving the
   verified native sidecar source SHA.
+- `Sync-Codex-ModelCatalog.ps1`: keeps `model_catalog.json` in its curated bare
+  catalog shape, but writes `models_cache.json` as the `ModelsCacheEntry`
+  required by Codex 0.162.1. It migrates legacy bare caches, preserves a valid
+  unchanged timestamp and metadata, resets stale metadata when models change,
+  writes UTF-8 without BOM, and never edits `config.toml`. Both release lanes
+  run its migration and byte-idempotence regression test before publishing.
 - `Find-CodexAppToolsPipe.ps1`: identifies which `\\.\pipe\codex-browser-use-*`
   named pipe is actually the app-tools host by running the bundle's own
   `server.mjs` against each candidate and asking it for `tools/list`. Reusing the

@@ -725,7 +725,10 @@ Patch O changes the renderer filter so the Statsig allowlist can still expose
 hidden upstream models, but non-hidden models returned by `model/list` remain
 visible. The launcher also runs `tools\Sync-Codex-ModelCatalog.ps1` on startup
 to validate `~\.codex\model_catalog.json`, rewrite it without a UTF-8 BOM when
-needed, and mirror it to `~\.codex\models_cache.json`. It does not create
+needed, and write the same models into the `ModelsCacheEntry` envelope required
+by newer sidecars at `~\.codex\models_cache.json`. A legacy bare cache is
+migrated once; a valid unchanged cache keeps its `fetched_at` and metadata, so
+repeated launches are byte-idempotent. It does not create
 model-catalog backup files. The sync tool
 intentionally does not read `tray_config.json`, add model entries, or add
 `model_catalog_json` to `~\.codex\config.toml`; opt in manually only when you
@@ -780,7 +783,8 @@ The patch does not add Ultra to every model and does not alter the compact
 Power presets. At startup, `tools\Sync-Codex-ModelCatalog.ps1` adds missing
 Max/Ultra metadata only to existing `gpt-5.6-sol`, `gpt-5.6-terra`, and
 `gpt-5.6-luna` entries, whose provider path has been verified with `max`, then
-mirrors the result to `models_cache.json`. This makes **Model features**
+writes the result into a valid `ModelsCacheEntry` in `models_cache.json`. This
+makes **Model features**
 available consistently on machines using the same custom catalog. It does not
 add models or write `model_catalog_json` into `config.toml`; deleting that
 manual opt-in remains respected. Set `CODEX_MODEL_FEATURE_SYNC_DISABLE=1` to
