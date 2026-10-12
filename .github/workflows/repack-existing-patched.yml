@@ -177,7 +177,9 @@ jobs:
         run: |
           $releaseTag = '${{ steps.base.outputs.release_tag }}'
           $asset = '${{ steps.pack.outputs.asset }}'
-          $notes = @"
+          # Literal here-string: PowerShell otherwise interprets Markdown
+          # backticks such as `v and `a as control-character escapes.
+          $notes = @'
           Renderer-only repack derived from verified patched release `${{ steps.base.outputs.base_tag }}`.
 
           Base asset digest: `${{ steps.base.outputs.base_digest }}`
@@ -195,7 +197,7 @@ jobs:
 
           Patch inventory and future update rules:
           `docs/PATCH_INVENTORY.md`
-          "@
+          '@
           gh release create $releaseTag $asset `
             --repo $env:GITHUB_REPOSITORY `
             --target $env:GITHUB_SHA `
