@@ -257,6 +257,14 @@ class AsarIntegrityTests(unittest.TestCase):
                 publish = workflow.split(anchor, 1)[1].split("\n        env:", 1)[0]
                 self.assertIn("--target $env:GITHUB_SHA", publish)
 
+    def test_repack_release_notes_use_literal_here_string(self):
+        workflow = (
+            PATCHES.parent / ".github/workflows/repack-existing-patched.yml"
+        ).read_text(encoding="utf-8")
+        notes = workflow.split("$notes = @'", 1)[1].split("\n          '@", 1)[0]
+        self.assertIn("`automation_update`", notes)
+        self.assertNotIn('$notes = @"', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
