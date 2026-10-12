@@ -246,6 +246,7 @@ jobs:
           & ./patches/test_plugin_cache_skills.ps1
           & ./patches/test_google_mcp_runtime.ps1
           & ./patches/test_runtime_bundle.ps1
+          & ./patches/test_sidecar_tools_sha.ps1
 
       - name: Setup Node
         if: steps.ours.outputs.skip == 'false' && steps.upstream_asset.outputs.available == 'true'
