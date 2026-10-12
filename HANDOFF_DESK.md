@@ -2203,3 +2203,24 @@ updates exactly one `codex_desktop_tools_sha` entry to `GITHUB_SHA`, preserves
 the native `codex_source_sha`, verifies the result, and has focused tests for
 replacement, missing/duplicate failure, idempotence and BOM-free output. A new
 distinct successor tag is required before owner installation.
+
+Successor run `38221508942` at source `a597b02` completed SUCCESS and published
+`v26.1007.30912-patched-googlemcp-runtime`. The tag points to exact source
+`a597b022b012fa79115fd86c923baf860669db15`; asset ID `633139940`, size
+924,799,190 bytes, SHA256
+`0ff8347690dbf00cd60c067b8a39caaffc3481954ca84468e94e005e72aff69a`.
+CI proves 34 runtime files match source with no package-only PowerShell helper,
+base native core SHA remains `d6489472...`, and packaged tools SHA is updated
+to `a597b02...`. Downloaded asset SHA matched GitHub. Its ASAR/exe bytes are the
+same verified base bytes; the preceding distinct artifact already measured
+20,986 entries with zero mismatch and matching B2 header.
+
+The downloaded metadata probe exposed mixed newline formatting: replacing the
+tools SHA removed CR only on that line while untouched base lines stayed CRLF.
+Values were not changed and CI log independently proves both SHAs, so this is
+not a runtime/config or install blocker. The metadata writer now preserves the
+captured CR and its fixture uses CRLF and rejects lone LF. The successor package
+does not bundle this build-only helper, so no additional application release is
+required for that formatting-only future-pipeline correction. Verification
+Temp for the superseded artifact was removed (1,512,081,877 bytes); the
+successor probe also cleaned its Temp path on exit.
