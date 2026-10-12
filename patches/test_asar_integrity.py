@@ -246,11 +246,16 @@ class AsarIntegrityTests(unittest.TestCase):
                 self.assertTrue("repack(" in text or "repack_same_length_changes(" in text)
 
     def test_release_tag_targets_the_tested_checkout(self):
-        workflow = (PATCHES.parent / ".github/workflows/auto-repatch-release.yml").read_text(
-            encoding="utf-8")
-        publish = workflow.split("gh release create $tag $asset", 1)[1].split(
-            "\n        env:", 1)[0]
-        self.assertIn("--target $env:GITHUB_SHA", publish)
+        workflows = {
+            "auto-repatch-release.yml": "gh release create $tag $asset",
+            "repack-existing-patched.yml": "gh release create $releaseTag $asset",
+        }
+        for name, anchor in workflows.items():
+            with self.subTest(workflow=name):
+                workflow = (PATCHES.parent / ".github/workflows" / name).read_text(
+                    encoding="utf-8")
+                publish = workflow.split(anchor, 1)[1].split("\n        env:", 1)[0]
+                self.assertIn("--target $env:GITHUB_SHA", publish)
 
 
 if __name__ == "__main__":

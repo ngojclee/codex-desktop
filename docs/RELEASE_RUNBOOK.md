@@ -134,7 +134,7 @@ gh workflow run auto-repatch-release.yml --repo ngojclee/codex-desktop `
 **Renderer-only lane** - `repack-existing-patched.yml`. Reuses an already
 verified patched artifact that contains the sidecar work, applies renderer
 patches, refreshes B2, publishes a distinct tag. Fast, and correct when only
-`app.asar` content changed:
+`app.asar` or bundled `runtime/` helpers changed:
 
 ```powershell
 gh workflow run repack-existing-patched.yml --repo ngojclee/codex-desktop `
@@ -152,6 +152,13 @@ a branch. Patches I, V, X, W1 and N match exact upstream Rust snippets, so
 tracking a moving default breaks releases with nothing changed in this repo; that
 is O4 in the desk log. Raise the pin only on purpose, and only after confirming
 all five patches apply to the new revision.
+
+The full lane's cold Windows sidecar build has a finite 75-minute timeout. Run
+`38174156115` completed that step in 38 minutes; run `38181706317` was still
+compiling at the former 45-minute cap. A timeout with active Cargo compilation
+is an infrastructure bound, not a source/test failure. Runtime-only repairs may
+use the renderer-only lane from an already verified sidecar artifact instead of
+rebuilding identical Rust bytes.
 
 Watch it:
 
