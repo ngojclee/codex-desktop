@@ -2224,3 +2224,17 @@ does not bundle this build-only helper, so no additional application release is
 required for that formatting-only future-pipeline correction. Verification
 Temp for the superseded artifact was removed (1,512,081,877 bytes); the
 successor probe also cleaned its Temp path on exit.
+
+Final direct successor-asset acceptance reran after normalizing metadata-line
+comparison. The actual downloaded 924,799,190-byte ZIP matches GitHub SHA256
+`0ff8347690dbf00cd60c067b8a39caaffc3481954ca84468e94e005e72aff69a`.
+Selective extraction proves the packaged Google helper is mode-aware, tools SHA
+is `a597b022...`, and native core SHA is `d6489472...`. Direct ASAR scan checked
+20,986 packed files with zero mismatch/unpacked/missing-integrity entries. B2
+exe/header verification passed at
+`f9dfcd7faaebed1df7b686c2d6e4b24ca4ffc04ee6a990114139ca51faff4ffe`.
+The final verification directory (1,511,851,526 file bytes) was removed in the
+probe's `finally` block and confirmed absent. Source/build/release/staged gates
+are complete. Installed/live launch, config and profile/mobile-dialog acceptance
+remain owner-controlled and require updating/restarting the app; they are not
+claimed by this entry.
