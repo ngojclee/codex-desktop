@@ -2170,3 +2170,18 @@ wrapper therefore ended the otherwise successful step with exit 1. The test
 harness now captures and resets that child exit code after asserting it; no
 production or package behavior changed. No release/tag was created by the
 failed run.
+
+Second full dispatch `38181706317` at source `5cfbe1a` passed matchers, relay,
+upstream download/architecture, all renderer patches and the first ASAR
+integrity gate. It then timed out at exactly 45 minutes during the cold Windows
+sidecar build while Cargo was still compiling `codex-api`; there was no Rust
+compiler/test/patch failure. The prior successful run needed 38m23s for the
+same step, so the full-lane timeout is raised to a still-bounded 75 minutes.
+This run also ended before bundle/package/release and created no tag.
+
+Because the Google fix changes only bundled `runtime/` helpers, the bounded
+release path is the existing repack lane using the already verified
+`v26.1007.30912-patched-asar-integrity` artifact as base. That retains its
+verified ASAR and source-built sidecar, refreshes runtime helpers from current
+source, reruns marker/integrity and runtime parity gates, and publishes a new
+distinct tag. The repack publisher now also pins `--target $env:GITHUB_SHA`.
