@@ -54,6 +54,9 @@ env:
   # deliberate act: change it, run the lane, and confirm I/V/X/W1/N all apply
   # before trusting the artifact.
   VERIFIED_CODEX_REF: d6489472f3c15e87d2d7763a5fde033545c530f8
+  # workflow_dispatch defaults do not exist for schedule events. This label is
+  # verified only for the pinned source, not an arbitrary codex_ref override.
+  VERIFIED_SIDECAR_VERSION: '0.154.0'
 
 jobs:
   repatch:
@@ -63,6 +66,12 @@ jobs:
     steps:
       - name: Checkout this repo
         uses: actions/checkout@v4
+
+      - name: Test sidecar workflow defaults
+        shell: pwsh
+        run: |
+          python -m unittest discover -s patches -p test_sidecar_workflow_defaults.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Sidecar workflow default tests failed.' }
 
       - name: Determine upstream tag
         id: upstream
@@ -574,6 +583,10 @@ jobs:
           $versionMatch = $versionMatches[0]
           $sourceVersion = $versionMatch.Groups[2].Value
           $stampVersion = ('${{ inputs.sidecar_version }}').Trim()
+          if (-not $stampVersion -and $codexRef -eq '${{ env.VERIFIED_CODEX_REF }}') {
+            $stampVersion = '${{ env.VERIFIED_SIDECAR_VERSION }}'
+            Write-Host "Using verified pinned-source sidecar version: $stampVersion"
+          }
           if ($sourceVersion -ne '0.0.0') {
             Write-Host "Sidecar checkout already carries a real version: $sourceVersion"
           } else {
@@ -617,8 +630,10 @@ jobs:
           cargo test -p codex-core rejects_legacy_unpaired_function_call_output_before_provider_request
           if ($LASTEXITCODE -ne 0) { throw "Patch V legacy-recovery regression test failed with exit $LASTEXITCODE" }
           Write-Host 'Running Patch X inherited-history recovery regression tests'
-          cargo test -p codex-core --lib -- client::tests::inherited client::tests::binary client::tests::custom
-          if ($LASTEXITCODE -ne 0) { throw "Patch X recovery regression tests failed with exit $LASTEXITCODE" }
+          foreach ($filter in @('client::tests::inherited', 'client::tests::binary', 'client::tests::custom')) {
+            cargo test -p codex-core --lib $filter
+            if ($LASTEXITCODE -ne 0) { throw "Patch X recovery regression tests ($filter) failed with exit $LASTEXITCODE" }
+          }
           Write-Host 'Running Patch W1 request byte budget tests'
           cargo test -p codex-api --lib request_size
           if ($LASTEXITCODE -ne 0) { throw "Patch W1 byte budget unit tests failed with exit $LASTEXITCODE" }

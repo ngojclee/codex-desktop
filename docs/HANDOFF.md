@@ -403,3 +403,25 @@ the release asset fingerprint, not only `.version-tag`. This is required
 because CI can replace a corrected ZIP under the same patched tag. Existing
 installs without the state file refresh once, then future unchanged checks
 skip normally; `-Force` is reserved for an intentional reinstall.
+
+### Scheduled sidecar builds (2026-10-14)
+
+Scheduled GitHub Actions events do not populate `workflow_dispatch` inputs.
+The version-stamp step must resolve a blank `sidecar_version` using
+`VERIFIED_SIDECAR_VERSION` only when building `VERIFIED_CODEX_REF`. These two
+values describe the verified source/capability pair; do not derive a native
+core version from the Desktop release number or relabel an unverified ref.
+An override ref with source version `0.0.0` still requires an explicit version.
+The source pin, Patch I/N/V/X/W1 logic and installed configuration are unchanged.
+
+`patches/test_sidecar_workflow_defaults.py` executes the actual workflow stamp
+block under PowerShell: scheduled fallback, manual override, unverified-ref
+refusal, existing source version preservation, renderer floor, CRLF and BOM.
+It also verifies Patch X's three test filters are passed to separate Cargo
+invocations (Cargo accepts only one positional test filter). The focused gate
+runs before upstream download/patch/build and fails on a nonzero Python exit.
+
+Build the latest upstream through `auto-repatch-release.yml`, then require
+successful Rust/patch tests, marker checks, per-file/block ASAR integrity,
+exe/header integrity and fresh runtime packaging before recommending install.
+Published, installed and live-runtime acceptance remain separate gates.
