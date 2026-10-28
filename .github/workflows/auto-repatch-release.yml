@@ -73,6 +73,14 @@ jobs:
           python -m unittest discover -s patches -p test_sidecar_workflow_defaults.py -v
           if ($LASTEXITCODE -ne 0) { throw 'Sidecar workflow default tests failed.' }
 
+      - name: Check public source hygiene
+        shell: pwsh
+        run: |
+          python -m unittest discover -s patches -p test_public_source.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Public source hygiene tests failed.' }
+          python patches/verify_public_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public source hygiene check failed.' }
+
       - name: Determine upstream tag
         id: upstream
         shell: pwsh

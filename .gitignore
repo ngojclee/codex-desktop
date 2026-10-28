@@ -53,3 +53,21 @@ tmp_scripts/
 # Repatch scratch dirs (tmp-<topic>-<upstream build>): a full upstream download,
 # the extracted app, and per-patch app.asar backups. Multi-GB, never committed.
 tmp-*/
+
+# Private operator handoffs and machine state stay local, including after a pull.
+.local/
+/HANDOFF*.md
+/DEV_HANDOFF.md
+/docs/HANDOFF*.md
+/docs/2026-07-10-codex-patched-update-handoff.md
+/docs/codex-relay-dev-handoff.md
+.env
+.env.*
+!.env.example
+/auth.json
+/config.toml
+/mcp-secrets*.json
+*.log
+*.dmp
+*.sqlite
+*.sqlite-*

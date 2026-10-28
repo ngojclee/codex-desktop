@@ -64,7 +64,7 @@ model = "gpt-5.6-sol"
 [mcp_servers.codex_app]
 command = "cmd.exe"
 args = ["/c", "launch_codex_app_tools_mcp.cmd"]
-cwd = "C:/Users/example/.codex/plugins/cache/openai-bundled/codex-app-tools/0.1.3"
+cwd = "C:/codex-fixture/.codex/plugins/cache/openai-bundled/codex-app-tools/0.1.3"
 enabled = true
 
 [mcp_servers.open-design]
@@ -82,7 +82,7 @@ enabled = true
         'A valid static codex_app transport must be kept for legacy threads.'
     Assert-True ($after -match 'command = "cmd\.exe"') `
         'Kept codex_app block must retain its command transport.'
-    Assert-True ($after -match 'cwd = "C:/Users/example/\.codex/plugins/cache/openai-bundled/codex-app-tools/0\.1\.3"') `
+    Assert-True ($after -match 'cwd = "C:/codex-fixture/\.codex/plugins/cache/openai-bundled/codex-app-tools/0\.1\.3"') `
         'Kept codex_app block must retain its cwd.'
     Assert-True ($after -match '\[mcp_servers\.open-design\]') `
         'Unrelated MCP configuration must be preserved.'
@@ -132,7 +132,7 @@ enabled = true
         '[mcp_servers.codex_app]'
         'command = "cmd.exe"'
         "args = ['/d', '/s', '/c', 'call', './scripts/launch_codex_app_tools_mcp.cmd', './server.mjs']"
-        'cwd = "C:/Users/example/.codex/plugins/cache/openai-bundled/codex-app-tools"'
+        'cwd = "C:/codex-fixture/.codex/plugins/cache/openai-bundled/codex-app-tools"'
         'enabled = true'
         ''
         '[mcp_servers.codex_app.env]'

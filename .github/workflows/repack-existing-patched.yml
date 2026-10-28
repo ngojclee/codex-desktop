@@ -30,6 +30,14 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Check public source hygiene
+        shell: pwsh
+        run: |
+          python -m unittest discover -s patches -p test_public_source.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Public source hygiene tests failed.' }
+          python patches/verify_public_source.py
+          if ($LASTEXITCODE -ne 0) { throw 'Public source hygiene check failed.' }
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -156,7 +164,7 @@ jobs:
             -Path (Join-Path $tools '.sidecar-source') `
             -ToolsSha $env:GITHUB_SHA
           $sidecarMetadata = Get-Content -LiteralPath (Join-Path $tools '.sidecar-source') -Raw
-          if ($sidecarMetadata -notmatch "(?m)^codex_desktop_tools_sha=$env:GITHUB_SHA$") {
+          if ($sidecarMetadata -notmatch "(?m)^codex_desktop_tools_sha=$env:GITHUB_SHA\r?$") {
             throw 'Bundled tools provenance verification failed: current GITHUB_SHA is missing.'
           }
 

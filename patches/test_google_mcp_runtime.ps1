@@ -13,7 +13,7 @@ try {
 command = "business-wrapper"
 
 [mcp_servers.google-drive]
-url = "http://<LAN-HOST>:3110/mcp"
+url = "http://192.0.2.10:3110/mcp"
 
 [mcp_servers.google-sheets]
 command = "powershell.exe"

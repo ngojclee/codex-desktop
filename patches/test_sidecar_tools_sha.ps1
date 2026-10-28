@@ -32,6 +32,26 @@ try {
         throw 'Metadata update is not idempotent.'
     }
 
+    # Exercise the actual workflow predicate, not an independently corrected copy.
+    $workflow = [IO.File]::ReadAllText(
+        (Join-Path (Split-Path $PSScriptRoot -Parent) '.github\workflows\repack-existing-patched.yml')
+    )
+    $predicate = [regex]::Match($workflow, 'if \(\$sidecarMetadata -notmatch "([^"]+)"\)')
+    if (-not $predicate.Success) { throw 'Repack provenance predicate was not found.' }
+    $pattern = $predicate.Groups[1].Value.Replace('$env:GITHUB_SHA', $sha)
+    foreach ($newline in @("`n", "`r`n", '')) {
+        $valid = "codex_desktop_tools_sha=$sha$newline"
+        if ($valid -notmatch $pattern) {
+            throw 'Repack rejects valid tools provenance with a supported line ending.'
+        }
+        if ("codex_desktop_tools_sha=$('a' * 40)$newline" -match $pattern) {
+            throw 'Repack accepts the wrong tools source SHA.'
+        }
+    }
+    if ($first -notmatch $pattern) {
+        throw 'Repack rejects the CRLF metadata produced by the provenance updater.'
+    }
+
     [IO.File]::WriteAllText($metadata, "codex_source_sha=b`n", [Text.UTF8Encoding]::new($false))
     try {
         & $updater -Path $metadata -ToolsSha $sha
