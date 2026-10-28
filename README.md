@@ -398,7 +398,7 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Refresh-Codex-SharedSkills.ps1" `
      -RepairRootLink `
      -RelinkExistingSharedSkills `
-     -SharedSkillsDir "\\192.0.2.2\data\_agentsync\.codex\skills"
+     -SharedSkillsDir "\\<AGENTSYNC-HOST>\data\_agentsync\.codex\skills"
    ```
    The relink pass skips `.system`, backs up replaced local copies under
    `~\.codex\skills-copy-backups\`, and leaves local-only skills alone.
@@ -514,7 +514,6 @@ This repo (scripts only — no binaries)
 ├── Patch X                 Source-built recovery for tasks that inherited pre-Patch-V tool-output rows
 ├── Patch W1                Source-built serialized request byte budget with non-retryable size rejection
 ├── runtime/                 Windows-side glue (.ps1, .cmd) for daily use
-├── docs/RELEASE_RUNBOOK.md          Long-form technical handoff
 ├── docs/PATCH_INVENTORY.md  Release patch order, status, and acceptance checklist
 ├── apply-all-patches.ps1    Orchestrator — runs the patch set on a given app dir
 └── .github/workflows/auto-repatch-release.yml   CI: detect upstream release, repatch, release
@@ -876,7 +875,7 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 - **Codex app tools MCP mirror** — Codex Desktop 26.825 renamed the bundled `codex-app-tools` MCP definition from `.mcp.json` to `desktop-mcp.json`, which only the Electron app reads. The app-server then never learns the `codex_app` transport while the app still writes `mcp_servers.codex_app.enabled_tools`, so config loading fails with "invalid transport in mcp_servers.codex_app" and every new chat shows "Error creating chat". The release build now materializes a sidecar-readable `.mcp.json` mirror inside `resources\plugins`, and `tools\Ensure-Codex-AppToolsMcp.ps1` repairs the installed bundle plus plugin caches on launch/update. The mirror has `enabled = false`, so it supplies a transport definition without starting a duplicate server. On pipe-capable Desktop bundles, the helper also backs up and removes the old static `[mcp_servers.codex_app]` command block from `~\.codex\config.toml`; that workaround starts the MCP server before Desktop can inject its per-session `CODEX_APP_TOOLS_PIPE_PATH` and causes `Codex did not provide CODEX_APP_TOOLS_PIPE_PATH to the app tools MCP`. Older bundles without the pipe capability marker are left untouched. **Correction after measurement:** removing that static block does not restore app tools under this launcher, because Electron hands the per-session pipe only to the app-server it spawns itself, while Launch-Codex.ps1 owns the shared sidecar. The block is therefore kept when it is a valid transport, disabled when it carries no pipe, and left enabled when it carries a pipe, and tools/Repair-CodexSharedAppTools.ps1 registers a live pipe on every launch so codex_app actually starts. See docs/PATCH_INVENTORY.md.
 - **WSL-native agent default** — Desktop 26.820/26.825 injects a transport-less `codex_app` entry on the WSL agent path, breaking chat creation/resume (upstream issues [#40881](https://github.com/openai/codex/issues/40881) and [#40819](https://github.com/openai/codex/issues/40819)). `tools\Ensure-Codex-WslNative.ps1` keeps `runCodexInWindowsSubsystemForLinux = false` under `[desktop]`; the launcher and updater re-run it, so updates do not silently flip the machine back onto the broken WSL path. Set `CODEX_ALLOW_WSL=1` only if you explicitly want to test the WSL path again.
 - **Update** — `tools\Update-Codex.cmd` fetches the latest release zip and overlays it (preserving `tools/`). Public repos download without `gh`; private/authenticated repos fall back to `gh`. The saved asset fingerprint detects corrected same-tag releases, and missing standard desktop shortcuts are created after update.
-- **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/RELEASE_RUNBOOK.md`](docs/RELEASE_RUNBOOK.md).
+- **Soft refresh / watchdog** *(only needed for legacy non-shared dispatches via `codex exec resume`)* — see [`docs/PATCH_INVENTORY.md`](docs/PATCH_INVENTORY.md).
 
 State file: `~/.codex/desktop-shared-app-server.json` holds the live `ws_url`, `port`, `sidecar_pid`, and `log` path while Codex is running.
 

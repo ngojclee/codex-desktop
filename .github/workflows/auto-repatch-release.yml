@@ -920,7 +920,7 @@ jobs:
           (port logged in `~/.codex/desktop-shared-app-server.json`). Dispatches
           show up in Desktop UI in real time.
 
-          See [RELEASE_RUNBOOK.md](https://github.com/ngojclee/codex-desktop/blob/main/docs/RELEASE_RUNBOOK.md) and [README.md](https://github.com/ngojclee/codex-desktop/blob/main/README.md) for runtime workflow.
+          See [README.md](https://github.com/ngojclee/codex-desktop/blob/main/README.md) for runtime workflow.
           '@
           # Pin the tag to the tested checkout, not main after a long sidecar build.
           gh release create $tag $asset `

@@ -5,7 +5,7 @@ Desktop on **both** machines. Follow it in order. Two lanes work this repo
 concurrently, and the steps that look optional are the ones that get skipped and
 cause the damage.
 
-Live coordination channel: [`docs/PATCH_INVENTORY.md`](../docs/PATCH_INVENTORY.md) at the repo
+Live coordination channel: the issue/PR thread for the change, or `docs/PATCH_INVENTORY.md`
 root. Read its "Open items" before starting, and append your outcome when done.
 
 ## Machines

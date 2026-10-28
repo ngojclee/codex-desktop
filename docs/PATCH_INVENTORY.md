@@ -56,7 +56,7 @@ The downloaded 924,799,033-byte asset matches GitHub SHA256
 `ab5ce71b346eb4959cc1e7b569d5be1c20d801a463971b1e0e4900ec90973e85`.
 Staged ASAR scan: 20,986 checked, zero mismatches. Staged exe/header and native
 core version checks pass. Installed/live UI acceptance is pending owner update
-and coordinated restart; see `docs/ASAR_INTEGRITY.md` and `docs/PATCH_INVENTORY.md`.
+and coordinated restart; see `docs/ASAR_INTEGRITY.md`.
 
 New release tags must point to the workflow's tested `GITHUB_SHA`, not the
 default main branch at publication time. The publisher passes `--target`
@@ -125,7 +125,7 @@ These are not ASAR patches, but they are part of a usable release:
   `unsupported call: mcp__codex_app__automation_update`. Any user-level
   `codex_app` entry, enabled or disabled, keeps the tools unregistered, so this
   normalization only prevents a doomed pipeless spawn and must not be treated as
-  restoring the app-tools route. See `docs/PATCH_INVENTORY.md`, recovery note 2026-09-12.
+  restoring the app-tools route. See `docs/RELEASE_RUNBOOK.md`, recovery note 2026-09-12.
   It maintains the disabled `.mcp.json` mirror for the Desktop `codex_app`
   transport. The ASAR capability literal gates cleanup; that literal alone
   does not prove a live per-session pipe exists.
