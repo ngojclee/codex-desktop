@@ -98,17 +98,6 @@ function Sync-ModelCatalog {
     }
 }
 
-function Ensure-GoogleMcpConfig {
-    $ensureScript = Join-Path $PSScriptRoot 'Ensure-Codex-GoogleMcp.ps1'
-    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
-
-    try {
-        & $ensureScript -Quiet
-    } catch {
-        Write-Host "WARN: Google MCP config ensure failed: $_"
-    }
-}
-
 function Ensure-StreamResilience {
     $ensureScript = Join-Path $PSScriptRoot 'Ensure-Codex-StreamResilience.ps1'
     if (-not (Test-Path -LiteralPath $ensureScript)) { return }
@@ -404,7 +393,6 @@ function Start-CurrentSidecarLogWindow {
 Refresh-SharedSkills
 Sync-ModelCatalog
 Import-CodexMcpSecretEnvironment
-Ensure-GoogleMcpConfig
 Ensure-StreamResilience
 Ensure-WslNative
 Ensure-AppToolsMcp
@@ -467,7 +455,6 @@ if ((Get-DesktopProcessCount) -gt 0) {
     Stop-InstallProcesses
     Refresh-SharedSkills
     Sync-ModelCatalog
-    Ensure-GoogleMcpConfig
     Ensure-StreamResilience
     Ensure-WslNative
     Ensure-AppToolsMcp

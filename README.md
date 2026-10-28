@@ -126,11 +126,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
   New-CodexShortcut "Codex Dev (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex-Dev.vbs")
 
-  $googleMcp = Join-Path $installDir "tools\Ensure-Codex-GoogleMcp.ps1"
-  if (Test-Path -LiteralPath $googleMcp) {
-    & $googleMcp -Quiet
-  }
-
   $appToolsMcp = Join-Path $installDir "tools\Ensure-Codex-AppToolsMcp.ps1"
   if (Test-Path -LiteralPath $appToolsMcp) {
     & $appToolsMcp -InstallDir $installDir -Quiet
@@ -255,11 +250,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command '& {
   New-CodexShortcut "Codex (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex.vbs")
   New-CodexShortcut "Update-Codex.lnk" (Join-Path $installDir "tools\Update-Codex.cmd")
   New-CodexShortcut "Codex Dev (GitHub Patched).lnk" (Join-Path $installDir "tools\Launch-Codex-Dev.vbs")
-
-  $googleMcp = Join-Path $installDir "tools\Ensure-Codex-GoogleMcp.ps1"
-  if (Test-Path -LiteralPath $googleMcp) {
-    & $googleMcp -Quiet
-  }
 
   $appToolsMcp = Join-Path $installDir "tools\Ensure-Codex-AppToolsMcp.ps1"
   if (Test-Path -LiteralPath $appToolsMcp) {
@@ -423,17 +413,9 @@ New-CodexShortcut "Codex Dev (GitHub Patched).lnk" $devTarget
    ```
    Local skills are not auto-published. Passing `-Force` replaces an existing
    shared skill with the same name, so use it deliberately.
-8. Google Drive MCP configuration is kept in `~\.codex\config.toml`, not in
-   the curated Google Drive skill cache. The launcher and updater ensure these
-   five server entries exist and point at `http://127.0.0.1:3110/mcp`:
-   `google-drive`, `google-sheets`, `google-docs`, `google-slides`, and
-   `google-drive-comments`. Run the ensure step manually when needed:
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\CodexFromGithub\tools\Ensure-Codex-GoogleMcp.ps1"
-   ```
-   Override the endpoint with `CODEX_GOOGLE_MCP_URL`, or set
-   `CODEX_GOOGLE_MCP_DISABLE=1` to stop the launcher from managing these
-   entries.
+8. Google Workspace routing is managed separately through Business MCP.
+   Launch/update leave existing Google and Business MCP configuration unchanged;
+   they do not create individual Google servers or infer a localhost endpoint.
 
 Do not rely on Codex's internal `functions.send_input` tool as the primary cross-session dispatch path. Field evidence from 2026-05-18 showed that some Codex surfaces serialize `message` plus an empty `items: []`, and the backend rejects that shape with `Provide either message or items, but not both`. Other surfaces omit `items` and may work against the same target thread, so the behavior is surface-dependent. The supported path in this repo is the shared sidecar wrapper above.
 
@@ -836,31 +818,23 @@ The patch keeps normal `Ctrl+V`, images/files, code-block paste handling,
 recognized Codex links/mentions, and explicit `Ctrl+B` / `Ctrl+I` shortcuts.
 The renderer chunk is syntax-checked and marker-verified in CI before release.
 
-### Runtime Google Drive MCP bootstrap
+### Retired Google MCP Bootstrap
 
-The curated Google Drive plugin skills are Codex-managed cache content, so this
-repo does not patch their `SKILL.md` files. Instead, `tools\Ensure-Codex-GoogleMcp.ps1`
-keeps the MCP server entries durable in `~\.codex\config.toml`:
+Google Workspace is routed through Business MCP. Desktop launch/update no
+longer create or rewrite the five legacy Google MCP server entries. Existing
+entries and credentials remain untouched; removing or migrating them is a
+separate operator decision.
 
-- `google-drive`
-- `google-sheets`
-- `google-docs`
-- `google-slides`
-- `google-drive-comments`
-
-By default they point at `http://127.0.0.1:3110/mcp` with
-`startup_timeout_sec = 45.0`. The script is idempotent, backs up
-`config.toml` only when it changes, and keeps the five most recent
-`config.toml.bak-googlemcp-*` backups. `tools\Launch-Codex.ps1` runs it before
-sidecar startup; `tools\Update-Codex.ps1` runs it after an update. Set
-`CODEX_GOOGLE_MCP_URL` to use a different endpoint, or
-`CODEX_GOOGLE_MCP_DISABLE=1` to opt out.
+`tools\Ensure-Codex-GoogleMcp.ps1` remains as a no-op compatibility shim for
+older installed updaters. It accepts the old arguments but writes no files,
+even when `CODEX_GOOGLE_MCP_URL` is set. It does not choose a fallback endpoint
+or manage `config.toml`.
 
 ## Runtime workflow
 
 The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
 
-- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, validates the local model catalog, ensures Google Drive MCP config, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `ChatGPT.exe` on current bundles with a `Codex.exe` fallback for older bundles, and kills the sidecar when the last desktop process exits.
+- **Launch** — double-click `tools\Launch-Codex.vbs` (or any shortcut pointing at it). Refreshes shared user skills, validates the local model catalog, spawns a hidden shared sidecar, sets `CODEX_APP_SERVER_WS_URL`, runs `ChatGPT.exe` on current bundles with a `Codex.exe` fallback for older bundles, and kills the sidecar when the last desktop process exits.
 - **Launch with logs** — double-click `tools\Launch-Codex-Logs.vbs`. Fresh launches show the shared sidecar console. If Codex is already running on the shared sidecar, it opens a tail window for the current sidecar log and focuses the app.
 - **Launch Dev lane** — double-click `tools\Launch-Codex-Dev.vbs`. This uses the same shared-sidecar launcher but passes `-BuildFlavor dev`; keep the normal Owl shortcut for daily use and use Dev only for feature probing.
 - **Dispatch from terminal** — `tools\codex-exec-remote.ps1 -ThreadId <UUID> -Prompt "..."` round-trips a non-interactive turn through the shared sidecar via JSON-RPC. Streams `item/agentMessage/delta` to stdout and exits on `turn/completed`. Desktop UI shows the same spinner + tokens as if you typed in the UI. Prefer this over `functions.send_input` for cross-session work; `send_input` is an internal tool surface and has shown wrapper-specific serialization bugs.
@@ -870,7 +844,7 @@ The release zip now bundles `tools/` next to `Codex.exe`. Day-to-day:
   Use `-RemoveAll` only if the targeted repair does not clear the error; it resets project-specific trust/history entries but keeps the rest of `config.toml`.
 - **Refresh shared skills** — `tools\Refresh-Codex-SharedSkills.ps1` is run by the launcher. It creates missing local symlinks for skills that already exist on the shared skills directory, skips `.system`, and leaves local-only skills untouched.
 - **Publish local skill** — `tools\Publish-Codex-Skill.ps1 -SkillName <name>` copies one local skill to the shared skills directory and replaces the local copy with a symlink. This is intentionally explicit; local skills are not auto-published.
-- **Ensure Google MCP** — `tools\Ensure-Codex-GoogleMcp.ps1` keeps the Google Drive connector MCP entries in `~\.codex\config.toml`. It defaults to `http://127.0.0.1:3110/mcp`, honors `CODEX_GOOGLE_MCP_URL`, and can be disabled with `CODEX_GOOGLE_MCP_DISABLE=1`.
+- **Google MCP** — routing is operator-managed through Business MCP. The retired `tools\Ensure-Codex-GoogleMcp.ps1` is a no-op for compatibility; launch/update do not invoke it.
 - **Stream resilience** — long turns through proxies occasionally drop mid-stream and Codex reports `stream disconnected ... error decoding response body` (upstream issues [#29087](https://github.com/openai/codex/issues/29087), [#3478](https://github.com/openai/codex/issues/3478)). `tools\Ensure-Codex-StreamResilience.ps1` keeps higher reconnect budgets durable inside the `[model_providers.cliproxy]` block: `request_max_retries = 8` (default 4), `stream_max_retries = 20` (default 5), and `stream_idle_timeout_ms = 600000` (default 300000). These are per-provider fields in openai/codex's `ModelProviderInfo`, so they only work inside the provider block; the launcher and updater re-run the ensure step, and rerunning it is idempotent.
 - **Codex app tools MCP mirror** — Codex Desktop 26.825 renamed the bundled `codex-app-tools` MCP definition from `.mcp.json` to `desktop-mcp.json`, which only the Electron app reads. The app-server then never learns the `codex_app` transport while the app still writes `mcp_servers.codex_app.enabled_tools`, so config loading fails with "invalid transport in mcp_servers.codex_app" and every new chat shows "Error creating chat". The release build now materializes a sidecar-readable `.mcp.json` mirror inside `resources\plugins`, and `tools\Ensure-Codex-AppToolsMcp.ps1` repairs the installed bundle plus plugin caches on launch/update. The mirror has `enabled = false`, so it supplies a transport definition without starting a duplicate server. On pipe-capable Desktop bundles, the helper also backs up and removes the old static `[mcp_servers.codex_app]` command block from `~\.codex\config.toml`; that workaround starts the MCP server before Desktop can inject its per-session `CODEX_APP_TOOLS_PIPE_PATH` and causes `Codex did not provide CODEX_APP_TOOLS_PIPE_PATH to the app tools MCP`. Older bundles without the pipe capability marker are left untouched. **Correction after measurement:** removing that static block does not restore app tools under this launcher, because Electron hands the per-session pipe only to the app-server it spawns itself, while Launch-Codex.ps1 owns the shared sidecar. The block is therefore kept when it is a valid transport, disabled when it carries no pipe, and left enabled when it carries a pipe, and tools/Repair-CodexSharedAppTools.ps1 registers a live pipe on every launch so codex_app actually starts. See docs/PATCH_INVENTORY.md.
 - **WSL-native agent default** — Desktop 26.820/26.825 injects a transport-less `codex_app` entry on the WSL agent path, breaking chat creation/resume (upstream issues [#40881](https://github.com/openai/codex/issues/40881) and [#40819](https://github.com/openai/codex/issues/40819)). `tools\Ensure-Codex-WslNative.ps1` keeps `runCodexInWindowsSubsystemForLinux = false` under `[desktop]`; the launcher and updater re-run it, so updates do not silently flip the machine back onto the broken WSL path. Set `CODEX_ALLOW_WSL=1` only if you explicitly want to test the WSL path again.

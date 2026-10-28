@@ -300,19 +300,6 @@ function Update-CodexShortcut {
     }
 }
 
-function Ensure-GoogleMcpConfig {
-    param([string]$InstallDir)
-
-    $ensureScript = Join-Path $InstallDir 'tools\Ensure-Codex-GoogleMcp.ps1'
-    if (-not (Test-Path -LiteralPath $ensureScript)) { return }
-
-    try {
-        & $ensureScript -Quiet
-    } catch {
-        Log "WARN: Google MCP config ensure failed: $_"
-    }
-}
-
 function Ensure-StreamResilience {
     param([string]$InstallDir)
 
@@ -488,7 +475,6 @@ try {
 
     Update-CodexShortcut -InstallDir $InstallDir
     Sync-ModelCatalog -InstallDir $InstallDir
-    Ensure-GoogleMcpConfig -InstallDir $InstallDir
     Ensure-StreamResilience -InstallDir $InstallDir
     Ensure-WslNative -InstallDir $InstallDir
     Ensure-AppToolsMcp -InstallDir $InstallDir

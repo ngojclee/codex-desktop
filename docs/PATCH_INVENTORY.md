@@ -133,12 +133,16 @@ These are not ASAR patches, but they are part of a usable release:
   before that MCP lane was introduced; it does not edit stored transcripts.
 - `Ensure-Codex-WslNative.ps1`: keeps
   `runCodexInWindowsSubsystemForLinux = false` in the correct `[desktop]` scope.
-- `Ensure-Codex-GoogleMcp.ps1`: is transport-aware. Existing Google MCP
-  sections with `command` are stdio wrappers, so a top-level `url` key is
-  invalid and is removed while `command`, `args` and timeout are preserved.
-  Sections without `command` remain remote transports and receive the shared
-  connector URL. `patches/test_google_mcp_runtime.ps1` covers both modes and
-  idempotence without reading or writing the user's real config.
+- `Ensure-Codex-GoogleMcp.ps1`: retired on 2026-10-28. Google Workspace
+  routing belongs to Business MCP, not the Desktop launcher/updater. The file
+  remains as a no-op shim for stale updater callers; no endpoint is inferred,
+  no Google servers are recreated, and existing config/credentials are untouched.
+  `patches/test_google_mcp_runtime.ps1` checks byte/mtime preservation, no
+  missing-home creation, old-argument compatibility and no launch/update calls.
+  Retaining the shim matters during overlay updates: an old updater may still
+  invoke the newly extracted helper. Source tests passed under PowerShell 5.1
+  and 7; installed tools/config were not modified. Package a new release before
+  claiming the old installed bootstrap is retired.
 - `verify_runtime_bundle.ps1`: enforces the single source of truth for packaged
   helpers. Both release lanes remove inherited package `.ps1` snapshots, copy
   `runtime/` fresh, hash-check every source file, and reject any package-only

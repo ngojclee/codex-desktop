@@ -202,7 +202,7 @@ jobs:
           Patch B2's Owl ASAR integrity hash. It also bundles the current
           runtime helpers, including the codex_app app-tools pipe repair that
           preserves existing command/args/cwd static transport definitions for
-          legacy threads, the transport-aware Google MCP repair, and the
+          legacy threads, a no-op shim for the retired Google MCP bootstrap, and the
           idempotent `ModelsCacheEntry` envelope required by Codex 0.162.1.
           Runtime tests cover preservation, incomplete-definition cleanup, CRLF
           handling, cache migration and idempotence. Native old/new-thread
